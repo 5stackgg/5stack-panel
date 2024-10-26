@@ -17,4 +17,4 @@ spec:
                 port:
                   number: 9090
             path: /(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific

@@ -17,4 +17,4 @@ spec:
                 port:
                   number: 5585
             path: /(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific

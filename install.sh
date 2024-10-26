@@ -33,6 +33,6 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main
 echo "Updating Node to host services"
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
 
+source setup-env.sh "$@"
 
-echo "Updating 5stack ..."
-./update.sh
+echo "Installed 5Stack, setup your env variables"

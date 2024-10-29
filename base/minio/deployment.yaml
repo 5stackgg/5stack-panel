@@ -35,6 +35,8 @@ spec:
                 name: s3-config
             - secretRef:
                 name: minio-secrets
+            - secretRef:
+                name: s3-secrets
           command:
             - /bin/bash
             - -c
@@ -45,6 +47,9 @@ spec:
               sleep 10 &&
               mc alias set myminio http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
               mc mb myminio/5stack || true
+              mc admin user add myminio ${S3_ACCESS_KEY} ${S3_SECRET} &&
+              mc admin policy set myminio readwrite user=${S3_ACCESS_KEY} &&
+              mc admin policy attach myminio readwrite --user=${S3_ACCESS_KEY}
               wait
           volumeMounts:
             - name: minio-data

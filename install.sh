@@ -1,4 +1,10 @@
 #!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root or with sudo"
+    exit 1
+fi
+
 echo "Setup FileSystem"
 mkdir -p /opt/5stack/dev
 mkdir -p /opt/5stack/demos

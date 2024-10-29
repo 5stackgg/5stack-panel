@@ -2,7 +2,8 @@
 
 source setup-env.sh "$@"
 
-echo "Installing Tailscale ..."
+echo "Installing Game Node Server dependencies..."
+
 curl -sfL https://tailscale.com/install.sh | sh
 
 echo "Generate and enter your Tailscale auth key: https://login.tailscale.com/admin/settings/keys"
@@ -53,7 +54,7 @@ update_env_var "base/properties/api-config.env" "TAILSCALE_CLIENT_ID" "$TAILSCAL
 echo -e "\033[1;36mOn the tailscale dashboard you should see your node come online, once it does enter the IP Address of the node:\033[0m"
 read TAILSCALE_NODE_IP
 while [ -z "$TAILSCALE_NODE_IP" ]; do
-    echo "Tailscale node IP cannot be empty. Please enter your Tailscale node IP:"
+    echo7 "Tailscale node IP cannot be empty. Please enter your Tailscale node IP:"
     read TAILSCALE_NODE_IP
 done
 

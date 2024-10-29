@@ -147,8 +147,6 @@ fi
 
 STEAM_WEB_API_KEY=$(grep -h "^STEAM_WEB_API_KEY=" base/secrets/steam-secrets.env | cut -d '=' -f2-)
 
-
-read STEAM_WEB_API_KEY
 while [ -z "$STEAM_WEB_API_KEY" ]; do
     echo "Please enter your Steam Web API key (required for Steam authentication). Get one at: https://steamcommunity.com/dev/apikey"
     read STEAM_WEB_API_KEY

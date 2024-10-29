@@ -63,8 +63,6 @@ if ! [ -f ./kustomize ] || ! [ -x ./kustomize ]
 then
     echo "kustomize not found. Installing..."
     curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-else
-    echo "kustomize is already installed."
 fi
 
 echo "using kubeconfig: $KUBECONFIG"
@@ -97,9 +95,8 @@ MAIL_FROM=$(grep -h "^MAIL_FROM=" base/properties/api-config.env | cut -d '=' -f
 S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" base/properties/s3-config.env | cut -d '=' -f2-)
 TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" base/properties/typesense-config.env | cut -d '=' -f2-)
 
-
 if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
-    echo "Enter your base domain (e.g. example.com):"
+    echo -e "\n\n\n\033[1;36mEnter your base domain (e.g. example.com):\033[0m"
 
     while [ -z "$BASE_DOMAIN" ]; do
         echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"

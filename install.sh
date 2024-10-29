@@ -29,4 +29,4 @@ kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 
 
 source setup-env.sh "$@"
 
-echo "Installed 5Stack, setup your env variables"
+echo "Installed 5Stack"

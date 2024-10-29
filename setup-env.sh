@@ -98,6 +98,7 @@ TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" base/properties/typesense-config.env
 if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
     echo -e "\n\n\n\033[1;36mEnter your base domain (e.g. example.com):\033[0m"
 
+    read BASE_DOMAIN
     while [ -z "$BASE_DOMAIN" ]; do
         echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
         read BASE_DOMAIN

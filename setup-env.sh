@@ -33,10 +33,8 @@ for env_file in base/secrets/*.env; do
         # Generate a random base64 encoded string
         random_string=$(openssl rand -base64 32 | tr '/' '_')
         
-        echo "Processing file: $env_file"
-        echo "Generated random string: $random_string"
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|\$(RAND32)|$random_string|g" "$env_file"
+            sed -i '' "s/\$(RAND32)/$random_string/g" "$env_file"
         else
             sed -i "s/\$(RAND32)/$random_string/g" "$env_file"
         fi

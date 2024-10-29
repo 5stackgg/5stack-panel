@@ -14,19 +14,7 @@ echo "Installing Kustomize ..."
 curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
 
 
-echo "Installing Tailscale ..."
-curl -sfL https://tailscale.com/install.sh | sh
-
-
-echo "Generate and enter your Tailscale auth key: https://login.tailscale.com/admin/settings/keys"
-read TAILSCALE_AUTH_KEY
-
-if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-    echo "Error: Tailscale auth key is required."
-    exit 1
-fi
-
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}";
+curl -sfL https://get.k3s.io | sh -s - --disable=traefik
 
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/baremetal/deploy.yaml
 

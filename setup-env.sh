@@ -17,7 +17,7 @@ output_redirect() {
     if [ "$DEBUG" = true ]; then
         "$@"
     else
-        "$@" >/dev/null
+        "$@" >/dev/null 2>&1
     fi
 }
 

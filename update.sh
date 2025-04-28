@@ -5,7 +5,7 @@ source setup-env.sh "$@"
 echo "Updating 5Stack"
 
 if [ "$REVERSE_PROXY" = true ]; then
-    ./kustomize build base | kubectl --kubeconfig=$KUBECONFIG apply -f - $(if [ "$DEBUG" = false ]; then echo ">/dev/null"; fi)
+    ./kustomize build base | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
 else 
     ./kustomize build overlays/cert-manager | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -

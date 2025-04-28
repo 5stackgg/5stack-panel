@@ -12,6 +12,15 @@ update_env_var() {
     fi
 }
 
+# Function to handle output redirection based on DEBUG
+output_redirect() {
+    if [ "$DEBUG" = true ]; then
+        "$@"
+    else
+        "$@" >/dev/null
+    fi
+}
+
 for file in base/secrets/*.env.example; do
     env_file="${file%.example}"
     if [ ! -f "$env_file" ]; then
@@ -41,6 +50,7 @@ for env_file in base/secrets/*.env; do
     fi
 done
 
+DEBUG=false
 REVERSE_PROXY=false
 
 while [[ $# -gt 0 ]]; do
@@ -51,6 +61,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --reverse-proxy)
             REVERSE_PROXY=true
+            shift
+            ;;
+        --debug)
+            DEBUG=true
             shift
             ;;
         *)
@@ -75,20 +89,25 @@ echo "using kubeconfig: $KUBECONFIG"
 POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" base/secrets/timescaledb-secrets.env | cut -d '=' -f2-)
 POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
 
-if grep -q "^POSTGRES_CONNECTION_STRING=" base/secrets/timescaledb-secrets.env; then
-    update_env_var "base/secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
-else
-    echo "" >> base/secrets/timescaledb-secrets.env
-    echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> base/secrets/timescaledb-secrets.env
+if [ -n "$POSTGRES_CONNECTION_STRING" ]; then
+    if grep -q "^POSTGRES_CONNECTION_STRING=" base/secrets/timescaledb-secrets.env; then
+        update_env_var "base/secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
+    else
+        echo "" >> base/secrets/timescaledb-secrets.env
+        echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> base/secrets/timescaledb-secrets.env
+    fi
 fi
 
 K3S_TOKEN=$(cat /var/lib/rancher/k3s/server/node-token)
 
-if grep -q "^K3S_TOKEN=" base/secrets/api-secrets.env; then
-    update_env_var "base/secrets/api-secrets.env" "K3S_TOKEN" "$K3S_TOKEN"
-else
-    echo "" >> base/secrets/api-secrets.env
-    echo "K3S_TOKEN=$K3S_TOKEN" >> base/secrets/api-secrets.env
+if [ -n "$K3S_TOKEN" ]; then
+    if grep -q "^K3S_TOKEN=" base/secrets/api-secrets.env; then
+        echo "K3S_TOKEN already set"
+        update_env_var "base/secrets/api-secrets.env" "K3S_TOKEN" "$K3S_TOKEN"
+    else
+        echo "K3S_TOKEN not set, setting it"
+        echo "K3S_TOKEN=$K3S_TOKEN" >> base/secrets/api-secrets.env
+    fi
 fi
 
 # Using -h to suppress filename headers in grep output for Linux compatibility

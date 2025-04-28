@@ -2,7 +2,7 @@
 
 source setup-env.sh "$@"
 
-echo "Updating 5Stack"
+echo "5Stack : Updating..."
 
 if [ "$REVERSE_PROXY" = true ]; then
     ./kustomize build base | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
@@ -15,4 +15,4 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 
-echo "5stack Updated"
+echo "5Stack : Updated"

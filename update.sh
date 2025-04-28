@@ -2,7 +2,12 @@
 
 source setup-env.sh "$@"
 
+source setup-env.sh "$@"
+
+
 echo "5Stack : Updating..."
+
+return;
 
 if [ "$REVERSE_PROXY" = true ]; then
     ./kustomize build base | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -

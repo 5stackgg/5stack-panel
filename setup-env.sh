@@ -1,7 +1,13 @@
 #!/bin/bash
 
+if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
+    echo "FIVE_STACK_ENV_SETUP is already set. Please unset it to run this script."
+    return;
+fi
+
 DEBUG=false
 REVERSE_PROXY=false
+FIVE_STACK_ENV_SETUP=true
 
 if [ -z "$KUBECONFIG" ]; then
     KUBECONFIG="/etc/rancher/k3s/k3s.yaml"

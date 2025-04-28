@@ -11,8 +11,8 @@ else
     ./kustomize build overlays/cert-manager | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
 fi
 
-output_redirect kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack
-output_redirect kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack
-output_redirect kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack
+kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
+kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null
+kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 
 echo "5stack Updated"

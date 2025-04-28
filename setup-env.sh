@@ -1,5 +1,40 @@
 #!/bin/bash
 
+DEBUG=false
+REVERSE_PROXY=false
+
+if [ -z "$KUBECONFIG" ]; then
+    KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
+fi
+
+if ! [ -f ./kustomize ] || ! [ -x ./kustomize ]
+then
+    echo "kustomize not found. Installing..."
+    curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+fi
+
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --kubeconfig)
+            KUBECONFIG="$2"
+            shift 2
+            ;;
+        --reverse-proxy)
+            REVERSE_PROXY=true
+            shift
+            ;;
+        --debug)
+            DEBUG=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
 update_env_var() {
     local file=$1
     local key=$2
@@ -12,7 +47,6 @@ update_env_var() {
     fi
 }
 
-# Function to handle output redirection based on DEBUG
 output_redirect() {
     if [ "$DEBUG" = true ]; then
         "$@"
@@ -49,42 +83,6 @@ for env_file in base/secrets/*.env; do
         fi
     fi
 done
-
-DEBUG=false
-REVERSE_PROXY=false
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --kubeconfig)
-            KUBECONFIG="$2"
-            shift 2
-            ;;
-        --reverse-proxy)
-            REVERSE_PROXY=true
-            shift
-            ;;
-        --debug)
-            DEBUG=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            exit 1
-            ;;
-    esac
-done
-
-if [ -z "$KUBECONFIG" ]; then
-    KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
-fi
-
-if ! [ -f ./kustomize ] || ! [ -x ./kustomize ]
-then
-    echo "kustomize not found. Installing..."
-    curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-fi
-
-echo "using kubeconfig: $KUBECONFIG"
 
 POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" base/secrets/timescaledb-secrets.env | cut -d '=' -f2-)
 POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"

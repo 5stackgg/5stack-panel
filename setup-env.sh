@@ -1,7 +1,6 @@
 #!/bin/bash
 
 if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
-    echo "FIVE_STACK_ENV_SETUP is already set. Please unset it to run this script."
     return;
 fi
 

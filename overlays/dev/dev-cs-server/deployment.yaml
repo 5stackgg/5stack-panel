@@ -13,6 +13,8 @@ spec:
       labels:
         app: dev-cs-server
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -47,6 +49,8 @@ spec:
             - name: EXTRA_GAME_PARAMS
               value: -maxplayers 13 +map de_overpass
             - name: ALLOW_BOTS
+              value: "true"
+            - name: STEAM_RELAY
               value: "true"
           volumeMounts:
             - name: steamcmd

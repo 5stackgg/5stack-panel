@@ -5,7 +5,6 @@ namespace: 5stack
 
 resources:
   - deployment.yaml
-  - service.yaml
 
 secretGenerator:
   - name: dev-server-secrets

@@ -152,7 +152,8 @@ fi
 
 if [ -d "base/secrets" ]; then
     echo "base/secrets directory found, moving to overlays/secrets"
-    mv base/secrets overlays
+    mv base/secrets/* overlays/secrets
+    rm -rf base/secrets
 fi
 
 for file in overlays/secrets/*.env.example; do

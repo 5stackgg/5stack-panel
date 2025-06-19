@@ -13,7 +13,7 @@ custom
 
 *.env.backup
 
-overlays/vault-http*
-overlays/vault-https*
-overlays/local-secrets-http*
-overlays/local-secrets-https*
+overlays/vault-http
+overlays/vault-https
+overlays/local-secrets-http
+overlays/local-secrets-https

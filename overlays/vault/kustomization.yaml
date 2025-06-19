@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - rbac/cluster-role.yaml
+  - rbac/service-account.yaml
+  - secret-store.yaml
+  - secrets/api.yaml
+  - secrets/steam.yaml
+  - secrets/timescaledb.yaml
+  - secrets/typesense.yaml
+  - secrets/tailscale.yaml
+  - secrets/s3.yaml
+  - secrets/redis.yaml
+  - secrets/minio.yaml
+  - secrets/hasura.yaml
+  - secrets/faceit.yaml
+  - secrets/discord.yaml
+
+configMapGenerator:
+  - name: external-secrets-config
+    namespace: external-secrets
+    envs:
+      - properties/external-secrets-config.env
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: external-secrets-config
+      fieldPath: data.EXTERNAL_SECRETS_URL
+    targets:
+    - select:
+        kind: SecretStore
+        name: secretstore-5stack
+      fieldPaths:
+      - spec.provider.vault.server

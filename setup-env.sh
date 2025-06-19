@@ -90,6 +90,53 @@ output_redirect() {
     fi
 }
 
+migrate_secrets_to_vault() {
+    local secret_file=$1
+    local vault_path=$2
+    
+    if [ ! -f "$secret_file" ]; then
+        echo "Warning: $secret_file not found, skipping..."
+        return
+    fi
+    
+    # Read current file and migrate non-VAULT values
+    while IFS='=' read -r key value || [ -n "$key" ]; do
+        # Skip comments and empty lines
+        if [[ $key =~ ^[[:space:]]*# ]] || [[ -z "$key" ]]; then
+            continue
+        fi
+        
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        
+        # Skip if already VAULT or empty
+        if [ "$value" = "VAULT" ] || [ -z "$key" ] || [ -z "$value" ]; then
+            continue
+        fi
+
+        echo "Migrating $key to Vault"
+        
+        # Upload to Vault
+        local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
+        echo "$json_data" | vault kv patch "$vault_path" -
+        
+        if [ $? -eq 0 ]; then
+            echo "  ✓ Migrated $key to Vault"
+            # Append to backup after successful upload
+            echo "$key=$value" >> "${secret_file}.backup"
+            # Update current file to VAULT
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
+            else
+                sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
+            fi
+        else
+            echo "  ✗ Failed to migrate $key to Vault"
+        fi
+    done < "$secret_file"
+}
+
+
 if [ -z "$REVERSE_PROXY" ]; then
     ask_reverse_proxy   
 fi
@@ -134,9 +181,9 @@ for env_file in base/secrets/*.env; do
 done
 
 POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" base/secrets/timescaledb-secrets.env | cut -d '=' -f2-)
-POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
 
-if [ -n "$POSTGRES_CONNECTION_STRING" ]; then
+if [ "$POSTGRES_PASSWORD" != "VAULT" ]; then
+    POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
     if grep -q "^POSTGRES_CONNECTION_STRING=" base/secrets/timescaledb-secrets.env; then
         update_env_var "base/secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
     else
@@ -144,6 +191,7 @@ if [ -n "$POSTGRES_CONNECTION_STRING" ]; then
         echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> base/secrets/timescaledb-secrets.env
     fi
 fi
+
 if [ -f "/var/lib/rancher/k3s/server/node-token" ]; then
     K3S_TOKEN=$(cat /var/lib/rancher/k3s/server/node-token)
 fi
@@ -220,6 +268,31 @@ while [ -z "$STEAM_WEB_API_KEY" ]; do
 done
 
 update_env_var "base/secrets/steam-secrets.env" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"
+
+
+if [ "$VAULT_MANAGER" = true ]; then
+    if ! command -v vault &> /dev/null; then
+        echo "Error: vault CLI is not installed. Please install it first."
+        exit 1
+    fi
+    
+    if ! vault status &> /dev/null; then
+        echo "Error: Not logged into vault. Please run 'vault login' first"
+        exit 1
+    fi
+    
+    migrate_secrets_to_vault "base/secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "base/secrets/steam-secrets.env" "kv/steam"
+    migrate_secrets_to_vault "base/secrets/timescaledb-secrets.env" "kv/timescaledb"
+    migrate_secrets_to_vault "base/secrets/typesense-secrets.env" "kv/typesense"
+    migrate_secrets_to_vault "base/secrets/tailscale-secrets.env" "kv/tailscale"
+    migrate_secrets_to_vault "base/secrets/s3-secrets.env" "kv/s3"
+    migrate_secrets_to_vault "base/secrets/redis-secrets.env" "kv/redis"
+    migrate_secrets_to_vault "base/secrets/minio-secrets.env" "kv/minio"
+    migrate_secrets_to_vault "base/secrets/hasura-secrets.env" "kv/hasura"
+    migrate_secrets_to_vault "base/secrets/faceit-secrets.env" "kv/faceit"
+    migrate_secrets_to_vault "base/secrets/discord-secrets.env" "kv/discord"
+fi
 
 echo "Domains and Hosts Configuration:"
 echo "--------------------------------"

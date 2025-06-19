@@ -4,6 +4,13 @@ source setup-env.sh "$@"
 
 if [ "$REVERSE_PROXY" = true ]; then
     ./kustomize build base | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+
+    if [ "$VAULT_MANAGER" = true ]; then
+        ./kustomize build overlays/vault | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    else
+        ./kustomize build overlays/secrets | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    fi
+    
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
 else 
     ./kustomize build overlays/cert-manager | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -

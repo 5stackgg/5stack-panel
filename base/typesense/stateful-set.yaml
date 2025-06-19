@@ -29,6 +29,9 @@ spec:
           image: typesense/typesense:28.0
           ports:
             - containerPort: 8108
+          env:
+            - name: TYPESENSE_DATA_DIR
+              value: /data
           volumeMounts:
             - name: typesense-config
               mountPath: /etc/typesense

@@ -15,11 +15,3 @@ data:
             "tls": true
         }
     }
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: typesense-config
-  namespace: 5stack
-data:
-  TYPESENSE_DATA_DIR: /data

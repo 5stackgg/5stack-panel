@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+configMapGenerator:
+  - name: api-config
+    namespace: 5stack
+    envs:
+      - api-config.env
+  - name: typesense-config
+    namespace: 5stack
+    envs:
+      - typesense-config.env
+  - name: s3-config
+    namespace: 5stack
+    envs:
+      - s3-config.env
+  - name: nginx-config
+    namespace: 5stack
+    envs:
+      - nginx-config.env 

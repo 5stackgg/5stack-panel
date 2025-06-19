@@ -10,3 +10,10 @@ kustomize
 custom
 
 .5stack-env.config
+
+*.env.backup
+
+overlays/vault-http*
+overlays/vault-https*
+overlays/local-secrets-http*
+overlays/local-secrets-https*

@@ -3,10 +3,48 @@
 source setup-env.sh "$@"
 
 if [ "$REVERSE_PROXY" = true ]; then
-    ./kustomize build base | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
-else 
-    ./kustomize build overlays/cert-manager | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+fi
+
+HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
+HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
+
+OVERLAY_BASES=("vault" "local-secrets")
+for BASE in "${OVERLAY_BASES[@]}"; do
+    for PROTOCOL in "http" "https"; do
+        OVERLAY="overlays/${BASE}-${PROTOCOL}"
+        mkdir -p "$OVERLAY"
+
+        cat > "$OVERLAY/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../$BASE
+- ../config
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; fi)
+EOF
+        if [ "$PROTOCOL" = "https" ]; then
+            cp overlays/http/ingress-patch.yaml "$OVERLAY/ingress-patch.yaml"
+            cat "$HTTPS_REPLACEMENTS" >> "$OVERLAY/kustomization.yaml"
+        else
+            cat "$HTTP_REPLACEMENTS" >> "$OVERLAY/kustomization.yaml"
+        fi
+    done
+done
+
+if [ "$VAULT_MANAGER" = true ]; then
+    if [ "$REVERSE_PROXY" = true ]; then
+        ./kustomize build overlays/vault-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    else
+        ./kustomize build overlays/vault-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    fi
+else
+    if [ "$REVERSE_PROXY" = true ]; then
+        ./kustomize build overlays/local-secrets-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    else
+        ./kustomize build overlays/local-secrets-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    fi
 fi
 
 kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null

@@ -1,0 +1,38 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-tokenreview-binding
+  namespace: 5stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: 5stack
+  namespace: 5stack
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-secrets-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets", "namespaces"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["external-secrets.io"]
+  resources: ["clusterexternalsecrets", "externalsecrets", "secretstores", "clustersecretstores"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-secrets-role-binding
+subjects:
+- kind: ServiceAccount
+  name: external-secrets
+  namespace: external-secrets
+roleRef:
+  kind: ClusterRole
+  name: external-secrets-role
+  apiGroup: rbac.authorization.k8s.io

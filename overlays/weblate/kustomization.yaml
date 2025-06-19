@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: 5stack
 
 resources:
-  - ../../base
   - deployment.yaml
   - ingress.yaml
   - service.yaml

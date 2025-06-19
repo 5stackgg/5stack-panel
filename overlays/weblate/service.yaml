@@ -6,9 +6,11 @@ spec:
   selector:
     app: weblate
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 8080
       targetPort: 8080
-    - protocol: TCP
+    - name: api
+      protocol: TCP
       port: 5000
       targetPort: 5000

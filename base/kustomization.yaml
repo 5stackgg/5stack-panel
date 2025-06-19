@@ -34,22 +34,6 @@ configMapGenerator:
     envs:
       - properties/nginx-config.env
 
-nameReference:
-  - kind: Secret
-    fieldSpecs:
-    - path: spec/template/spec/containers/envFrom/secretRef/name
-      kind: Deployment
-    - path: spec/template/spec/volumes/secret/secretName
-      kind: Deployment
-    - path: spec/template/spec/containers/envFrom/secretRef/name
-      kind: StatefulSet
-    - path: spec/template/spec/volumes/secret/secretName
-      kind: StatefulSet
-    - path: spec/template/spec/containers/envFrom/secretRef/name
-      kind: DaemonSet
-    - path: spec/template/spec/volumes/secret/secretName
-      kind: DaemonSet
-
 replacements:
 - source:
     kind: ConfigMap

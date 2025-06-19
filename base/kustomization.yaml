@@ -122,7 +122,3 @@ replacements:
       namespace: ingress-nginx
     fieldPaths:
     - spec.ports.1.port
-
-# Note: secretGenerator has been moved to overlays/secrets
-# Use overlays/secrets when VAULT_MANAGER=false
-# Use overlays/vault when VAULT_MANAGER=true

@@ -23,7 +23,6 @@ then
     curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
 fi
 
-
 while [[ $# -gt 0 ]]; do
     case $1 in
         --kubeconfig)
@@ -151,7 +150,13 @@ KUBECONFIG=$KUBECONFIG
 EOF
 fi
 
-for file in base/secrets/*.env.example; do
+if [ -d "base/secrets" ]; then
+    echo "base/secrets directory found, moving to overlays/secrets"
+    mv base/secrets/* overlays/secrets
+    rm -rf base/secrets
+fi
+
+for file in overlays/secrets/*.env.example; do
     env_file="${file%.example}"
     if [ ! -f "$env_file" ]; then
         cp "$file" "$env_file"
@@ -166,7 +171,7 @@ for file in base/properties/*.env.example; do
 done
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
-for env_file in base/secrets/*.env; do
+for env_file in overlays/secrets/*.env; do
     if [[ -f "$env_file" && ! "$env_file" == *.example ]]; then
 
         # Generate a random base64 encoded string
@@ -180,15 +185,15 @@ for env_file in base/secrets/*.env; do
     fi
 done
 
-POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" base/secrets/timescaledb-secrets.env | cut -d '=' -f2-)
+POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" overlays/secrets/timescaledb-secrets.env | cut -d '=' -f2-)
 
 if [ "$POSTGRES_PASSWORD" != "VAULT" ]; then
     POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
-    if grep -q "^POSTGRES_CONNECTION_STRING=" base/secrets/timescaledb-secrets.env; then
-        update_env_var "base/secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
+    if grep -q "^POSTGRES_CONNECTION_STRING=" overlays/secrets/timescaledb-secrets.env; then
+        update_env_var "overlays/secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
     else
-        echo "" >> base/secrets/timescaledb-secrets.env
-        echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> base/secrets/timescaledb-secrets.env
+        echo "" >> overlays/secrets/timescaledb-secrets.env
+        echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> overlays/secrets/timescaledb-secrets.env
     fi
 fi
 
@@ -197,12 +202,12 @@ if [ -f "/var/lib/rancher/k3s/server/node-token" ]; then
 fi
 
 if [ -n "$K3S_TOKEN" ]; then
-    if grep -q "^K3S_TOKEN=" base/secrets/api-secrets.env; then
+    if grep -q "^K3S_TOKEN=" overlays/secrets/api-secrets.env; then
         echo "K3S_TOKEN already set"
-        update_env_var "base/secrets/api-secrets.env" "K3S_TOKEN" "$K3S_TOKEN"
+        update_env_var "overlays/secrets/api-secrets.env" "K3S_TOKEN" "$K3S_TOKEN"
     else
         echo "K3S_TOKEN not set, setting it"
-        echo "K3S_TOKEN=$K3S_TOKEN" >> base/secrets/api-secrets.env
+        echo "K3S_TOKEN=$K3S_TOKEN" >> overlays/secrets/api-secrets.env
     fi
 fi
 
@@ -260,14 +265,14 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 fi
 
-STEAM_WEB_API_KEY=$(grep -h "^STEAM_WEB_API_KEY=" base/secrets/steam-secrets.env | cut -d '=' -f2-)
+STEAM_WEB_API_KEY=$(grep -h "^STEAM_WEB_API_KEY=" overlays/secrets/steam-secrets.env | cut -d '=' -f2-)
 
 while [ -z "$STEAM_WEB_API_KEY" ]; do
     echo "Please enter your Steam Web API key (required for Steam authentication). Get one at: https://steamcommunity.com/dev/apikey"
     read STEAM_WEB_API_KEY
 done
 
-update_env_var "base/secrets/steam-secrets.env" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"
+update_env_var "overlays/secrets/steam-secrets.env" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"
 
 
 if [ "$VAULT_MANAGER" = true ]; then
@@ -281,17 +286,17 @@ if [ "$VAULT_MANAGER" = true ]; then
         exit 1
     fi
     
-    migrate_secrets_to_vault "base/secrets/api-secrets.env" "kv/api"
-    migrate_secrets_to_vault "base/secrets/steam-secrets.env" "kv/steam"
-    migrate_secrets_to_vault "base/secrets/timescaledb-secrets.env" "kv/timescaledb"
-    migrate_secrets_to_vault "base/secrets/typesense-secrets.env" "kv/typesense"
-    migrate_secrets_to_vault "base/secrets/tailscale-secrets.env" "kv/tailscale"
-    migrate_secrets_to_vault "base/secrets/s3-secrets.env" "kv/s3"
-    migrate_secrets_to_vault "base/secrets/redis-secrets.env" "kv/redis"
-    migrate_secrets_to_vault "base/secrets/minio-secrets.env" "kv/minio"
-    migrate_secrets_to_vault "base/secrets/hasura-secrets.env" "kv/hasura"
-    migrate_secrets_to_vault "base/secrets/faceit-secrets.env" "kv/faceit"
-    migrate_secrets_to_vault "base/secrets/discord-secrets.env" "kv/discord"
+    migrate_secrets_to_vault "overlays/secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "overlays/secrets/steam-secrets.env" "kv/steam"
+    migrate_secrets_to_vault "overlays/secrets/timescaledb-secrets.env" "kv/timescaledb"
+    migrate_secrets_to_vault "overlays/secrets/typesense-secrets.env" "kv/typesense"
+    migrate_secrets_to_vault "overlays/secrets/tailscale-secrets.env" "kv/tailscale"
+    migrate_secrets_to_vault "overlays/secrets/s3-secrets.env" "kv/s3"
+    migrate_secrets_to_vault "overlays/secrets/redis-secrets.env" "kv/redis"
+    migrate_secrets_to_vault "overlays/secrets/minio-secrets.env" "kv/minio"
+    migrate_secrets_to_vault "overlays/secrets/hasura-secrets.env" "kv/hasura"
+    migrate_secrets_to_vault "overlays/secrets/faceit-secrets.env" "kv/faceit"
+    migrate_secrets_to_vault "overlays/secrets/discord-secrets.env" "kv/discord"
 fi
 
 echo "Domains and Hosts Configuration:"

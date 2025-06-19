@@ -38,7 +38,7 @@ while [ -z "$TAILSCALE_SECRET_ID" ]; do
     read TAILSCALE_SECRET_ID
 done
 
-update_env_var "base/secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_SECRET_ID"
+update_env_var "overlays/secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_SECRET_ID"
 
 echo -e "\033[1;36mEnter the Client ID from the Step Above:\033[0m"   
 read TAILSCALE_CLIENT_ID

@@ -11,4 +11,4 @@ custom
 
 .5stack-env.config
 
-*.backup.*
+*.env.backup

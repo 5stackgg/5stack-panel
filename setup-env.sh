@@ -99,71 +99,44 @@ migrate_secrets_to_vault() {
         return
     fi
     
-    local has_non_vault_values=false
-    local migrated_count=0
+    # Create backup if it doesn't exist
+    if [ ! -f "${secret_file}.backup" ]; then
+        cp "$secret_file" "${secret_file}.backup"
+    fi
     
-    # Use while-read with || [ -n "$key" ] to handle last line without newline
+    # Replace the original file with VAULT placeholder
+    echo "# Secrets migrated to Vault at path: $vault_path" > "$secret_file"
+    echo "# Original file backed up as: ${secret_file}.backup" >> "$secret_file"
+    echo "# Use ExternalSecret to retrieve from Vault" >> "$secret_file"
+    
     while IFS='=' read -r key value || [ -n "$key" ]; do
         # Skip comments and empty lines
         if [[ $key =~ ^[[:space:]]*# ]] || [[ -z "$key" ]]; then
             continue
         fi
         
-        # Remove leading/trailing whitespace
         key=$(echo "$key" | xargs)
         value=$(echo "$value" | xargs)
-
+        
         if [ "$value" = "VAULT" ]; then
+            echo "$key=VAULT" >> "$secret_file"
             continue
         fi
         
+        # Update Vault and add to .env file
         if [ -n "$key" ] && [ -n "$value" ]; then
-            # Mark that we found a non-VAULT value
-            has_non_vault_values=true
-            
-            # Create JSON data for this single key-value pair
             local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-            
-            # Update this specific key in Vault using patch
             echo "$json_data" | vault kv patch "$vault_path" -
             
             if [ $? -eq 0 ]; then
                 echo "  ✓ Migrated $key to Vault"
-                ((migrated_count++))
+                echo "$key=VAULT" >> "$secret_file"
             else
                 echo "  ✗ Failed to migrate $key to Vault"
+                echo "$key=$value" >> "$secret_file"
             fi
         fi
-    done < "$secret_file"
-    
-    if [ "$has_non_vault_values" = true ] && [ $migrated_count -gt 0 ]; then
-        cp "$secret_file" "${secret_file}.backup.$(date +%Y%m%d_%H%M%S)"
-        local backup_file="${secret_file}.backup.$(date +%Y%m%d_%H%M%S)"
-        
-        # Replace the original file with VAULT placeholder
-        echo "# Secrets migrated to Vault at path: $vault_path" > "$secret_file"
-        echo "# Original file backed up as: $backup_file" >> "$secret_file"
-        echo "# Use ExternalSecret to retrieve from Vault" >> "$secret_file"
-        
-        # Add individual placeholders for each secret (only actual key-value pairs, not comments)
-        while IFS='=' read -r key value || [ -n "$key" ]; do
-            # Skip comments and empty lines
-            if [[ $key =~ ^[[:space:]]*# ]] || [[ -z "$key" ]]; then
-                continue
-            fi
-
-            if [ "$value" = "VAULT" ]; then
-                continue
-            fi
-            
-            # Remove leading/trailing whitespace
-            key=$(echo "$key" | xargs)
-            
-            if [ -n "$key" ]; then
-                echo "$key=VAULT" >> "$secret_file"
-            fi
-        done < "$backup_file"
-    fi
+    done < "${secret_file}.backup"
 }
 
 

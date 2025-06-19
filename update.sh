@@ -7,6 +7,8 @@ if [ "$REVERSE_PROXY" = true ]; then
 
     if [ "$VAULT_MANAGER" = true ]; then
         ./kustomize build overlays/vault | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    else
+        ./kustomize build overlays/secrets | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
     fi
     
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null

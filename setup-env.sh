@@ -99,16 +99,7 @@ migrate_secrets_to_vault() {
         return
     fi
     
-    # Create backup if it doesn't exist
-    if [ ! -f "${secret_file}.backup" ]; then
-        cp "$secret_file" "${secret_file}.backup"
-    fi
-    
-    # Replace the original file with VAULT placeholder
-    echo "# Secrets migrated to Vault at path: $vault_path" > "$secret_file"
-    echo "# Original file backed up as: ${secret_file}.backup" >> "$secret_file"
-    echo "# Use ExternalSecret to retrieve from Vault" >> "$secret_file"
-    
+    # Read current file and migrate non-VAULT values
     while IFS='=' read -r key value || [ -n "$key" ]; do
         # Skip comments and empty lines
         if [[ $key =~ ^[[:space:]]*# ]] || [[ -z "$key" ]]; then
@@ -118,25 +109,31 @@ migrate_secrets_to_vault() {
         key=$(echo "$key" | xargs)
         value=$(echo "$value" | xargs)
         
-        if [ "$value" = "VAULT" ]; then
-            echo "$key=VAULT" >> "$secret_file"
+        # Skip if already VAULT or empty
+        if [ "$value" = "VAULT" ] || [ -z "$key" ] || [ -z "$value" ]; then
             continue
         fi
+
+        echo "Migrating $key to Vault"
         
-        # Update Vault and add to .env file
-        if [ -n "$key" ] && [ -n "$value" ]; then
-            local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-            echo "$json_data" | vault kv patch "$vault_path" -
-            
-            if [ $? -eq 0 ]; then
-                echo "  ✓ Migrated $key to Vault"
-                echo "$key=VAULT" >> "$secret_file"
+        # Upload to Vault
+        local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
+        echo "$json_data" | vault kv patch "$vault_path" -
+        
+        if [ $? -eq 0 ]; then
+            echo "  ✓ Migrated $key to Vault"
+            # Append to backup after successful upload
+            echo "$key=$value" >> "${secret_file}.backup"
+            # Update current file to VAULT
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
             else
-                echo "  ✗ Failed to migrate $key to Vault"
-                echo "$key=$value" >> "$secret_file"
+                sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
             fi
+        else
+            echo "  ✗ Failed to migrate $key to Vault"
         fi
-    done < "${secret_file}.backup"
+    done < "$secret_file"
 }
 
 

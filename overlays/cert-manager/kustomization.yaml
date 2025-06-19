@@ -9,7 +9,7 @@ configMapGenerator:
   - name: api-config
     namespace: 5stack
     envs:
-      - ../../base/properties/api-config.env
+      - api-config.env
 
 replacements:
   - source:

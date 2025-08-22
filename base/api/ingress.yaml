@@ -130,9 +130,6 @@ spec:
                   number: 5585
             path: /demos
             pathType: Prefix
-    - host: $(DEMOS_DOMAIN)
-      http:
-        paths:
           - backend:
               service:
                 name: minio

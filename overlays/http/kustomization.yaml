@@ -9,98 +9,31 @@ replacements:
           name: ws
         fieldPaths:
           - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
       - select:
           kind: Ingress
-          name: api
+          name: ws
         fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.1.host
-      - select:
-          kind: Ingress
-          name: web
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTP_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.0.port
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTPS_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.1.portreplacements:
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
+          - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.0
+          - spec.dnsNames.5
   - source:
       kind: ConfigMap
       name: api-config
       fieldPath: data.API_DOMAIN
     targets:
+      - select:
+          kind: Ingress
+          name: api
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: api
+        fieldPaths:
+          - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
@@ -112,93 +45,22 @@ replacements:
       fieldPath: data.DEMOS_DOMAIN
     targets:
       - select:
+          kind: Ingress
+          name: demos
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: demos
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
           - spec.dnsNames.2
   - source:
       kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.3
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.4
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.5
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.MAIL_FROM
-    targets:
-      - select:
-          kind: Issuer
-          name: 5stack-issuer
-        fieldPaths:
-          - spec.acme.email
-
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
       name: api-config
       fieldPath: data.WEB_DOMAIN
     targets:
@@ -206,147 +68,12 @@ replacements:
           kind: Ingress
           name: web
         fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: ws
-        fieldPaths:
-          - spec.tls.0.hosts.0
-
-patches:
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: api
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: demos
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: s3-console
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: typesense
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: web
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: ws
-    path: ingress-patch.yamlreplacements:
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: ws
-        fieldPaths:
           - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.1.host
       - select:
           kind: Ingress
           name: web
         fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTP_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.0.port
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTPS_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.1.portreplacements:
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
+          - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
@@ -354,39 +81,19 @@ patches:
           - spec.dnsNames.0
   - source:
       kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.1
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.2
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.3
-  - source:
-      kind: ConfigMap
       name: s3-config
       fieldPath: data.S3_CONSOLE_HOST
     targets:
+      - select:
+          kind: Ingress
+          name: s3-console
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: s3-console
+        fieldPaths:
+          - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
@@ -394,188 +101,24 @@ patches:
           - spec.dnsNames.4
   - source:
       kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
+      name: typesense-config
+      fieldPath: data.TYPESENSE_HOST
     targets:
+      - select:
+          kind: Ingress
+          name: typesense
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: typesense
+        fieldPaths:
+          - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.5
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.MAIL_FROM
-    targets:
-      - select:
-          kind: Issuer
-          name: 5stack-issuer
-        fieldPaths:
-          - spec.acme.email
-
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: web
-        fieldPaths:
-          - spec.tls.0.hosts.0
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: ws
-        fieldPaths:
-          - spec.tls.0.hosts.0
-
-patches:
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: api
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: demos
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: s3-console
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: typesense
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: web
-    path: ingress-patch.yaml
-  - target:
-      group: networking.k8s.io
-      version: v1
-      kind: Ingress
-      name: ws
-    path: ingress-patch.yamlreplacements:
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: ws
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.1.host
-      - select:
-          kind: Ingress
-          name: web
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.rules.0.host
+          - spec.dnsNames.3
   - source:
       kind: ConfigMap
       name: nginx-config
@@ -601,87 +144,10 @@ patches:
   - source:
       kind: ConfigMap
       name: api-config
-      fieldPath: data.WS_DOMAIN
+      fieldPath: data.MAIL_FROM
     targets:
       - select:
-          kind: Ingress
-          name: ws
+          kind: Issuer
+          name: 5stack-issuer
         fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.1.host
-      - select:
-          kind: Ingress
-          name: web
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: s3-console
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: Ingress
-          name: typesense
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTP_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.0.port
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTPS_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.1.port
+          - spec.acme.email

@@ -9,6 +9,6 @@ data:
     appendonly no
     save ""
     maxmemory-policy noeviction
-    requirepass ${REDIS_PASSWORD}
+    user default on >${REDIS_PASSWORD} allcommands allkeys +@all &*
     io-threads-do-reads yes
     io-threads ${IO_THREADS}

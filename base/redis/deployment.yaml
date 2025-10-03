@@ -33,7 +33,7 @@ spec:
                   - "true"
       containers:
       - name: redis
-        image: redis:7.4-alpine
+        image: redis:8.2-alpine
         ports:
         - containerPort: 6379
           protocol: TCP
@@ -58,16 +58,21 @@ spec:
         envFrom:
           - secretRef:
               name: redis-secrets 
+          - configMapRef:
+              name: redis-config
         command:
         - sh
         - -c
         - |
-          sed -e "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" /redis-config/redis.conf > /tmp/redis.conf && redis-server /tmp/redis.conf
+          cp /redis-yaml/redis.conf /tmp/redis.conf
+          sed -i "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" /tmp/redis.conf
+          sed -i "s/\${IO_THREADS}/$IO_THREADS/g" /tmp/redis.conf
+          redis-server /tmp/redis.conf
         volumeMounts:
-        - name: redis-config
-          mountPath: /redis-config
+        - name: redis-yaml
+          mountPath: /redis-yaml
       volumes:
-      - name: redis-config
+      - name: redis-yaml
         configMap:
-          name: redis-config
+          name: redis-yaml
 

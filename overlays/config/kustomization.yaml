@@ -18,3 +18,7 @@ configMapGenerator:
     namespace: 5stack
     envs:
       - nginx-config.env 
+  - name: redis-config
+    namespace: 5stack
+    envs:
+      - redis-config.env

@@ -55,8 +55,6 @@ spec:
             periodSeconds: 15
             failureThreshold: 3
           env:
-            - name: TYPESENSE_LOG_LEVEL
-              value: warn
             - name: TYPESENSE_DATA_DIR
               value: /data
           volumeMounts:

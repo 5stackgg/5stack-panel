@@ -5,6 +5,8 @@ if [ ! -f "setup-env.sh" ]; then
     exit 1
 fi
 
+source overlays/vault/scripts/setup-vault.sh "$@"
+
 source setup-env.sh "$@"
 
 echo "Installing external-secrets..."

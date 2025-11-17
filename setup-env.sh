@@ -98,6 +98,16 @@ migrate_secrets_to_vault() {
         return
     fi
     
+    # Check if the secret already exists in Vault
+    local secret_exists=false
+    if vault kv get "$vault_path" &>/dev/null; then
+        secret_exists=true
+    fi
+
+    if [ "$secret_exists" = false ]; then
+        echo '{}' | vault kv put "$vault_path" -
+    fi
+    
     # Read current file and migrate non-VAULT values
     while IFS='=' read -r key value || [ -n "$key" ]; do
         # Skip comments and empty lines
@@ -117,8 +127,10 @@ migrate_secrets_to_vault() {
         
         # Upload to Vault
         local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-        echo "$json_data" | vault kv patch "$vault_path" -
         
+        # Use 'put' if secret doesn't exist, 'patch' if it does
+        echo "$json_data" | vault kv patch "$vault_path" -
+
         if [ $? -eq 0 ]; then
             echo "  ✓ Migrated $key to Vault"
             # Append to backup after successful upload

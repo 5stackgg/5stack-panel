@@ -1,5 +1,12 @@
 #!/bin/bash
 
+if [ -z "$VAULT_ADDR" ]; then
+    echo "ERROR: VAULT_ADDR is not set. Please login to Vault with 'vault login'"
+    exit 1
+fi
+
+echo "Vault Address: $VAULT_ADDR"
+
 # Check if vault CLI is installed
 if ! command -v vault &> /dev/null; then
     echo "Error: vault CLI is not installed. Please install it first (https://developer.hashicorp.com/vault/install)."
@@ -7,9 +14,22 @@ if ! command -v vault &> /dev/null; then
 fi
 
 # Check if vault is logged in
-if ! vault status &> /dev/null; then
-    echo "Error: Not logged into vault. Please run 'vault login' first"
+if ! vault token lookup &> /dev/null; then
+    echo "Error: Not logged into vault. Please run 'vault login' first."
     exit 1
+fi
+
+EXTERNAL_SECRETS_CONFIG_FILE="overlays/vault/config/external-secrets-config.env"
+
+if [ -f "$EXTERNAL_SECRETS_CONFIG_FILE" ]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|^EXTERNAL_SECRETS_URL=.*|EXTERNAL_SECRETS_URL=$VAULT_ADDR|" "$EXTERNAL_SECRETS_CONFIG_FILE"
+    else
+        sed -i "s|^EXTERNAL_SECRETS_URL=.*|EXTERNAL_SECRETS_URL=$VAULT_ADDR|" "$EXTERNAL_SECRETS_CONFIG_FILE"
+    fi
+else
+    mkdir -p "$(dirname "$EXTERNAL_SECRETS_CONFIG_FILE")"
+    echo "EXTERNAL_SECRETS_URL=$VAULT_ADDR" > "$EXTERNAL_SECRETS_CONFIG_FILE"
 fi
 
 if [ ! -f "setup-env.sh" ]; then

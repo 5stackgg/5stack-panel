@@ -127,8 +127,6 @@ migrate_secrets_to_vault() {
         
         # Upload to Vault
         local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-        
-        # Use 'put' if secret doesn't exist, 'patch' if it does
         echo "$json_data" | vault kv patch "$vault_path" -
 
         if [ $? -eq 0 ]; then

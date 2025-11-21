@@ -6,8 +6,3 @@ namespace: 5stack
 resources:
   - stateful-set.yaml
   - service.yaml
-
-secretGenerator:
-  - name: dev-game-stream-secrets
-    envs:
-      - dev-game-stream-secrets.env

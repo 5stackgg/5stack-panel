@@ -55,7 +55,7 @@ fi
 
 ask_reverse_proxy() {
     while true; do
-        read -p "Are you using a reverse proxy? (https://docs.5stack.gg/install/reverse-proxy) (y/n): " use_reverse_proxy
+        read -p "Are you using a reverse proxy or cloudflare proxies ? (https://docs.5stack.gg/install/reverse-proxy) (y/n): " use_reverse_proxy
         if [ "$use_reverse_proxy" = "y" ] || [ "$use_reverse_proxy" = "n" ]; then
             break
         fi

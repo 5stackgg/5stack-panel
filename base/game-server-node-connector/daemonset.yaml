@@ -27,13 +27,13 @@ spec:
           startupProbe:
             httpGet:
               path: /system/healthz
-              port: 8080
+              port: 8585
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
             httpGet:
               path: /system/healthz
-              port: 8080
+              port: 8585
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 3
@@ -41,12 +41,12 @@ spec:
           livenessProbe:
             httpGet:
               path: /system/healthz
-              port: 8080
+              port: 8585
             initialDelaySeconds: 15
             periodSeconds: 15
             failureThreshold: 3
           ports:
-            - containerPort: 8080
+            - containerPort: 8585
               name: http
               protocol: TCP
           env:

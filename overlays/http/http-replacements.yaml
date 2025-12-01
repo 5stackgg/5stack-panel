@@ -19,6 +19,11 @@ replacements:
           name: api
         fieldPaths:
           - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: hasura
+        fieldPaths:
+          - spec.rules.0.host
   - source:
       kind: ConfigMap
       name: api-config

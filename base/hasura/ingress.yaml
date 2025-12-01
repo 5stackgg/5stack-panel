@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hasura
+  namespace: 5stack
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /healthz
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: $(API_DOMAIN)
+      http:
+        paths:
+          - backend:
+              service:
+                name: hasura
+                port:
+                  number: 8080
+            path: /v2/healthz
+            pathType: Exact

@@ -58,6 +58,13 @@ spec:
                   number: 5585
             path: /game-server-node/ping
             pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /system/healthz
+            pathType: Exact
     - host: $(WEB_DOMAIN)
       http:
         paths:
@@ -68,13 +75,6 @@ spec:
                   number: 5585
             path: /auth
             pathType: Prefix
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /quick-connect
-            pathType: Exact
           - backend:
               service:
                 name: api

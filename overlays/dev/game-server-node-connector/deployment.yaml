@@ -33,6 +33,8 @@ spec:
       containers:
         - image: ghcr.io/5stackgg/game-server-node-connector:latest
           name: dev-game-server-node-connector
+          securityContext:
+            privileged: true
           ports:
             - containerPort: 7080
               name: health
@@ -62,6 +64,9 @@ spec:
             - name: cpu-sys
               mountPath: /host-cpu
               readOnly: true
+            - name: mem-sys
+              mountPath: /host-mem
+              readOnly: true
       volumes:
         - name: server-files
           hostPath:
@@ -81,3 +86,6 @@ spec:
         - name: cpu-sys
           hostPath:
             path: /sys/devices/system/cpu/
+        - name: mem-sys
+          hostPath:
+            path: /dev/mem

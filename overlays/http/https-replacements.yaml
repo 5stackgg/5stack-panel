@@ -36,6 +36,11 @@ replacements:
           - spec.rules.0.host
       - select:
           kind: Ingress
+          name: hasura
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
           name: api
         fieldPaths:
           - spec.tls.0.hosts.0

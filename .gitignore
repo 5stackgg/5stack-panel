@@ -20,3 +20,5 @@ overlays/local-secrets-https
 
 overlays/dev/secrets/*.env
 overlays/dev/secrets/*.env.example
+
+!overlays/dev/config/*.env

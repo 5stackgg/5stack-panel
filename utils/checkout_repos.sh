@@ -6,23 +6,23 @@ checkout_repos() {
     # Go up two levels: from utils/ to 5stack-panel/ to 5stack/
     PARENT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
     
-    # Define repos to checkout (repo_name -> repo_url)
-    declare -A repos=(
-        ["api"]="https://github.com/5stackgg/api.git"
-        ["web"]="https://github.com/5stackgg/web.git"
-        ["game-server"]="https://github.com/5stackgg/game-server.git"
-        ["game-server-node-connector"]="https://github.com/5stackgg/game-server-node-connector.git"
+    # Define repos to checkout (format: "name url")
+    repos=(
+        "api https://github.com/5stackgg/api.git"
+        "web https://github.com/5stackgg/web.git"
+        "game-server https://github.com/5stackgg/game-server.git"
+        "game-server-node-connector https://github.com/5stackgg/game-server-node-connector.git"
     )
-    
-    # Define order of repos to process
-    repo_order=("api" "web" "game-server" "game-server-node-connector")
     
     echo "Checking for required repositories in: $PARENT_DIR"
     echo ""
     
     # Ask about each repo one by one
-    for repo_name in "${repo_order[@]}"; do
-        repo_url="${repos[$repo_name]}"
+    for entry in "${repos[@]}"; do
+        name=${entry%% *}
+        url=${entry#* }
+        repo_name="$name"
+        repo_url="$url"
         repo_path="$PARENT_DIR/$repo_name"
         
         if [ -d "$repo_path" ]; then

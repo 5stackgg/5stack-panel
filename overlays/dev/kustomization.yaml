@@ -173,6 +173,18 @@ replacements:
 
 patches:
   - target:
+      kind: Deployment
+      name: hasura
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hasura
+      spec:
+        template:
+          spec:
+            initContainers: null
+  - target:
       group: networking.k8s.io
       version: v1
       kind: Ingress

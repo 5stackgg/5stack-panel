@@ -13,25 +13,25 @@ local_resource(
     labels=['tls-setup'],
 )
 
-# docker_build(
-#     "ghcr.io/5stackgg/api:latest",
-#     "../api",
-#      entrypoint=['yarn', 'start:dev'],
-#     live_update=[
-#         sync('../api', '/opt/5stack'),
-#         run('yarn install', trigger=['package.json', 'yarn.lock']),
-#     ],
-# )
+docker_build(
+    "ghcr.io/5stackgg/api:latest",
+    "../api",
+    dockerfile='../api/Dockerfile.dev',
+    live_update=[
+        sync('../api', '/opt/5stack'),
+        run('yarn install', trigger=['package.json', 'yarn.lock']),
+    ],
+)
 
-# docker_build(
-#     "ghcr.io/5stackgg/web:latest",
-#     "../web",
-#     entrypoint=['yarn', 'dev'],
-#     live_update=[
-#         sync('../web', '/opt/5stack'),
-#         run('yarn install', trigger=['package.json', 'yarn.lock']),
-#     ],
-# )
+docker_build(
+    "ghcr.io/5stackgg/web:latest",
+    "../web",
+    dockerfile='../web/Dockerfile.dev',
+    live_update=[
+        sync('../web', '/opt/5stack'),
+        run('yarn install', trigger=['package.json', 'yarn.lock']),
+    ],
+)
 
 # docker_build(
 #     "ghcr.io/5stackgg/game-server:latest",

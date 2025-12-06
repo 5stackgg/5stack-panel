@@ -79,7 +79,7 @@ k8s_resource(
 
 k8s_resource(
     'dev-cs-server',
-    port_forwards=['27015:27015', '27015:27015/udp', '27020:27020', '27020:27020/udp'],
+    port_forwards=['27015:27015', '27020:27020'],
     labels=['application'],
 )
 

@@ -10,28 +10,46 @@ local_resource(
         '--key=overlays/dev/certs/_wildcard.5stack.localhost+1-key.pem ' +
         '-n 5stack --dry-run=client -o yaml | kubectl apply -f -'
     ),
-    resource_deps=['mkcert-certs'],
     labels=['tls-setup'],
 )
 
-docker_build(
-    "api",
-    "../api",
-)
-
-docker_build(
-    "web",
-    "../web",
-)
+# docker_build(
+#     "ghcr.io/5stackgg/api:latest",
+#     "../api",
+#      entrypoint=['yarn', 'start:dev'],
+#     live_update=[
+#         sync('../api', '/opt/5stack'),
+#         run('yarn install', trigger=['package.json', 'yarn.lock']),
+#     ],
+# )
 
 # docker_build(
-#     "game-server",
+#     "ghcr.io/5stackgg/web:latest",
+#     "../web",
+#     entrypoint=['yarn', 'dev'],
+#     live_update=[
+#         sync('../web', '/opt/5stack'),
+#         run('yarn install', trigger=['package.json', 'yarn.lock']),
+#     ],
+# )
+
+# docker_build(
+#     "ghcr.io/5stackgg/game-server:latest",
 #     "../game-server",
+#     entrypoint=['./scripts/dev.sh'],
+#     live_update=[
+#         sync('../game-server', '/opt/5stack'),
+#     ],
 # )
 
 docker_build(
-    "game-server-node-connector",
+    "ghcr.io/5stackgg/game-server-node-connector:latest",
     "../game-server-node-connector",
+    dockerfile='../game-server-node-connector/Dockerfile.dev',
+    live_update=[
+        sync('../game-server-node-connector', '/opt/5stack'),
+        run('yarn install', trigger=['package.json', 'yarn.lock']),
+    ],
 )
 
 k8s_resource(

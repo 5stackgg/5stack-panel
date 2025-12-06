@@ -1,26 +1,71 @@
-allow_k8s_contexts("default")
+allow_k8s_contexts('default')
+
 k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
 
-# --- API ---
 docker_build(
     "api",
     "../api",
 )
 
-# --- WEB (frontend) ---
 docker_build(
     "web",
     "../web",
 )
 
-# # --- GAME SERVER ---
 # docker_build(
 #     "game-server",
 #     "../game-server",
 # )
 
-# --- NODE CONNECTOR ---
 docker_build(
     "game-server-node-connector",
     "../game-server-node-connector",
 )
+
+k8s_resource(
+    'timescaledb',
+    port_forwards=['5432:5432'],
+    labels=['infrastructure'],
+)
+
+k8s_resource(
+    'redis',
+    port_forwards=['6379:6379'],
+    labels=['infrastructure'],
+)
+
+k8s_resource(
+    'typesense',
+    port_forwards=['8108:8108'],
+    labels=['infrastructure'],
+)
+
+k8s_resource(
+    'minio',
+    port_forwards=['9000:9000', '9090:9090'],
+    labels=['infrastructure'],
+)
+
+k8s_resource(
+    'api',
+    new_name='api',
+    resource_deps=['timescaledb', 'redis', 'hasura'],
+    port_forwards=['5585:5585'],
+    labels=['application'],
+)
+
+k8s_resource(
+    'web',
+    new_name='web',
+    resource_deps=['api'],
+    port_forwards=['3000:3000'],
+    labels=['application'],
+)
+
+k8s_resource(
+    'hasura',
+    port_forwards=['8080:8080'],
+    resource_deps=['timescaledb'],
+    labels=['application'],
+)
+

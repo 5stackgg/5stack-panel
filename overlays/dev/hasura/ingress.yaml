@@ -5,6 +5,10 @@ metadata:
   namespace: 5stack
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - hasura.5stack.localhost
+      secretName: 5stack-tls
   rules:
     - host: hasura.5stack.localhost
       http:

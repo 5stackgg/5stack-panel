@@ -7,6 +7,10 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /queues/$1
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - queues.5stack.localhost
+      secretName: 5stack-tls
   rules:
     - host: queues.5stack.localhost
       http:

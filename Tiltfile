@@ -33,14 +33,14 @@ docker_build(
     ],
 )
 
-# docker_build(
-#     "ghcr.io/5stackgg/game-server:latest",
-#     "../game-server",
-#     entrypoint=['./scripts/dev.sh'],
-#     live_update=[
-#         sync('../game-server', '/opt/5stack'),
-#     ],
-# )
+docker_build(
+    "ghcr.io/5stackgg/game-server:latest",
+    "../game-server",
+    dockerfile='../game-server/Dockerfile.dev',
+    live_update=[
+        sync('../game-server', '/opt/5stack'),
+    ],
+)
 
 docker_build(
     "ghcr.io/5stackgg/game-server-node-connector:latest",
@@ -63,7 +63,6 @@ k8s_resource(
 k8s_resource(
     'web',
     new_name='web',
-    resource_deps=['api'],
     port_forwards=['3000:3000'],
     labels=['application'],
 )

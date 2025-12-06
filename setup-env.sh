@@ -53,6 +53,10 @@ if [ "$DEBUG" = true ]; then
     echo "Debug mode enabled (KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)"
 fi
 
+# Source utility functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/utils/utils.sh"
+
 ask_reverse_proxy() {
     while true; do
         read -p "Are you using a reverse proxy or cloudflare proxies ? (https://docs.5stack.gg/install/reverse-proxy) (y/n): " use_reverse_proxy
@@ -66,18 +70,6 @@ ask_reverse_proxy() {
         REVERSE_PROXY=true
     else
         REVERSE_PROXY=false
-    fi
-}
-
-update_env_var() {
-    local file=$1
-    local key=$2
-    local value=$3
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|^$key=.*|$key=$value|" "$file"
-    else
-        sed -i "s|^$key=.*|$key=$value|" "$file"
     fi
 }
 
@@ -176,44 +168,14 @@ if [ -d "base/properties" ]; then
     rm -rf base/properties
 fi
 
-for file in overlays/local-secrets/*.env.example; do
-    env_file="${file%.example}"
-    if [ ! -f "$env_file" ]; then
-        cp "$file" "$env_file"
-    fi
-done
-
-for file in overlays/config/*.env.example; do
-    env_file="${file%.example}"
-    if [ ! -f "$env_file" ]; then
-        cp "$file" "$env_file"
-    fi
-done
+copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
+copy_config_or_secrets "overlays/config" "overlays/config"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
-for env_file in overlays/local-secrets/*.env; do
-    if [[ -f "$env_file" && ! "$env_file" == *.example ]]; then
-        # Generate a random base64 encoded string
-        random_string=$(openssl rand -base64 32 | tr '/' '_' | tr '=' '_')
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s/\$(RAND32)/$random_string/g" "$env_file"
-        else
-            sed -i "s/\$(RAND32)/$random_string/g" "$env_file"
-        fi
-    fi
-done
+replace_rand32_in_env_files "overlays/local-secrets"
 
-POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" overlays/local-secrets/timescaledb-secrets.env | cut -d '=' -f2-)
-
-if [ "$POSTGRES_PASSWORD" != "VAULT" ]; then
-    POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
-    if grep -q "^POSTGRES_CONNECTION_STRING=" overlays/local-secrets/timescaledb-secrets.env; then
-        update_env_var "overlays/local-secrets/timescaledb-secrets.env" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
-    else
-        echo "" >> overlays/local-secrets/timescaledb-secrets.env
-        echo "POSTGRES_CONNECTION_STRING=$POSTGRES_CONNECTION_STRING" >> overlays/local-secrets/timescaledb-secrets.env
-    fi
-fi
+# Setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
+setup_postgres_connection_string "overlays/local-secrets/timescaledb-secrets.env"
 
 if [ -f "/var/lib/rancher/k3s/server/node-token" ]; then
     K3S_TOKEN=$(cat /var/lib/rancher/k3s/server/node-token)
@@ -283,14 +245,7 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 fi
 
-STEAM_WEB_API_KEY=$(grep -h "^STEAM_WEB_API_KEY=" overlays/local-secrets/steam-secrets.env | cut -d '=' -f2-)
-
-while [ -z "$STEAM_WEB_API_KEY" ]; do
-    echo "Please enter your Steam Web API key (required for Steam authentication). Get one at: https://steamcommunity.com/dev/apikey"
-    read STEAM_WEB_API_KEY
-done
-
-update_env_var "overlays/local-secrets/steam-secrets.env" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"
+setup_steam_web_api_key "overlays/local-secrets/steam-secrets.env"
 
 if [ "$VAULT_MANAGER" = true ]; then
     if ! command -v vault &> /dev/null; then

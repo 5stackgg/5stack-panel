@@ -9,9 +9,9 @@ checkout_repos() {
     # Define repos to checkout (repo_name -> repo_url)
     declare -A repos=(
         ["api"]="https://github.com/5stackgg/api.git"
+        ["web"]="https://github.com/5stackgg/web.git"
         ["game-server"]="https://github.com/5stackgg/game-server.git"
         ["game-server-node-connector"]="https://github.com/5stackgg/game-server-node-connector.git"
-        ["web"]="https://github.com/5stackgg/web.git"
     )
     
     # Define order of repos to process

@@ -17,6 +17,11 @@ docker_build(
 #     "../game-server",
 # )
 
+docker_build(
+    "game-server-node-connector",
+    "../game-server-node-connector",
+)
+
 k8s_resource(
     'api',
     new_name='api',
@@ -39,11 +44,6 @@ k8s_resource(
     resource_deps=['timescaledb', 'redis', 'hasura'],
     port_forwards=['8585:8585'],
     labels=['application'],
-)
-
-docker_build(
-    "game-server-node-connector",
-    "../game-server-node-connector",
 )
 
 k8s_resource(
@@ -74,6 +74,12 @@ k8s_resource(
     'hasura',
     port_forwards=['8080:8080'],
     resource_deps=['timescaledb'],
+    labels=['application'],
+)
+
+k8s_resource(
+    'dev-cs-server',
+    port_forwards=['27015:27015', '27015:27015/udp', '27020:27020', '27020:27020/udp'],
     labels=['application'],
 )
 

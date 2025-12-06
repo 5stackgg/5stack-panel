@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Utility function to choose and set Kubernetes context
 choose_k8s_context() {
   echo "Detecting available Kubernetes contexts..."
   contexts=($(kubectl config get-contexts -o name))

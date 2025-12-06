@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Utility function to update an environment variable in a file
 update_env_var() {
     local file=$1
     local key=$2

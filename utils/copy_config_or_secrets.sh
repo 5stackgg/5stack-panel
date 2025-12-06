@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Utility function to copy config or secrets files from source to destination
 copy_config_or_secrets() {
     local source_dir=$1
     local dest_dir=$2

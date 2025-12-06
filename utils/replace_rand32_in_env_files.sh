@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Utility function to replace $(RAND32) placeholders with random base64 encoded strings
 replace_rand32_in_env_files() {
     local secrets_dir=$1
     

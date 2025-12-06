@@ -245,14 +245,7 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 fi
 
-STEAM_WEB_API_KEY=$(grep -h "^STEAM_WEB_API_KEY=" overlays/local-secrets/steam-secrets.env | cut -d '=' -f2-)
-
-while [ -z "$STEAM_WEB_API_KEY" ]; do
-    echo "Please enter your Steam Web API key (required for Steam authentication). Get one at: https://steamcommunity.com/dev/apikey"
-    read STEAM_WEB_API_KEY
-done
-
-update_env_var "overlays/local-secrets/steam-secrets.env" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"
+setup_steam_web_api_key "overlays/local-secrets/steam-secrets.env"
 
 if [ "$VAULT_MANAGER" = true ]; then
     if ! command -v vault &> /dev/null; then

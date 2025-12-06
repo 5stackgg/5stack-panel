@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Utility function to setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
-# Note: This function depends on update_env_var, so source it first if using independently
-
 setup_postgres_connection_string() {
     local secrets_file=$1
     

@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Utility function to install Ingress Nginx and wait for it to be ready
 install_ingress_nginx() {
     local quiet=${1:-false}
     

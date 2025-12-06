@@ -17,6 +17,8 @@ replace_rand32_in_env_files "overlays/dev/secrets"
 
 setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 
+setup_steam_web_api_key "overlays/dev/secrets/steam-secrets.env"
+
 echo "Creating 5Stack directories..."
 NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl run create-5stack-dirs --rm -i --restart=Never --image=busybox \

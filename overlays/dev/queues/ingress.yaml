@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: queues
+  namespace: 5stack
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /queues/$1
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: queues.5stack.localhost
+      http:
+        paths:
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /(.*)
+            pathType: ImplementationSpecific

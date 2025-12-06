@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hasura-dashboard
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: hasura.5stack.localhost
+      http:
+        paths:
+          - backend:
+              service:
+                name: hasura
+                port:
+                  number: 8080
+            path: /
+            pathType: Prefix

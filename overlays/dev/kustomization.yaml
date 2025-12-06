@@ -6,6 +6,8 @@ resources:
   - secrets
   - dev-cs-server
   - dev-game-stream
+  - queues
+  - hasura
 
 replacements:
   - source:

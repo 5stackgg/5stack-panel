@@ -82,4 +82,3 @@ k8s_resource(
     port_forwards=['27015:27015', '27020:27020'],
     labels=['application'],
 )
-

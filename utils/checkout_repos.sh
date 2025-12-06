@@ -36,12 +36,14 @@ checkout_repos() {
         if [[ "$response" =~ ^[Yy]$ ]]; then
             echo "Cloning $repo_name from $repo_url..."
             if git clone "$repo_url" "$repo_path"; then
-                echo "✓ Successfully cloned $repo_name"
+                echo "Successfully cloned $repo_name"
             else
-                echo "✗ Failed to clone $repo_name"
+                echo "Error: $repo_name is required. Exiting."
+                exit 1
             fi
         else
-            echo "Skipping $repo_name"
+            echo "Error: $repo_name is required. Exiting."
+            exit 1
         fi
         echo ""
     done

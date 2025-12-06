@@ -18,7 +18,5 @@ overlays/vault-https
 overlays/local-secrets-http
 overlays/local-secrets-https
 
-overlays/dev/config/*.env
-overlays/dev/config/*.env.example
 overlays/dev/secrets/*.env
 overlays/dev/secrets/*.env.example

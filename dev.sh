@@ -12,7 +12,6 @@ install_ingress_nginx
 echo "Labeling node..."
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
 
-copy_config_or_secrets "overlays/config" "overlays/dev/config"
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files

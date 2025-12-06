@@ -3,11 +3,6 @@
 Vist https://docs.5stack.gg for documentation.
 
 
-## Dev 
+## Developers
 
-### Requirements
-
-#### mkcert
-install via  (https://github.com/FiloSottile/mkcert)
-
-mkcert -install
+Visit https://docs.5stack.gg/developer for information on setting up the development environment.

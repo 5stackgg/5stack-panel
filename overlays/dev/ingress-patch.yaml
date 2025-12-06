@@ -1,0 +1,10 @@
+- op: add
+  path: /metadata/annotations/cert-manager.io~1issuer
+  value: 5stack-issuer
+
+- op: add
+  path: /spec/tls
+  value:
+    - hosts:
+        - HOST
+      secretName: 5stack-ssl

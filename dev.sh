@@ -1,11 +1,10 @@
 #!/bin/bash
 
-# Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh"
 
-echo "Setup to use Docker Desktop..."
-kubectl config use-context docker-desktop
+echo "Setup to use Kubernetes..."
+choose_k8s_context
 
 install_ingress_nginx
 
@@ -14,10 +13,10 @@ kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
-# Replace $(RAND32) with a random base64 encoded string in all non-example env files
+copy_config_or_secrets "overlays/config" "overlays/dev/config"
+
 replace_rand32_in_env_files "overlays/dev/secrets"
 
-# Setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
 setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 
 echo "Creating 5Stack directories..."

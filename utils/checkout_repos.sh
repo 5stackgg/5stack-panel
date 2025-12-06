@@ -15,7 +15,7 @@ checkout_repos() {
     )
     
     # Define order of repos to process
-    repo_order=("api" "game-server" "game-server-node-connector" "web")
+    repo_order=("api" "web" "game-server" "game-server-node-connector")
     
     echo "Checking for required repositories in: $PARENT_DIR"
     echo ""

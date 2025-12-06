@@ -13,8 +13,6 @@ kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
-copy_config_or_secrets "overlays/config" "overlays/dev/config"
-
 replace_rand32_in_env_files "overlays/dev/secrets"
 
 setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"

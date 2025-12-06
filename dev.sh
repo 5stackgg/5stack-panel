@@ -55,4 +55,10 @@ kubectl run create-5stack-dirs --rm -i --restart=Never --image=busybox \
   }
 }'
 
+
+if ! [ -f overlays/dev/certs/_wildcard.5stack.localhost+1.pem ]; then
+  mkcert -install
+  mkcert "*.5stack.localhost" 5stack.localhost
+fi
+
 tilt up

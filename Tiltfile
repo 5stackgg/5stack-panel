@@ -3,16 +3,6 @@ allow_k8s_contexts('default')
 k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
 
 local_resource(
-    'mkcert-certs',
-    cmd='cd overlays/dev/certs && ' +
-        'if [ ! -f _wildcard.5stack.localhost+1.pem ]; then ' +
-        'mkcert "*.5stack.localhost" 5stack.localhost; ' +
-        'fi',
-    deps=['overlays/dev/config'],
-    labels=['tls-setup'],
-)
-
-local_resource(
     'tls-secret',
     cmd=(
         'kubectl create secret tls 5stack-ssl ' +

@@ -8,7 +8,7 @@ spec:
   tls:
     - hosts:
         - hasura.5stack.localhost
-      secretName: 5stack-tls
+      secretName: 5stack-ssl
   rules:
     - host: hasura.5stack.localhost
       http:

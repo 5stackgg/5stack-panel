@@ -4,13 +4,13 @@ metadata:
   name: queues
   namespace: 5stack
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /queues/$1
+    nginx.ingress.kubernetes.io/rewrite-target: /queues/$2
 spec:
   ingressClassName: nginx
   tls:
     - hosts:
         - queues.5stack.localhost
-      secretName: 5stack-tls
+      secretName: 5stack-ssl
   rules:
     - host: queues.5stack.localhost
       http:
@@ -20,5 +20,5 @@ spec:
                 name: api
                 port:
                   number: 5585
-            path: /(.*)
+            path: /(queues/?)?(.*)
             pathType: ImplementationSpecific

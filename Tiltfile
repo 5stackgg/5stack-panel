@@ -1,4 +1,4 @@
-allow_k8s_contexts('default')
+allow_k8s_contexts('k3d-5stack-dev')
 
 k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
 

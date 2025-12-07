@@ -16,7 +16,9 @@ else
     --k3s-arg "--disable=traefik@server:0" \
     --kubeconfig-switch-context=false \
     --kubeconfig-update-default=false \
-    --registry-create 5stack-dev-registry
+    --registry-create 5stack-dev-registry \
+    --port "80:80@loadbalancer" \
+    --port "443:443@loadbalancer" 
 fi
 
 k3d kubeconfig merge 5stack-dev -o ~/.kube/5stack-dev

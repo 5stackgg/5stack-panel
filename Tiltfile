@@ -66,7 +66,7 @@ k8s_resource(
     new_name='web',
     port_forwards=['3000:3000'],
     labels=['application'],
-    links=['web.5stack.localhost'],
+    links=['5stack.localhost'],
 )
 
 k8s_resource(

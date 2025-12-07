@@ -58,7 +58,7 @@ k8s_resource(
     resource_deps=['timescaledb', 'redis', 'hasura'],
     port_forwards=['5585:5585'],
     labels=['application'],
-    links=['api.5stack.localhost'],
+    links=['api.5stack.localhost', 'queues.5stack.localhost'],
 )
 
 k8s_resource(

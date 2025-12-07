@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-game-server
+  namespace: 5stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-game-server
+  template:
+    metadata:
+      labels:
+        app: dev-game-server
+    spec:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: 5stack-dev-server
+                operator: In
+                values:
+                  - "true"
+      containers:
+        - image: game-server:latest
+          name: dev-game-server
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 27015
+              protocol: TCP
+            - containerPort: 27015
+              protocol: UDP
+            - containerPort: 27020
+              protocol: TCP   
+            - containerPort: 27020
+              protocol: UDP   
+          envFrom:
+            - secretRef:
+                name: dev-server-secrets
+          env:
+            - name: DEV_SERVER
+              value: 'true'
+            - name: SERVER_PORT
+              value: '27015'
+            - name: TV_PORT
+              value: '27020'
+            - name: EXTRA_GAME_PARAMS
+              value: -maxplayers 13 +map de_overpass
+            - name: ALLOW_BOTS
+              value: "true"
+            - name: STEAM_RELAY
+              value: "true"
+          volumeMounts:
+            - name: steamcmd
+              mountPath: /serverdata/steamcmd
+            - name: serverfiles
+              mountPath: /serverdata/serverfiles
+            - name: demos
+              mountPath: /opt/demos
+            - name: custom-plugins
+              mountPath: /opt/custom-plugins
+            - name: dev
+              mountPath: /opt/dev
+      volumes:
+        - name: steamcmd
+          hostPath:
+            path: /opt/5stack/steamcmd
+            type: Directory
+        - name: serverfiles
+          hostPath:
+            path: /opt/5stack/serverfiles
+            type: Directory
+        - name: demos
+          hostPath:
+            path: /opt/5stack/demos
+            type: Directory
+        - name: custom-plugins
+          hostPath:
+            path: /opt/5stack/custom-plugins
+            type: Directory
+        - name: dev
+          hostPath:
+            path: /opt/5stack/dev
+            type: Directory
+

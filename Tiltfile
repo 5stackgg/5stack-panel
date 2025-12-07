@@ -58,6 +58,7 @@ k8s_resource(
     resource_deps=['timescaledb', 'redis', 'hasura'],
     port_forwards=['5585:5585'],
     labels=['application'],
+    links=['api.5stack.localhost'],
 )
 
 k8s_resource(
@@ -65,6 +66,7 @@ k8s_resource(
     new_name='web',
     port_forwards=['3000:3000'],
     labels=['application'],
+    links=['web.5stack.localhost'],
 )
 
 k8s_resource(
@@ -97,6 +99,7 @@ k8s_resource(
     'minio',
     port_forwards=['9000:9000', '9090:9090'],
     labels=['infrastructure'],
+    links=['console.5stack.localhost'],
 )
 
 k8s_resource(
@@ -104,6 +107,7 @@ k8s_resource(
     port_forwards=['8080:8080'],
     resource_deps=['timescaledb'],
     labels=['application'],
+    links=['hasura.5stack.localhost'],
 )
 
 k8s_resource(

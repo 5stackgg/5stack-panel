@@ -11,6 +11,7 @@ check_dev_dependencies
 if k3d cluster list 5stack-dev | grep -q '5stack-dev'; then
   echo "k3d cluster '5stack-dev' already exists. Skipping creation."
 else
+  rm ~/.kube/5stack-dev
   k3d cluster create 5stack-dev \
     --k3s-arg "--disable=traefik@server:0" \
     --kubeconfig-switch-context=false \

@@ -185,7 +185,14 @@ patches:
       spec:
         template:
           spec:
-            initContainers: null
+            initContainers:
+              - name: migrations
+                image: ghcr.io/5stackgg/api:latest
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    yarn build && cp -r /opt/5stack/hasura /app && node dist/src/main.js
   - target:
       group: networking.k8s.io
       version: v1

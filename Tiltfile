@@ -2,17 +2,6 @@ allow_k8s_contexts('k3d-5stack-dev')
 
 k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
 
-local_resource(
-    'tls-secret',
-    cmd=(
-        'kubectl create secret tls 5stack-ssl ' +
-        '--cert=overlays/dev/certs/_wildcard.5stack.localhost+1.pem ' +
-        '--key=overlays/dev/certs/_wildcard.5stack.localhost+1-key.pem ' +
-        '-n 5stack --dry-run=client -o yaml | kubectl apply -f -'
-    ),
-    labels=['tls-setup'],
-)
-
 docker_build(
     "ghcr.io/5stackgg/api:latest",
     "../api",
@@ -127,3 +116,14 @@ k8s_resource(
     labels=['infrastructure'],
 )
 
+local_resource(
+    'tls-secret',
+    cmd=(
+        'kubectl create secret tls 5stack-ssl ' +
+        '--cert=overlays/dev/certs/_wildcard.5stack.localhost+1.pem ' +
+        '--key=overlays/dev/certs/_wildcard.5stack.localhost+1-key.pem ' +
+        '-n 5stack --dry-run=client -o yaml | kubectl apply -f -'
+    ),
+    labels=['tls-setup'],
+    resource_deps=['web'],
+)

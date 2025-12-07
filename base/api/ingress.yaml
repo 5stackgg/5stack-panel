@@ -96,13 +96,6 @@ spec:
                   number: 5585
             path: /discord-bot
             pathType: Exact
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /matches/[^/]+/backup-rounds/map/.*
-            pathType: ImplementationSpecific
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

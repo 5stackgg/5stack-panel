@@ -221,7 +221,7 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 
     if [ -z "$RELAY_DOMAIN" ]; then
-        RELAY_DOMAIN="relay.$WEB_DOMAIN"
+        RELAY_DOMAIN="tv.$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "RELAY_DOMAIN" "$RELAY_DOMAIN"
     fi
 

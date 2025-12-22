@@ -70,6 +70,11 @@ spec:
                 configMapKeyRef:
                   name: api-config
                   key: WEB_DOMAIN
+            - name: NUXT_PUBLIC_RELAY_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: api-config
+                  key: RELAY_DOMAIN
             - name: NUXT_PUBLIC_DEMOS_DOMAIN
               valueFrom:
                 configMapKeyRef:

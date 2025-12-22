@@ -161,7 +161,26 @@ replacements:
           namespace: ingress-nginx
         fieldPaths:
           - spec.ports.1.port
-
+  - source:
+      kind: ConfigMap
+      name: api-config
+      fieldPath: data.RELAY_DOMAIN
+    targets:
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: 5stack-ssl
+        fieldPaths:
+          - spec.dnsNames.0
 patches:
   - target:
       group: networking.k8s.io

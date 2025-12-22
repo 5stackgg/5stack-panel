@@ -4,7 +4,7 @@ kind: Kustomization
 resources:
   - config
   - secrets
-  - dev-cs-server
+  - dev-game-server
   - dev-game-stream
   - queues
   - hasura

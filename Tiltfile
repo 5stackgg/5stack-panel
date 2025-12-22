@@ -1,4 +1,4 @@
-allow_k8s_contexts('k3d-5stack-dev')
+allow_k8s_contexts('default')
 
 k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
 
@@ -100,7 +100,7 @@ k8s_resource(
 )
 
 k8s_resource(
-    'dev-cs-server',
+    'dev-game-server',
     port_forwards=['27015:27015', '27020:27020'],
     labels=['application'],
 )

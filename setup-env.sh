@@ -195,52 +195,53 @@ fi
 WEB_DOMAIN=$(grep -h "^WEB_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
 WS_DOMAIN=$(grep -h "^WS_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
 API_DOMAIN=$(grep -h "^API_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
+RELAY_DOMAIN=$(grep -h "^RELAY_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
 DEMOS_DOMAIN=$(grep -h "^DEMOS_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
 MAIL_FROM=$(grep -h "^MAIL_FROM=" overlays/config/api-config.env | cut -d '=' -f2-)
 S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" overlays/config/s3-config.env | cut -d '=' -f2-)
 TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" overlays/config/typesense-config.env | cut -d '=' -f2-)
 
-if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
-    echo -e "\n\n\n\033[1;36mEnter your base domain (e.g. example.com):\033[0m"
-
-    read BASE_DOMAIN
-    while [ -z "$BASE_DOMAIN" ]; do
-        echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
-        read BASE_DOMAIN
-    done
-    
+if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
     if [ -z "$WEB_DOMAIN" ]; then
-        WEB_DOMAIN=$BASE_DOMAIN
-        update_env_var "overlays/config/api-config.env" "WEB_DOMAIN" "$WEB_DOMAIN"
+        echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
+        read WEB_DOMAIN
     fi
+    
+    echo "WEB_DOMAIN: $WEB_DOMAIN"
+    update_env_var "overlays/config/api-config.env" "WEB_DOMAIN" "$WEB_DOMAIN"
 
     if [ -z "$WS_DOMAIN" ]; then
-        WS_DOMAIN="ws.$BASE_DOMAIN"
+        WS_DOMAIN="ws.$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "WS_DOMAIN" "$WS_DOMAIN"
     fi
 
     if [ -z "$API_DOMAIN" ]; then
-        API_DOMAIN="api.$BASE_DOMAIN"
+        API_DOMAIN="api.$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "API_DOMAIN" "$API_DOMAIN"
     fi
 
+    if [ -z "$RELAY_DOMAIN" ]; then
+        RELAY_DOMAIN="relay.$WEB_DOMAIN"
+        update_env_var "overlays/config/api-config.env" "RELAY_DOMAIN" "$RELAY_DOMAIN"
+    fi
+
     if [ -z "$DEMOS_DOMAIN" ]; then
-        DEMOS_DOMAIN="demos.$BASE_DOMAIN"
+        DEMOS_DOMAIN="demos.$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "DEMOS_DOMAIN" "$DEMOS_DOMAIN"
     fi
 
     if [ -z "$MAIL_FROM" ]; then
-        MAIL_FROM="hello@$BASE_DOMAIN"
+        MAIL_FROM="hello@$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "MAIL_FROM" "$MAIL_FROM"
     fi
 
     if [ -z "$S3_CONSOLE_HOST" ]; then
-        S3_CONSOLE_HOST="console.$BASE_DOMAIN"
+        S3_CONSOLE_HOST="console.$WEB_DOMAIN"
         update_env_var "overlays/config/s3-config.env" "S3_CONSOLE_HOST" "$S3_CONSOLE_HOST"
     fi
 
     if [ -z "$TYPESENSE_HOST" ]; then
-        TYPESENSE_HOST="search.$BASE_DOMAIN"
+        TYPESENSE_HOST="search.$WEB_DOMAIN"
         update_env_var "overlays/config/typesense-config.env" "TYPESENSE_HOST" "$TYPESENSE_HOST"
     fi
 fi
@@ -276,6 +277,7 @@ echo "--------------------------------"
 echo "WEB_DOMAIN: $WEB_DOMAIN"
 echo "WS_DOMAIN: $WS_DOMAIN" 
 echo "API_DOMAIN: $API_DOMAIN"
+echo "RELAY_DOMAIN: $RELAY_DOMAIN"
 echo "DEMOS_DOMAIN: $DEMOS_DOMAIN"
 echo "MAIL_FROM: $MAIL_FROM"
 echo "S3_CONSOLE_HOST: $S3_CONSOLE_HOST"

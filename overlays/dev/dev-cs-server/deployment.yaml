@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: dev-cs-server
+  name: dev-game-server
   namespace: 5stack
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: dev-cs-server
+      app: dev-game-server
   template:
     metadata:
       labels:
-        app: dev-cs-server
+        app: dev-game-server
     spec:
       dnsConfig:
         options:
@@ -30,7 +30,7 @@ spec:
                   - "true"
       containers:
         - image: ghcr.io/5stackgg/game-server:latest
-          name: dev-cs-server
+          name: dev-game-server
           ports:
             - containerPort: 27015
               protocol: TCP

@@ -51,6 +51,16 @@ replacements:
           - spec.rules.1.host
   - source:
       kind: ConfigMap
+      name: api-config
+      fieldPath: data.RELAY_DOMAIN
+    targets:
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.rules.0.host
+  - source:
+      kind: ConfigMap
       name: s3-config
       fieldPath: data.S3_CONSOLE_HOST
     targets:

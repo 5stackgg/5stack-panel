@@ -6,6 +6,15 @@ if [ "$REVERSE_PROXY" = true ]; then
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
 fi
 
+if [ "$REVERSE_PROXY" != true ]; then
+    # Apply cert-manager CRDs and controller first to avoid race conditions with Certificate/Issuer
+    ./kustomize build overlays/cert-manager-crds | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+
+    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/certificates.cert-manager.io --timeout=120s 
+    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/issuers.cert-manager.io --timeout=120s
+    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s
+fi
+
 HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
 HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
 
@@ -55,5 +64,9 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 GIT_SHA=$(git rev-parse HEAD)
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite
+
+if [ "$REVERSE_PROXY" = false ]; then
+    watch_ssl_status
+fi
 
 echo "5Stack : Updated"

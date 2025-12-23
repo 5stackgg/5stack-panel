@@ -2,23 +2,23 @@ replacements:
   - source:
       kind: ConfigMap
       name: api-config
-      fieldPath: data.WS_DOMAIN
+      fieldPath: data.WEB_DOMAIN
     targets:
       - select:
           kind: Ingress
-          name: ws
+          name: web
         fieldPaths:
           - spec.rules.0.host
       - select:
           kind: Ingress
-          name: ws
+          name: web
         fieldPaths:
           - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.5
+          - spec.dnsNames.0
   - source:
       kind: ConfigMap
       name: api-config
@@ -61,24 +61,24 @@ replacements:
           - spec.dnsNames.2
   - source:
       kind: ConfigMap
-      name: api-config
-      fieldPath: data.WEB_DOMAIN
+      name: typesense-config
+      fieldPath: data.TYPESENSE_HOST
     targets:
       - select:
           kind: Ingress
-          name: web
+          name: typesense
         fieldPaths:
           - spec.rules.0.host
       - select:
           kind: Ingress
-          name: web
+          name: typesense
         fieldPaths:
           - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.0
+          - spec.dnsNames.3
   - source:
       kind: ConfigMap
       name: s3-config
@@ -101,24 +101,44 @@ replacements:
           - spec.dnsNames.4
   - source:
       kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
+      name: api-config
+      fieldPath: data.WS_DOMAIN
     targets:
       - select:
           kind: Ingress
-          name: typesense
+          name: ws
         fieldPaths:
           - spec.rules.0.host
       - select:
           kind: Ingress
-          name: typesense
+          name: ws
         fieldPaths:
           - spec.tls.0.hosts.0
       - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.3
+          - spec.dnsNames.5
+  - source:
+      kind: ConfigMap
+      name: api-config
+      fieldPath: data.RELAY_DOMAIN
+    targets:
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: 5stack-ssl
+        fieldPaths:
+          - spec.dnsNames.6
   - source:
       kind: ConfigMap
       name: nginx-config
@@ -140,7 +160,7 @@ replacements:
           name: ingress-nginx-controller
           namespace: ingress-nginx
         fieldPaths:
-          - spec.ports.1.portreplacements:
+          - spec.ports.1.port
   - source:
       kind: ConfigMap
       name: api-config

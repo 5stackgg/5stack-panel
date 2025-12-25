@@ -34,7 +34,7 @@ spec:
                 values:
                   - "true"
       containers:
-        - image: hasura/graphql-engine:v2.48.5-ce.cli-migrations-v3
+        - image: hasura/graphql-engine:v2.48.9-ce.cli-migrations-v3
           name: hasura
           ports:
             - containerPort: 8080

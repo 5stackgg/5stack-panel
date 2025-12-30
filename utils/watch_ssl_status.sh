@@ -2,7 +2,7 @@
 
 watch_ssl_status() {
     echo "--------------------------------"
-    echo "Watching SSL certificate and ACME challenge status (Ctrl+C to stop)..."
+    echo "Watching SSL certificate and ACME challenge status (will exit when all certs are valid, Ctrl+C to stop)..."
     echo "If you're using Cloudflare make sure to add a page rule (https://docs.5stack.gg/install/reverse-proxy#cloudflare-required-page-rule) to filter the ACME challenge."
     local interval="${WATCH_SSL_INTERVAL:-10}"
     # Save the cursor position so we can redraw the status section in-place
@@ -44,6 +44,21 @@ watch_ssl_status() {
             echo
         done
         echo
+        
+        # Check if all certificates are valid and exit if so
+        certs_json=$(kubectl --kubeconfig=$KUBECONFIG get certificates.cert-manager.io -n 5stack -o json 2>/dev/null || echo '{"items":[]}')
+        cert_count=$(echo "$certs_json" | jq -r '.items | length' 2>/dev/null || echo "0")
+        
+        if [ "$cert_count" -gt 0 ]; then
+            # Check if all certificates are ready
+            all_ready=$(echo "$certs_json" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="True")) | .metadata.name' 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$all_ready" -eq "$cert_count" ]; then
+                echo "✓ All certificates are valid!"
+                echo "Exiting..."
+                break
+            fi
+        fi
+        
         sleep "$interval"
     done
 }

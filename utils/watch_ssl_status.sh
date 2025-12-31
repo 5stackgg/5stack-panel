@@ -45,18 +45,13 @@ watch_ssl_status() {
         done
         echo
         
-        # Check if all certificates are valid and exit if so
-        certs_json=$(kubectl --kubeconfig=$KUBECONFIG get certificates.cert-manager.io -n 5stack -o json 2>/dev/null || echo '{"items":[]}')
-        cert_count=$(echo "$certs_json" | jq -r '.items | length' 2>/dev/null || echo "0")
+        # Check if 5stack-ssl certificate is ready and exit if so
+        ready_status=$(kubectl --kubeconfig=$KUBECONFIG get certificates.cert-manager.io 5stack-ssl -n 5stack --no-headers 2>/dev/null | awk '{print $2}' || echo "")
         
-        if [ "$cert_count" -gt 0 ]; then
-            # Check if all certificates are ready
-            all_ready=$(echo "$certs_json" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="True")) | .metadata.name' 2>/dev/null | wc -l | tr -d ' ')
-            if [ "$all_ready" -eq "$cert_count" ]; then
-                echo "✓ All certificates are valid!"
-                echo "Exiting..."
-                break
-            fi
+        if [ "$ready_status" = "True" ]; then
+            echo "✓ 5stack-ssl certificate is ready!"
+            echo "Exiting..."
+            break
         fi
         
         sleep "$interval"

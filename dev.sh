@@ -9,6 +9,20 @@ echo "Setup to use Kubernetes..."
 setup_kustomize
 check_dev_dependencies
 
+CERT_DIR="overlays/dev/certs"
+CERT_FILE="${CERT_DIR}/_wildcard.5stack.localhost+1.pem"
+KEY_FILE="${CERT_DIR}/_wildcard.5stack.localhost+1-key.pem"
+
+mkdir -p "$CERT_DIR"
+
+if ! [ -f "$CERT_FILE" ]; then
+  mkcert -install
+  mkcert \
+    -cert-file "$CERT_FILE" \
+    -key-file "$KEY_FILE" \
+    "*.5stack.localhost" 5stack.localhosts
+fi
+
 if k3d cluster list 5stack-dev | grep -q '5stack-dev'; then
   echo "k3d cluster '5stack-dev' already exists. Skipping creation."
 else
@@ -42,10 +56,5 @@ setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 setup_steam_web_api_key "overlays/dev/secrets/steam-secrets.env"
 
 docker exec -it k3d-5stack-dev-server-0 sh -c "mkdir -p mkdir -p /opt/5stack/dev /opt/5stack/demos /opt/5stack/steamcmd /opt/5stack/serverfiles /opt/5stack/timescaledb /opt/5stack/typesense /opt/5stack/minio /opt/5stack/custom-plugins /var/lib/rancher/k3s/agent/pod-manifests && echo Directories created successfully"
-
-if ! [ -f overlays/dev/certs/_wildcard.5stack.localhost+1.pem ]; then
-  mkcert -install
-  mkcert "*.5stack.localhost" 5stack.localhost
-fi
 
 tilt up

@@ -4,7 +4,7 @@ kind: Kustomization
 resources:
   - config
   - secrets
-  - dev-game-server
+  # - dev-game-server
   - dev-game-stream
   - queues
   - hasura
@@ -143,6 +143,26 @@ replacements:
   - source:
       kind: ConfigMap
       name: api-config
+      fieldPath: data.RELAY_DOMAIN
+    targets:
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: relay
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
+          kind: Certificate
+          name: 5stack-ssl
+        fieldPaths:
+          - spec.dnsNames.6
+  - source:
+      kind: ConfigMap
+      name: api-config
       fieldPath: data.MAIL_FROM
     targets:
       - select:
@@ -228,4 +248,10 @@ patches:
       version: v1
       kind: Ingress
       name: ws
+    path: ingress-patch.yaml
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: relay
     path: ingress-patch.yaml

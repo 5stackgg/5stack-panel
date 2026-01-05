@@ -22,14 +22,14 @@ docker_build(
     ],
 )
 
-docker_build(
-    "ghcr.io/5stackgg/game-server:latest",
-    "../game-server",
-    dockerfile='../game-server/Dockerfile.dev',
-    live_update=[
-        sync('../game-server', '/opt/5stack'),
-    ],
-)
+# docker_build(
+#     "ghcr.io/5stackgg/game-server:latest",
+#     "../game-server",
+#     dockerfile='../game-server/Dockerfile.dev',
+#     live_update=[
+#         sync('../game-server', '/opt/5stack'),
+#     ],
+# )
 
 docker_build(
     "ghcr.io/5stackgg/game-server-node-connector:latest",
@@ -47,7 +47,7 @@ k8s_resource(
     resource_deps=['timescaledb', 'redis', 'hasura'],
     port_forwards=['5585:5585'],
     labels=['application'],
-    links=['api.5stack.localhost', 'queues.5stack.localhost'],
+    links=['api.5stack.localhost', 'queues.5stack.localhost', 'tv.5stack.localhost'],
 )
 
 k8s_resource(
@@ -99,11 +99,11 @@ k8s_resource(
     links=['hasura.5stack.localhost'],
 )
 
-k8s_resource(
-    'dev-game-server',
-    port_forwards=['27015:27015', '27020:27020'],
-    labels=['application'],
-)
+# k8s_resource(
+#     'dev-game-server',
+#     port_forwards=['27015:27015', '27020:27020'],
+#     labels=['application'],
+# )
 
 k8s_resource(
     'steam-headless',

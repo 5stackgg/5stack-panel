@@ -6,6 +6,7 @@ source "$SCRIPT_DIR/utils/utils.sh"
 checkout_repos
 
 echo "Setup to use Kubernetes..."
+setup_kustomize
 check_dev_dependencies
 
 if k3d cluster list 5stack-dev | grep -q '5stack-dev'; then

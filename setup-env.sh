@@ -1,4 +1,6 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/utils/utils.sh"
 
 if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
     return;
@@ -17,11 +19,7 @@ if [ -z "$KUBECONFIG" ]; then
     KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 fi
 
-if ! [ -f ./kustomize ] || ! [ -x ./kustomize ]
-then
-    echo "kustomize not found. Installing..."
-    curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-fi
+setup_kustomize
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -52,10 +50,6 @@ done
 if [ "$DEBUG" = true ]; then
     echo "Debug mode enabled (KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)"
 fi
-
-# Source utility functions
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils/utils.sh"
 
 ask_reverse_proxy() {
     while true; do

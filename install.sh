@@ -19,8 +19,6 @@ mkdir -p /opt/5stack/custom-plugins
 
 echo "Environment files setup complete"
 
-curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
-
 echo "Installing K3s"
 curl -sfL https://get.k3s.io | sh -s - --disable=traefik
 

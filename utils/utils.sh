@@ -3,6 +3,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source all utility functions
+source "$SCRIPT_DIR/output_redirect.sh"
+source "$SCRIPT_DIR/setup-env.sh"
 source "$SCRIPT_DIR/update_env_var.sh"
 source "$SCRIPT_DIR/copy_config_or_secrets.sh"
 source "$SCRIPT_DIR/replace_rand32_in_env_files.sh"

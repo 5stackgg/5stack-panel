@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediamtx
+  namespace: 5stack
+  labels:
+    app: mediamtx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mediamtx
+  template:
+    metadata:
+      labels:
+        app: mediamtx
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: 5stack-mediamtx
+                operator: In
+                values:
+                  - "true"
+      containers:
+        - name: mediamtx
+          image: bluenviron/mediamtx:latest
+          env:
+            - name: MTX_CONFPATH
+              value: /config/mediamtx.yml
+          ports:
+            - { name: hls,      containerPort: 8888, protocol: TCP }
+            - { name: whip,     containerPort: 8889, protocol: TCP }
+            - { name: srt,      containerPort: 8890, protocol: UDP }
+            - { name: rtmp,     containerPort: 1935, protocol: TCP }
+            - { name: api,      containerPort: 9997, protocol: TCP }
+            - { name: webrtc,   containerPort: 8189, protocol: UDP }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: mediamtx-config

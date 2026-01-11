@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: 5stack
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  - name: mediamtx-config
+    namespace: 5stack
+    files:
+      - mediamtx.yml
+  - name: mediamtx-env
+    namespace: 5stack
+    envs:
+      - mediamtx.env
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: mediamtx-env
+      fieldPath: data.GAME_STREAM_DOMAIN
+    targets:
+      - select:
+          kind: Ingress
+          name: mediamtx
+        fieldPaths:
+          - spec.rules.0.host

@@ -2,8 +2,8 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   labels:
-    app: game-server-node-connector
-  name: game-server-node-connector
+    app: game-server-node-connector-nvidia
+  name: game-server-node-connector-nvidia
   namespace: 5stack
 spec:
   updateStrategy:
@@ -12,11 +12,11 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app: game-server-node-connector
+      app: game-server-node-connector-nvidia
   template:
     metadata:
       labels:
-        app: game-server-node-connector
+        app: game-server-node-connector-nvidia
     spec:
       dnsConfig:
         options:
@@ -25,13 +25,19 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: game-server-node-connector
+      runtimeClassName: nvidia
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
                   - key: nvidia-gpu
-                    operator: DoesNotExist
+                    operator: In
+                    values: ["true"]
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
       containers:
         - image: ghcr.io/5stackgg/game-server-node-connector:latest
           name: game-server-node-connector
@@ -73,6 +79,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "utility"
           envFrom:
             - secretRef:
                 name: hasura-secrets

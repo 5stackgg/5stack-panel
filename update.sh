@@ -1,6 +1,7 @@
 #!/bin/bash
 
-source setup-env.sh "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
 if [ "$REVERSE_PROXY" = true ]; then
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null

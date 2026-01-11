@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - nvidia-plugin.yaml
+  - game-server-node-connector-nvidia.yaml

@@ -180,14 +180,14 @@ spec:
         - mountPath: /home/ubuntu
           name: egl-root-vol
       volumes:
-      - name: dshm
-        emptyDir:
-          medium: Memory
-      - name: egl-cache-vol
-        emptyDir: {}
-#        persistentVolumeClaim:
-#          claimName: egl-cache-vol
-      - name: egl-root-vol
-        emptyDir: {}
-#        persistentVolumeClaim:
-#          claimName: egl-root-vol
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        - name: egl-cache-vol
+          hostPath:
+            path: /opt/5stack/game-streamer/cache
+            type: DirectoryOrCreate
+        - name: egl-root-vol
+          hostPath:
+            path: /opt/5stack/game-streamer/home
+            type: DirectoryOrCreate

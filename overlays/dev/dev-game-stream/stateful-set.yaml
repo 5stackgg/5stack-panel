@@ -179,6 +179,8 @@ spec:
           name: egl-cache-vol
         - mountPath: /home/ubuntu
           name: egl-root-vol
+        - mountPath: /home/ubuntu/.steam/
+          name: steam-data
       volumes:
         - name: dshm
           emptyDir:
@@ -190,4 +192,8 @@ spec:
         - name: egl-root-vol
           hostPath:
             path: /opt/5stack/game-streamer/home
+            type: DirectoryOrCreate
+        - name: steam-data
+          hostPath:
+            path: /opt/5stack/game-streamer/steam-data
             type: DirectoryOrCreate

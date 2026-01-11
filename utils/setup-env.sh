@@ -67,13 +67,6 @@ ask_reverse_proxy() {
     fi
 }
 
-output_redirect() {
-    if [ "$DEBUG" = true ]; then
-        "$@"
-    else
-        "$@" >/dev/null
-    fi
-}
 
 migrate_secrets_to_vault() {
     local secret_file=$1

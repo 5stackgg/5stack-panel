@@ -65,6 +65,13 @@ spec:
                   number: 5585
             path: /system/healthz
             pathType: Exact
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /system/logs/download
+            pathType: Exact
     - host: $(WEB_DOMAIN)
       http:
         paths:

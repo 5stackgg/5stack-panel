@@ -185,6 +185,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
+            sizeLimit: 2Gi
         - name: egl-cache-vol
           hostPath:
             path: /opt/5stack/game-streamer/cache

@@ -34,9 +34,10 @@ spec:
       priorityClassName: "system-node-critical"
       runtimeClassName: nvidia
       containers:
-      - image: nvcr.io/nvidia/k8s-device-plugin:v0.18.1
-        name: nvidia-device-plugin-ctr
-        env: []
+      - name: nvidia-device-plugin-ctr
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.18.1
+        args:
+          - "--config-file=/config/config.yaml"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -44,8 +45,13 @@ spec:
         volumeMounts:
         - name: kubelet-device-plugins-dir
           mountPath: /var/lib/kubelet/device-plugins
+        - name: nvidia-device-plugin-config
+          mountPath: /config
       volumes:
       - name: kubelet-device-plugins-dir
         hostPath:
           path: /var/lib/kubelet/device-plugins
           type: Directory
+      - name: nvidia-device-plugin-config
+        configMap:
+          name: nvidia-device-plugin-config

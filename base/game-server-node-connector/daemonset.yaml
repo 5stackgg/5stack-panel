@@ -66,6 +66,10 @@ spec:
               mountPath: /serverfiles
             - name: demos
               mountPath: /demos
+            - name: dedicated-servers
+              mountPath: /servers
+            - name: custom-plugins
+              mountPath: /custom-plugins
             - name: manifests
               mountPath: /pod-manifests
             - name: containerd-sock
@@ -81,11 +85,19 @@ spec:
         - name: server-files
           hostPath:
             path: /opt/5stack/serverfiles
-            type: Directory
+            type: DirectoryOrCreate
         - name: demos
           hostPath:
             path: /opt/5stack/demos
-            type: Directory
+            type: DirectoryOrCreate
+        - name: dedicated-servers
+          hostPath:
+            path: /opt/5stack/servers
+            type: DirectoryOrCreate
+        - name: custom-plugins
+          hostPath:
+            path: /opt/5stack/custom-plugins
+            type: DirectoryOrCreate
         - name: manifests
           hostPath:
             path: /var/lib/rancher/k3s/agent/pod-manifests

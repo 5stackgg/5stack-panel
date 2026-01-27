@@ -45,6 +45,16 @@ replacements:
         fieldPaths:
           - spec.tls.0.hosts.0
       - select:
+          kind: Ingress
+          name: file-manager
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: file-manager
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
@@ -223,4 +233,10 @@ patches:
       version: v1
       kind: Ingress
       name: relay
+    path: ingress-patch.yaml
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: file-manager
     path: ingress-patch.yaml

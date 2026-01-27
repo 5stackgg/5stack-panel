@@ -3,6 +3,9 @@ kind: Ingress
 metadata:
   name: api
   namespace: 5stack
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "4G"
+    nginx.ingress.kubernetes.io/client-max-body-size: "4G"
 spec:
   ingressClassName: nginx
   rules:
@@ -57,6 +60,13 @@ spec:
                 port:
                   number: 5585
             path: /game-server-node/ping
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /file-manager
             pathType: Prefix
           - backend:
               service:

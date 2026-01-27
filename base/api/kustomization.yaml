@@ -7,6 +7,7 @@ resources:
   - ingress.yaml
   - ingress-ws.yaml
   - ingress-relay.yaml
+  - ingress-file-manager.yaml
   - rbac/service-accounts.yaml
   - rbac/cluster-role-binding.yaml
   - rbac/cluster-role.yaml

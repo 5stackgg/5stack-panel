@@ -66,6 +66,10 @@ spec:
               mountPath: /serverfiles
             - name: demos
               mountPath: /demos
+            - name: dedicated-servers
+              mountPath: /servers
+            - name: custom-plugins
+              mountPath: /custom-plugins
             - name: manifests
               mountPath: /pod-manifests
             - name: containerd-sock
@@ -85,6 +89,14 @@ spec:
         - name: demos
           hostPath:
             path: /opt/5stack/demos
+            type: Directory
+        - name: dedicated-servers
+          hostPath:
+            path: /opt/5stack/servers
+            type: Directory
+        - name: custom-plugins
+          hostPath:
+            path: /opt/5stack/custom-plugins
             type: Directory
         - name: manifests
           hostPath:

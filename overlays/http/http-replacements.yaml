@@ -24,6 +24,11 @@ replacements:
           name: hasura
         fieldPaths:
           - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: file-manager
+        fieldPaths:
+          - spec.rules.0.host
   - source:
       kind: ConfigMap
       name: api-config

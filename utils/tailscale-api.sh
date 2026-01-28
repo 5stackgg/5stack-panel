@@ -117,24 +117,17 @@ update_acl_for_fivestack() {
             if index("tag:fivestack") == null then . + ["tag:fivestack"] else . end
         )
         | .grants = (.grants // [])
-        # Filter out any existing identical grant to avoid duplicates and enforce desired position.
-        | (
-            .grants as $orig_grants
-            | [
-                # Our new grant at the front:
+        | .grants = (
+            [ 
                 { src: ["tag:fivestack", "10.42.0.0/16"], dst: ["tag:fivestack", "10.42.0.0/16"], ip: ["*"] }
-            ]
-            + (
-                $orig_grants
+            ] + (
+                .grants
                 | map(select(
                     .src != ["tag:fivestack", "10.42.0.0/16"]
                     or .dst != ["tag:fivestack", "10.42.0.0/16"]
                     or .ip != ["*"]
                 ))
             )
-          ]
-          as $new_grants
-          | .grants = $new_grants
         )
     ')
 

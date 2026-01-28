@@ -85,38 +85,43 @@ update_acl_for_fivestack() {
         return 1
     fi
 
-    local current_acl=$(curl -s -X GET "${TAILSCALE_API_BASE}/tailnet/-/acl" \
+    # Get current ACL config and ETag for concurrency-safe updates
+    local acl_response=$(curl -s -D - -X GET "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Accept: application/json")
 
-    if echo "$current_acl" | grep -q '"message"' && ! echo "$current_acl" | grep -q '"acls"'; then
-        echo "Error: Failed to get current ACL" >&2
-        echo "$current_acl" >&2
+    # Separate headers and body
+    local headers=$(echo "$acl_response" | sed '/^\r$/q')
+    local body=$(echo "$acl_response" | sed '1,/^\r$/d')
+
+    # Extract ETag from the response headers, fallback to fail if missing
+    local etag=$(echo "$headers" | grep -i '^etag:' | awk '{print $2}' | tr -d $'\r\n"')
+    if [ -z "$etag" ]; then
+        echo "Error: Could not extract ACL ETag. Cannot ensure concurrency-safe update." >&2
         return 1
     fi
 
-    echo "Current ACL: $current_acl" >&2
-    # Add/merge "autoApprovers.routes" and "grants" entries as needed in the ACL JSON
+    if echo "$body" | grep -q '"message"' && ! echo "$body" | grep -q '"acls"'; then
+        echo "Error: Failed to get current ACL" >&2
+        echo "$body" >&2
+        return 1
+    fi
 
-    # Use jq if available for robust JSON manipulation; fallback to warning otherwise
+    echo "Current ACL: $body" >&2
+
     if ! command -v jq &>/dev/null; then
         echo "Error: jq is required to update ACLs. Please install jq." >&2
         return 1
     fi
 
-    updated_acl=$(echo "$current_acl" | jq '
-        # Ensure autoApprovers exists
+    updated_acl=$(echo "$body" | jq '
         .autoApprovers = (.autoApprovers // {})
-        # Ensure autoApprovers.routes exists
         | .autoApprovers.routes = (.autoApprovers.routes // {})
-        # Add "10.42.0.0/16":["tag:fivestack"] to routes if missing
         | .autoApprovers.routes["10.42.0.0/16"] = (
             (.autoApprovers.routes["10.42.0.0/16"] // []) |
             if index("tag:fivestack") == null then . + ["tag:fivestack"] else . end
         )
-        # Ensure grants exists and is an array
         | .grants = (.grants // [])
-        # Add our custom grant if missing
         | (
             .grants + [{
                 src: ["tag:fivestack", "10.42.0.0/16"],
@@ -140,16 +145,23 @@ update_acl_for_fivestack() {
 
     echo "Updated ACL: $updated_acl" >&2
 
+    # Use the correct If-Match header for concurrency control
     local response=$(curl -s -X POST "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Content-Type: application/json" \
-        -H "If-Match: \"*\"" \
+        -H "If-Match: \"${etag}\"" \
         -d "$updated_acl")
 
     # Check if response contains an error
     if echo "$response" | grep -q '"message"'; then
         echo "Error: Failed to update ACL" >&2
         echo "$response" >&2
+
+        # Special handling for precondition failed errors
+        if echo "$response" | grep -q 'precondition failed'; then
+            echo "Your ACL has been modified elsewhere. Please re-run or manually resolve the ACL update." >&2
+        fi
+
         return 1
     fi
 

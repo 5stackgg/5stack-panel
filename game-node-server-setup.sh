@@ -3,7 +3,7 @@
 source setup-env.sh "$@"
 
 echo "Installing Game Node Server dependencies..."
-# curl -sfL https://tailscale.com/install.sh | sh
+curl -sfL https://tailscale.com/install.sh | sh
 
 echo ""
 echo "=========================================="
@@ -84,9 +84,9 @@ fi
 
 echo "Auth key generated"
 
-# echo ""
-# echo "Installing K3S with Tailscale VPN integration..."
-# curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
+echo ""
+echo "Installing K3S with Tailscale VPN integration..."
+curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
 
 echo ""
 echo "Waiting for node to come online in Tailscale network..."

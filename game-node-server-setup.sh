@@ -3,68 +3,130 @@
 source setup-env.sh "$@"
 
 echo "Installing Game Node Server dependencies..."
-
 curl -sfL https://tailscale.com/install.sh | sh
 
-echo -e "\033[1;31mSetup access control for the fivestack tag using the (10.42.0.0/16) subnet https://login.tailscale.com/admin/acls/visual/general-access-rules \033[0m"
-cat tag-setup-ascii
+echo ""
+echo "=========================================="
+echo "Tailscale OAuth Setup Required"
+echo "=========================================="
+echo ""
+echo "This script automates Tailscale configuration using OAuth API."
+echo ""
+echo "One-time setup: Create an OAuth Client at:"
+echo "  https://login.tailscale.com/admin/settings/oauth"
+echo ""
+echo "Required OAuth scopes:"
+echo "  ✓ auth_keys (write)"
+echo "  ✓ devices (read)"
+echo "  ✓ policy_file (write)"
+echo "  ✓ dns (read)"
+echo ""
+echo "Required tag:"
+echo "  ✓ fivestack"
+echo ""
+echo "After creating the OAuth client, you'll receive:"
+echo "  - Client ID"
+echo "  - Client Secret (shown only once - save it securely!)"
+echo ""
+echo "=========================================="
+echo ""
 
-echo -e "\033[1;31mSetup auto approver routes for the fivestack tag using the (10.42.0.0/16) subnet https://login.tailscale.com/admin/acls/visual/general-access-rules \033[0m"
-cat auto-approvers-ascii
-
-echo "Generate and enter your Tailscale auth key : https://login.tailscale.com/admin/settings/keys :"
-
-echo -e "\033[1;31mMake sure to select the \"Pre Approved\" option \033[0m"
-cat pre-approved-ascii
-
-echo -e "\033[1;36mEnter your Tailscale auth key :\033[0m"
-read TAILSCALE_AUTH_KEY
-
-while [ -z "$TAILSCALE_AUTH_KEY" ]; do
-    echo "Tailscale auth key cannot be empty. Please enter your Tailscale auth key :"
-    read TAILSCALE_AUTH_KEY
-done
-
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}";
-
-
-echo -e "\033[1;36mEnter your Tailscale network name (e.g. example.ts.net) from https://login.tailscale.com/admin/dns :\033[0m"
-read TAILSCALE_NET_NAME
-while [ -z "$TAILSCALE_NET_NAME" ]; do
-    echo "Tailscale network name cannot be empty. Please enter your Tailscale network name (e.g. example.ts.net):"
-    read TAILSCALE_NET_NAME
-done
-
-update_env_var "overlays/config/api-config.env" "TAILSCALE_NET_NAME" "$TAILSCALE_NET_NAME"
-
-echo -e "\033[1;31mCreate an OAuth Client with the Auth Keys (\`auth_keys\`) scope with write access and a tag of fivestack from https://login.tailscale.com/admin/settings/oauth :\033[0m"
-cat auth-key-ascii
-
-echo -e "\033[1;36mEnter your Secret Key from the step above :\033[0m"
-read TAILSCALE_SECRET_ID
-while [ -z "$TAILSCALE_SECRET_ID" ]; do
-    echo "Tailscale secret key cannot be empty. Please enter your Tailscale secret key:"
-    read TAILSCALE_SECRET_ID
-done
-
-update_env_var "overlays/local-secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_SECRET_ID"
-
-echo -e "\033[1;36mEnter the Client ID from the Step Above :\033[0m"   
+# Collect OAuth credentials
+echo -e "\033[1;36mEnter your Tailscale OAuth Client ID:\033[0m"
 read TAILSCALE_CLIENT_ID
 while [ -z "$TAILSCALE_CLIENT_ID" ]; do
-    echo "Tailscale client ID cannot be empty. Please enter your Tailscale client ID:"
+    echo "Client ID cannot be empty. Please enter your OAuth Client ID:"
     read TAILSCALE_CLIENT_ID
 done
 
-update_env_var "overlays/config/api-config.env" "TAILSCALE_CLIENT_ID" "$TAILSCALE_CLIENT_ID"
-
-echo -e "\033[1;36mOn the tailscale dashboard you should see your node come online, once it does enter the IP Address of the node :\033[0m"
-read TAILSCALE_NODE_IP
-while [ -z "$TAILSCALE_NODE_IP" ]; do
-    echo "Tailscale node IP cannot be empty. Please enter your Tailscale node IP:"
-    read TAILSCALE_NODE_IP
+echo -e "\033[1;36mEnter your Tailscale OAuth Client Secret:\033[0m"
+read -s TAILSCALE_CLIENT_SECRET
+echo ""
+while [ -z "$TAILSCALE_CLIENT_SECRET" ]; do
+    echo "Client Secret cannot be empty. Please enter your OAuth Client Secret:"
+    read -s TAILSCALE_CLIENT_SECRET
+    echo ""
 done
 
+echo ""
+echo "🔐 Authenticating with Tailscale API..."
+ACCESS_TOKEN=$(get_oauth_token "$TAILSCALE_CLIENT_ID" "$TAILSCALE_CLIENT_SECRET")
+
+if [ -z "$ACCESS_TOKEN" ]; then
+    echo "❌ Failed to authenticate with Tailscale. Please check your OAuth credentials."
+    exit 1
+fi
+
+echo "✅ Authentication successful"
+
+# Store OAuth credentials
+update_env_var "overlays/config/api-config.env" "TAILSCALE_CLIENT_ID" "$TAILSCALE_CLIENT_ID"
+update_env_var "overlays/local-secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_CLIENT_SECRET"
+
+echo ""
+echo "📡 Retrieving tailnet information..."
+TAILSCALE_NET_NAME=$(get_tailnet_info "$ACCESS_TOKEN")
+
+if [ -z "$TAILSCALE_NET_NAME" ]; then
+    echo "❌ Failed to retrieve tailnet information."
+    exit 1
+fi
+
+echo "✅ Tailnet: $TAILSCALE_NET_NAME"
+update_env_var "overlays/config/api-config.env" "TAILSCALE_NET_NAME" "$TAILSCALE_NET_NAME"
+
+echo ""
+echo "🔧 Configuring ACL rules for fivestack tag..."
+update_acl_for_fivestack "$ACCESS_TOKEN"
+
+if [ $? -eq 0 ]; then
+    echo "✅ ACL configured (10.42.0.0/16 subnet with auto-approvers)"
+else
+    echo "⚠️  Warning: ACL configuration failed. You may need to configure ACL manually."
+fi
+
+echo ""
+echo "🔑 Generating pre-approved auth key..."
+TAILSCALE_AUTH_KEY=$(create_auth_key "$ACCESS_TOKEN")
+
+if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+    echo "❌ Failed to generate auth key."
+    exit 1
+fi
+
+echo "✅ Auth key generated"
+
+echo ""
+echo "🚀 Installing K3S with Tailscale VPN integration..."
+curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
+
+echo ""
+echo "⏳ Waiting for node to come online in Tailscale network..."
+HOSTNAME=$(hostname)
+TAILSCALE_NODE_IP=$(wait_for_device_and_get_ip "$ACCESS_TOKEN" "$HOSTNAME")
+
+if [ -z "$TAILSCALE_NODE_IP" ]; then
+    echo "❌ Timeout waiting for node to appear."
+    echo "Please check the Tailscale dashboard and manually enter the node IP."
+    echo -e "\033[1;36mEnter the Tailscale node IP address:\033[0m"
+    read TAILSCALE_NODE_IP
+    while [ -z "$TAILSCALE_NODE_IP" ]; do
+        echo "Node IP cannot be empty. Please enter the Tailscale node IP:"
+        read TAILSCALE_NODE_IP
+    done
+else
+    echo "✅ Node online with IP: $TAILSCALE_NODE_IP"
+fi
+
 update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
+
+echo ""
+echo "🎉 Game node server setup complete!"
+echo ""
+echo "Configuration saved:"
+echo "  - TAILSCALE_NET_NAME: $TAILSCALE_NET_NAME"
+echo "  - TAILSCALE_CLIENT_ID: $TAILSCALE_CLIENT_ID"
+echo "  - TAILSCALE_NODE_IP: $TAILSCALE_NODE_IP"
+echo ""
 
 source update.sh "$@"

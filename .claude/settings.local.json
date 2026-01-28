@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:tailscale.com)",
+      "WebFetch(domain:api.tailscale.com)",
+      "Bash(ls:*)",
+      "Bash(bash:*)"
+    ]
+  }
+}

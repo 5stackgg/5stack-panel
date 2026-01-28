@@ -3,7 +3,7 @@
 source setup-env.sh "$@"
 
 echo "Installing Game Node Server dependencies..."
-curl -sfL https://tailscale.com/install.sh | sh
+# curl -sfL https://tailscale.com/install.sh | sh
 
 echo ""
 echo "=========================================="
@@ -87,30 +87,30 @@ fi
 
 echo "Auth key generated"
 
-echo ""
-echo "Installing K3S with Tailscale VPN integration..."
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
+# echo ""
+# echo "Installing K3S with Tailscale VPN integration..."
+# curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
 
-echo ""
-echo "⏳ Waiting for node to come online in Tailscale network..."
-HOSTNAME=$(hostname)
-TAILSCALE_NODE_IP=$(wait_for_device_and_get_ip "$ACCESS_TOKEN" "$HOSTNAME")
+# echo ""
+# echo "⏳ Waiting for node to come online in Tailscale network..."
+# HOSTNAME=$(hostname)
+# TAILSCALE_NODE_IP=$(wait_for_device_and_get_ip "$ACCESS_TOKEN" "$HOSTNAME")
 
-if [ -z "$TAILSCALE_NODE_IP" ]; then
-    echo "Timeout waiting for node to appear."
-    echo "Please check the Tailscale dashboard and manually enter the node IP."
-    echo -e "\033[1;36mEnter the Tailscale node IP address:\033[0m"
-    read TAILSCALE_NODE_IP
-    while [ -z "$TAILSCALE_NODE_IP" ]; do
-        echo "Node IP cannot be empty. Please enter the Tailscale node IP:"
-        read TAILSCALE_NODE_IP
-    done
-else
-    echo "Node online with IP: $TAILSCALE_NODE_IP"
-fi
+# if [ -z "$TAILSCALE_NODE_IP" ]; then
+#     echo "Timeout waiting for node to appear."
+#     echo "Please check the Tailscale dashboard and manually enter the node IP."
+#     echo -e "\033[1;36mEnter the Tailscale node IP address:\033[0m"
+#     read TAILSCALE_NODE_IP
+#     while [ -z "$TAILSCALE_NODE_IP" ]; do
+#         echo "Node IP cannot be empty. Please enter the Tailscale node IP:"
+#         read TAILSCALE_NODE_IP
+#     done
+# else
+#     echo "Node online with IP: $TAILSCALE_NODE_IP"
+# fi
 
-update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
+# update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
 
-source update.sh "$@"
+# source update.sh "$@"
 
-echo "Game node server setup complete"
+# echo "Game node server setup complete"

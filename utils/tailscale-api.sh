@@ -85,16 +85,13 @@ update_acl_for_fivestack() {
         return 1
     fi
 
-    # Get current ACL config and ETag for concurrency-safe updates
     local acl_response=$(curl -s -D - -X GET "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Accept: application/json")
 
-    # Separate headers and body
     local headers=$(echo "$acl_response" | sed '/^\r$/q')
     local body=$(echo "$acl_response" | sed '1,/^\r$/d')
 
-    # Extract ETag from the response headers, fallback to fail if missing
     local etag=$(echo "$headers" | grep -i '^etag:' | awk '{print $2}' | tr -d $'\r\n"')
     if [ -z "$etag" ]; then
         echo "Error: Could not extract ACL ETag. Cannot ensure concurrency-safe update." >&2
@@ -145,19 +142,16 @@ update_acl_for_fivestack() {
 
     echo "Updated ACL: $updated_acl" >&2
 
-    # Use the correct If-Match header for concurrency control
     local response=$(curl -s -X POST "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Content-Type: application/json" \
         -H "If-Match: \"${etag}\"" \
         -d "$updated_acl")
 
-    # Check if response contains an error
     if echo "$response" | grep -q '"message"'; then
         echo "Error: Failed to update ACL" >&2
         echo "$response" >&2
 
-        # Special handling for precondition failed errors
         if echo "$response" | grep -q 'precondition failed'; then
             echo "Your ACL has been modified elsewhere. Please re-run or manually resolve the ACL update." >&2
         fi

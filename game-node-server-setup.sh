@@ -12,8 +12,7 @@ echo "=========================================="
 echo ""
 echo "This script automates Tailscale configuration using OAuth API."
 echo ""
-echo "One-time setup:"
-echo "Access Control Tags:"
+echo "Create Access Control Tag at:"
 ehoo " https://login.tailscale.com/admin/acls/visual/tags/add"
 echo "  - fivestack"
 echo ""
@@ -29,12 +28,11 @@ echo "  - fivestack"
 echo ""
 echo "After creating the OAuth client, you'll receive:"
 echo "  - Client ID"
-echo "  - Client Secret (shown only once - save it securely!)"
+echo "  - Client Secret (shown only once!)"
 echo ""
 echo "=========================================="
 echo ""
 
-# Collect OAuth credentials
 echo -e "\033[1;36mEnter your Tailscale OAuth Client ID:\033[0m"
 read TAILSCALE_CLIENT_ID
 while [ -z "$TAILSCALE_CLIENT_ID" ]; do
@@ -62,7 +60,6 @@ fi
 
 echo "Authentication successful"
 
-# Store OAuth credentials
 update_env_var "overlays/config/api-config.env" "TAILSCALE_CLIENT_ID" "$TAILSCALE_CLIENT_ID"
 update_env_var "overlays/local-secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_CLIENT_SECRET"
 
@@ -91,26 +88,33 @@ echo "Auth key generated"
 # echo "Installing K3S with Tailscale VPN integration..."
 # curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
 
-# echo ""
-# echo "⏳ Waiting for node to come online in Tailscale network..."
-# HOSTNAME=$(hostname)
-# TAILSCALE_NODE_IP=$(wait_for_device_and_get_ip "$ACCESS_TOKEN" "$HOSTNAME")
+echo ""
+echo "Waiting for node to come online in Tailscale network..."
 
-# if [ -z "$TAILSCALE_NODE_IP" ]; then
-#     echo "Timeout waiting for node to appear."
-#     echo "Please check the Tailscale dashboard and manually enter the node IP."
-#     echo -e "\033[1;36mEnter the Tailscale node IP address:\033[0m"
-#     read TAILSCALE_NODE_IP
-#     while [ -z "$TAILSCALE_NODE_IP" ]; do
-#         echo "Node IP cannot be empty. Please enter the Tailscale node IP:"
-#         read TAILSCALE_NODE_IP
-#     done
-# else
-#     echo "Node online with IP: $TAILSCALE_NODE_IP"
-# fi
+for i in {1..30}; do
+    TAILSCALE_NODE_IP=$(tailscale ip -4 2>/dev/null | head -n 1)
+    if [ -n "$TAILSCALE_NODE_IP" ]; then
+    break
+    fi
+    sleep 2
+done
 
-# update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
+if [ -z "$TAILSCALE_NODE_IP" ]; then
+    echo "Timeout waiting for node to appear."
+    echo "Please check the Tailscale dashboard and manually enter the node IP."
+    echo "https://login.tailscale.com/admin/machines"
+    echo -e "\033[1;36mEnter the Tailscale node IP address:\033[0m"
+    read TAILSCALE_NODE_IP
+    while [ -z "$TAILSCALE_NODE_IP" ]; do
+        echo "Node IP cannot be empty. Please enter the Tailscale node IP:"
+        read TAILSCALE_NODE_IP
+    done
+else
+    echo "Node online with IP: $TAILSCALE_NODE_IP"
+fi
 
-# source update.sh "$@"
+update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
 
-# echo "Game node server setup complete"
+source update.sh "$@"
+
+echo "Game node server setup complete"

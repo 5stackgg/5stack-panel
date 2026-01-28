@@ -17,10 +17,6 @@ get_oauth_token() {
         return 1
     fi
 
-    echo "Getting OAuth token..." >&2
-    echo "Client ID: $client_id" >&2
-    echo "Client Secret: $client_secret" >&2
-
     local response=$(curl -s -X POST "https://api.tailscale.com/api/v2/oauth/token" \
         -d "client_id=${client_id}" \
         -d "client_secret=${client_secret}" \

@@ -22,9 +22,7 @@ echo "  https://login.tailscale.com/admin/settings/trust-credentials/add"
 echo ""
 echo "OAuth scopes:"
 echo "  Keys : Auth Keys (write)"
-echo "  Devices: Core (read)"
 echo "  General: Policy File (write)"
-echo "  General: DNS (read)"
 echo ""
 echo "Required tag:"
 echo "  ✓ fivestack"
@@ -67,18 +65,6 @@ echo "✅ Authentication successful"
 # Store OAuth credentials
 update_env_var "overlays/config/api-config.env" "TAILSCALE_CLIENT_ID" "$TAILSCALE_CLIENT_ID"
 update_env_var "overlays/local-secrets/tailscale-secrets.env" "TAILSCALE_SECRET_ID" "$TAILSCALE_CLIENT_SECRET"
-
-echo ""
-echo "📡 Retrieving tailnet information..."
-TAILSCALE_NET_NAME=$(get_tailnet_info "$ACCESS_TOKEN")
-
-if [ -z "$TAILSCALE_NET_NAME" ]; then
-    echo "❌ Failed to retrieve tailnet information."
-    exit 1
-fi
-
-echo "✅ Tailnet: $TAILSCALE_NET_NAME"
-update_env_var "overlays/config/api-config.env" "TAILSCALE_NET_NAME" "$TAILSCALE_NET_NAME"
 
 echo ""
 echo "🔧 Configuring ACL rules for fivestack tag..."

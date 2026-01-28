@@ -104,8 +104,6 @@ update_acl_for_fivestack() {
         return 1
     fi
 
-    echo "Current ACL: $body" >&2
-
     if ! command -v jq &>/dev/null; then
         echo "Error: jq is required to update ACLs. Please install jq." >&2
         return 1
@@ -120,18 +118,23 @@ update_acl_for_fivestack() {
         )
         | .grants = (.grants // [])
         # Filter out any existing identical grant to avoid duplicates and enforce desired position.
-        | .grants = (
-            [ 
+        | (
+            .grants as $orig_grants
+            | [
                 # Our new grant at the front:
                 { src: ["tag:fivestack", "10.42.0.0/16"], dst: ["tag:fivestack", "10.42.0.0/16"], ip: ["*"] }
-            ] + (
-                .grants
+            ]
+            + (
+                $orig_grants
                 | map(select(
                     .src != ["tag:fivestack", "10.42.0.0/16"]
                     or .dst != ["tag:fivestack", "10.42.0.0/16"]
                     or .ip != ["*"]
                 ))
             )
+          ]
+          as $new_grants
+          | .grants = $new_grants
         )
     ')
 

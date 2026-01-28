@@ -140,8 +140,6 @@ update_acl_for_fivestack() {
         )
     ')
 
-    echo "Updated ACL: $updated_acl" >&2
-
     local response=$(curl -s -X POST "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Content-Type: application/json" \

@@ -1,21 +1,19 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: file-manager
   namespace: 5stack
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "4G"
-    nginx.ingress.kubernetes.io/client-max-body-size: "4G"
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: $(API_DOMAIN)
-      http:
-        paths:
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /file-manager
-            pathType: Prefix
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/file-manager`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+      middlewares:
+        - name: large-upload
+  tls:
+    secretName: 5stack-ssl

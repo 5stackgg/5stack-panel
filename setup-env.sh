@@ -144,6 +144,35 @@ KUBECONFIG=$KUBECONFIG
 EOF
 fi
 
+# Check if migration to Traefik is needed
+if [ -f .5stack-env.config ]; then
+    source .5stack-env.config
+    if [ "$INGRESS_CONTROLLER" != "traefik" ] && [ -z "$INGRESS_CONTROLLER" ]; then
+        echo ""
+        echo "=========================================="
+        echo "Traefik Migration Required"
+        echo "=========================================="
+        echo ""
+        echo "5stack is migrating from nginx-ingress to Traefik."
+        echo "Traefik is built into K3s and provides better performance."
+        echo ""
+        echo "This migration will:"
+        echo "  1. Upgrade K3s to enable Traefik"
+        echo "  2. Migrate all ingress resources"
+        echo "  3. Remove nginx-ingress controller"
+        echo ""
+        read -p "Migrate to Traefik now? (y/n): " migrate_now
+
+        if [ "$migrate_now" = "y" ]; then
+            source utils/migrate_to_traefik.sh
+            migrate_to_traefik
+        else
+            echo "Migration required. Run './utils/migrate_to_traefik.sh' to migrate later."
+            echo "Warning: nginx-ingress is deprecated and will be removed."
+        fi
+    fi
+fi
+
 if [ -d "base/secrets" ]; then
     echo "base/secrets directory found, moving to overlays/local-secrets"
     mv base/secrets/* overlays/local-secrets

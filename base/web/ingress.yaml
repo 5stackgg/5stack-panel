@@ -1,20 +1,17 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$1
   name: web
   namespace: 5stack
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: ${WEB_DOMAIN}
-      http:
-        paths:
-          - backend:
-              service:
-                name: web
-                port:
-                  number: 3000
-            path: /(.*)
-            pathType: ImplementationSpecific
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`${WEB_DOMAIN}`)
+      kind: Rule
+      services:
+        - name: web
+          port: 3000
+  tls:
+    secretName: 5stack-ssl

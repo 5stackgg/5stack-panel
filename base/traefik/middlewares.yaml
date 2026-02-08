@@ -1,0 +1,68 @@
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: large-upload
+  namespace: 5stack
+spec:
+  buffering:
+    maxRequestBodyBytes: 4294967296  # 4GB
+    memRequestBodyBytes: 4294967296
+    maxResponseBodyBytes: 4294967296
+    memResponseBodyBytes: 4294967296
+    retryExpression: "IsNetworkError() && Attempts() < 2"
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: streaming
+  namespace: 5stack
+spec:
+  buffering:
+    maxRequestBodyBytes: 0  # No limit for streaming
+    maxResponseBodyBytes: 0
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-ws
+  namespace: 5stack
+spec:
+  replacePathRegex:
+    regex: "^/(.*)"
+    replacement: "/ws/$1"
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-relay
+  namespace: 5stack
+spec:
+  replacePathRegex:
+    regex: "^/(.*)"
+    replacement: "/match-relay/$1"
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-healthz
+  namespace: 5stack
+spec:
+  replacePathRegex:
+    regex: "^/v2/healthz$"
+    replacement: "/healthz"
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-queues
+  namespace: 5stack
+spec:
+  replacePathRegex:
+    regex: "^/(queues/?)?(.*)"
+    replacement: "/queues/$2"

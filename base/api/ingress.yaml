@@ -1,142 +1,108 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: api
   namespace: 5stack
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "4G"
-    nginx.ingress.kubernetes.io/client-max-body-size: "4G"
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: $(API_DOMAIN)
-      http:
-        paths:
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /me
-            pathType: Exact
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /matches
-            pathType: Prefix
-          - backend:
-              service:
-                name: hasura
-                port:
-                  number: 8080
-            path: /v1
-            pathType: Prefix
-          - backend:
-              service:
-                name: hasura
-                port:
-                  number: 8080
-            path: /v1alpha1
-            pathType: Prefix
-          - backend:
-              service:
-                name: hasura
-                port:
-                  number: 8080
-            path: /v2
-            pathType: Prefix
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /game-server-node/script
-            pathType: Prefix
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /game-server-node/ping
-            pathType: Prefix
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /system/healthz
-            pathType: Exact
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /system/logs/download
-            pathType: Exact
-    - host: $(WEB_DOMAIN)
-      http:
-        paths:
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /auth
-            pathType: Prefix
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /telemetry
-            pathType: Exact
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /discord-invite
-            pathType: Exact
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /discord-bot
-            pathType: Exact
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`$(API_DOMAIN)`) && Path(`/me`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+      middlewares:
+        - name: large-upload
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/matches`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+      middlewares:
+        - name: large-upload
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/v1`)
+      kind: Rule
+      services:
+        - name: hasura
+          port: 8080
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/v1alpha1`)
+      kind: Rule
+      services:
+        - name: hasura
+          port: 8080
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/v2`)
+      kind: Rule
+      services:
+        - name: hasura
+          port: 8080
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/game-server-node/script`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(API_DOMAIN)`) && PathPrefix(`/game-server-node/ping`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(API_DOMAIN)`) && Path(`/system/healthz`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(API_DOMAIN)`) && Path(`/system/logs/download`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(WEB_DOMAIN)`) && PathPrefix(`/auth`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(WEB_DOMAIN)`) && Path(`/telemetry`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(WEB_DOMAIN)`) && Path(`/discord-invite`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+    - match: Host(`$(WEB_DOMAIN)`) && Path(`/discord-bot`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+  tls:
+    secretName: 5stack-ssl
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: demos
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "0"
-    nginx.ingress.kubernetes.io/client-max-body-size: "0"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
-    nginx.ingress.kubernetes.io/chunked-transfer-encoding: "false"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   namespace: 5stack
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: $(DEMOS_DOMAIN)
-      http:
-        paths:
-          - backend:
-              service:
-                name: api
-                port:
-                  number: 5585
-            path: /demos
-            pathType: Prefix
-          - backend:
-              service:
-                name: minio
-                port:
-                  number: 9000
-            path: /5stack
-            pathType: Prefix
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`$(DEMOS_DOMAIN)`) && PathPrefix(`/demos`)
+      kind: Rule
+      services:
+        - name: api
+          port: 5585
+      middlewares:
+        - name: streaming
+    - match: Host(`$(DEMOS_DOMAIN)`) && PathPrefix(`/5stack`)
+      kind: Rule
+      services:
+        - name: minio
+          port: 9000
+      middlewares:
+        - name: streaming
+  tls:
+    secretName: 5stack-ssl

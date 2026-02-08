@@ -1,18 +1,17 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: typesense
   namespace: 5stack
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: $(TYPESENSE_HOST)
-      http:
-        paths:
-          - backend:
-              service:
-                name: typesense
-                port:
-                  number: 8108
-            path: /
-            pathType: Prefix
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`$(TYPESENSE_HOST)`)
+      kind: Rule
+      services:
+        - name: typesense
+          port: 8108
+  tls:
+    secretName: 5stack-ssl

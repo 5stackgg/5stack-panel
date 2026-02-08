@@ -12,5 +12,5 @@ resources:
   - typesense
   - web
   - volumes
-  - nginx
+  - traefik
   - backups

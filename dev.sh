@@ -28,7 +28,6 @@ if k3d cluster list 5stack-dev | grep -q '5stack-dev'; then
 else
   rm ~/.kube/5stack-dev
   k3d cluster create 5stack-dev \
-    --k3s-arg "--disable=traefik@server:0" \
     --kubeconfig-switch-context=false \
     --kubeconfig-update-default=false \
     --registry-create 5stack-dev-registry \
@@ -42,7 +41,11 @@ export KUBECONFIG=~/.kube/5stack-dev
 
 kubectl config use-context k3d-5stack-dev
 
-install_ingress_nginx
+echo "Waiting for Traefik to be ready..."
+kubectl wait --namespace kube-system \
+    --for=condition=Ready pod \
+    --selector=app.kubernetes.io/name=traefik \
+    --timeout=180s
 
 echo "Labeling node..."
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true

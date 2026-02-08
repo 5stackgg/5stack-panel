@@ -1,22 +1,17 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: hasura-dashboard
   namespace: 5stack
 spec:
-  ingressClassName: nginx
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`hasura.5stack.localhost`)
+      kind: Rule
+      services:
+        - name: hasura
+          port: 8080
   tls:
-    - hosts:
-        - hasura.5stack.localhost
-      secretName: 5stack-ssl
-  rules:
-    - host: hasura.5stack.localhost
-      http:
-        paths:
-          - backend:
-              service:
-                name: hasura
-                port:
-                  number: 8080
-            path: /
-            pathType: Prefix
+    secretName: 5stack-ssl

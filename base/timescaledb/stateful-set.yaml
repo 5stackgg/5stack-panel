@@ -32,6 +32,12 @@ spec:
           args:
             - postgres
             - '-c'
+            - shared_preload_libraries=pg_stat_statements,timescaledb
+            - '-c'
+            - pg_stat_statements.max=10000
+            - '-c'
+            - pg_stat_statements.track=all
+            - '-c'
             - fivestack.app_key=$(APP_KEY)
           ports:
             - containerPort: 5432

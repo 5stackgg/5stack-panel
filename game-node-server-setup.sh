@@ -115,6 +115,12 @@ fi
 
 update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
 
+cat <<-EOF >/etc/rancher/k3s/config.yaml
+	node-ip: $TAILSCALE_IP
+EOF
+
+systemctl restart k3s
+
 source update.sh "$@"
 
 echo "Game node server setup complete"

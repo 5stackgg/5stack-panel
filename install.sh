@@ -1,6 +1,7 @@
 #!/bin/bash
 
 source setup-env.sh "$@"
+check_sudo
 
 echo "Setup FileSystem"
 mkdir -p /opt/5stack/dev

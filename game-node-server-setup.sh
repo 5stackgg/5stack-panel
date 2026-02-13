@@ -1,6 +1,7 @@
 #!/bin/bash
 
 source setup-env.sh "$@"
+check_sudo
 
 if ! command -v jq &> /dev/null; then
     echo "Error: jq is not installed. Please install it first."

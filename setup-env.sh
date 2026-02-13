@@ -21,6 +21,11 @@ fi
 
 setup_kustomize
 
+if ! command -v curl &> /dev/null; then
+    echo "Error: curl is not installed. Please install it first."
+    exit 1
+fi
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --kubeconfig)

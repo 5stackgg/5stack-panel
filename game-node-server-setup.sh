@@ -121,7 +121,7 @@ fi
 update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
 
 cat <<-EOF >/etc/rancher/k3s/config.yaml
-	node-ip: $TAILSCALE_IP
+	node-ip: $TAILSCALE_NODE_IP
 EOF
 
 systemctl restart k3s

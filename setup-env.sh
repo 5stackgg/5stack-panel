@@ -2,6 +2,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh"
 
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root or with sudo"
+    exit 1
+fi
+
 if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
     return;
 fi

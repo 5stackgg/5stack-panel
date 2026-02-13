@@ -1,10 +1,5 @@
 #!/bin/bash
 
-if [ "$EUID" -ne 0 ]; then 
-    echo "Please run as root or with sudo"
-    exit 1
-fi
-
 source setup-env.sh "$@"
 
 echo "Setup FileSystem"

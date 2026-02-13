@@ -2,6 +2,11 @@
 
 source setup-env.sh "$@"
 
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is not installed. Please install it first."
+    exit 1
+fi
+
 echo "Installing Game Node Server dependencies..."
 curl -sfL https://tailscale.com/install.sh | sh
 

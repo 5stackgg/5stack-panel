@@ -61,6 +61,11 @@ replacements:
         fieldPaths:
           - spec.rules.0.host
       - select:
+          kind: Ingress
+          name: file-manager
+        fieldPaths:
+          - spec.tls.0.hosts.0
+      - select:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:

@@ -3,6 +3,16 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh"
 
+cleanup() {
+  echo ""
+  echo "Stopping k3d cluster to free resources..."
+  k3d cluster stop 5stack-dev
+  echo "Cluster stopped."
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
 checkout_repos
 
 echo "Setup to use Kubernetes..."
@@ -23,8 +33,12 @@ if ! [ -f "$CERT_FILE" ]; then
     "*.5stack.localhost" 5stack.localhosts
 fi
 
-if k3d cluster list 5stack-dev | grep -q '5stack-dev'; then
-  echo "k3d cluster '5stack-dev' already exists. Skipping creation."
+if k3d cluster list 5stack-dev 2>/dev/null | grep -q '5stack-dev'; then
+  echo "k3d cluster '5stack-dev' already exists."
+  if ! k3d cluster list 5stack-dev 2>/dev/null | grep -q 'running'; then
+    echo "Cluster is not running. Starting it..."
+    k3d cluster start 5stack-dev
+  fi
 else
   rm ~/.kube/5stack-dev
   k3d cluster create 5stack-dev \

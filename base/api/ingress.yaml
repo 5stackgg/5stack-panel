@@ -75,6 +75,13 @@ spec:
                   number: 5585
             path: /system/logs/download
             pathType: Exact
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /branding
+            pathType: Prefix
     - host: $(WEB_DOMAIN)
       http:
         paths:

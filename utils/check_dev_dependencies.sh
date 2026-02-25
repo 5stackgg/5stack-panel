@@ -47,6 +47,23 @@ check_dev_dependencies() {
     fi
   fi
 
+  # Check for tilt — auto-install if missing
+  if ! command -v tilt >/dev/null 2>&1; then
+    echo "tilt not found. Install automatically? [Y/n]"
+    read -r response
+    if [[ "$response" =~ ^[Nn]$ ]]; then
+      missing_deps+=("tilt")
+    else
+      echo "Installing tilt..."
+      if curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash; then
+        echo "tilt installed successfully."
+      else
+        echo "Failed to install tilt."
+        missing_deps+=("tilt (auto-install failed)")
+      fi
+    fi
+  fi
+
   if [ ${#missing_deps[@]} -gt 0 ]; then
     echo ""
     echo "Error: Missing required development dependencies:"
@@ -63,6 +80,9 @@ check_dev_dependencies() {
     fi
     if [[ " ${missing_deps[@]} " =~ "mkcert" ]]; then
       echo "  - mkcert: https://github.com/FiloSottile/mkcert"
+    fi
+    if [[ " ${missing_deps[@]} " =~ "tilt" ]]; then
+      echo "  - tilt: https://docs.tilt.dev/install.html"
     fi
     exit 1
   fi

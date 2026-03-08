@@ -61,6 +61,8 @@ spec:
               mountPath: /serverdata/steamcmd
             - name: serverfiles
               mountPath: /serverdata/serverfiles
+            - name: serverfiles-csgo
+              mountPath: /serverdata/serverfiles-csgo
             - name: demos
               mountPath: /opt/demos
             - name: custom-plugins
@@ -72,20 +74,24 @@ spec:
         - name: steamcmd
           hostPath:
             path: /opt/5stack/steamcmd
-            type: Directory
+            type: DirectoryOrCreate
+        - name: serverfiles-csgo
+          hostPath:
+            path: /opt/5stack/serverfiles-csgo
+            type: DirectoryOrCreate
         - name: serverfiles
           hostPath:
             path: /opt/5stack/serverfiles
-            type: Directory
+            type: DirectoryOrCreate
         - name: demos
           hostPath:
             path: /opt/5stack/demos
-            type: Directory
+            type: DirectoryOrCreate
         - name: custom-plugins
           hostPath:
             path: /opt/5stack/custom-plugins
-            type: Directory
+            type: DirectoryOrCreate
         - name: dev
           hostPath:
             path: /opt/5stack/dev
-            type: Directory
+            type: DirectoryOrCreate

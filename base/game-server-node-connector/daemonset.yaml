@@ -64,6 +64,8 @@ spec:
           volumeMounts:
             - name: server-files
               mountPath: /serverfiles
+            - name: csgo-server-files
+              mountPath: /serverfiles-csgo
             - name: demos
               mountPath: /demos
             - name: dedicated-servers
@@ -85,6 +87,10 @@ spec:
         - name: server-files
           hostPath:
             path: /opt/5stack/serverfiles
+            type: DirectoryOrCreate
+        - name: csgo-server-files
+          hostPath:
+            path: /opt/5stack/serverfiles-csgo
             type: DirectoryOrCreate
         - name: demos
           hostPath:

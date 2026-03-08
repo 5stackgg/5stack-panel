@@ -8,6 +8,7 @@ mkdir -p /opt/5stack/dev
 mkdir -p /opt/5stack/demos
 mkdir -p /opt/5stack/steamcmd
 mkdir -p /opt/5stack/serverfiles
+mkdir -p /opt/5stack/serverfiles-csgo
 mkdir -p /opt/5stack/timescaledb
 mkdir -p /opt/5stack/typesense
 mkdir -p /opt/5stack/minio

@@ -125,6 +125,8 @@ cat <<-EOF >/etc/rancher/k3s/config.yaml
 	node-ip: $TAILSCALE_NODE_IP
 EOF
 
+sed -i '/vpn-auth/d' /etc/systemd/system/k3s.service
+systemctl daemon-reload
 systemctl restart k3s
 
 source update.sh "$@"

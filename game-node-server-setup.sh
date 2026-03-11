@@ -8,6 +8,23 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+FRESH_REQUIRED_GB=120
+EXISTING_REQUIRED_GB=60
+
+if [ -d "/opt/5stack/serverfiles/game/csgo" ]; then
+    REQUIRED_GB=$EXISTING_REQUIRED_GB
+else
+    REQUIRED_GB=$FRESH_REQUIRED_GB
+fi
+if [ "$REQUIRED_GB" -gt 0 ]; then
+    AVAILABLE_GB=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G')
+    if [ "$AVAILABLE_GB" -lt "$REQUIRED_GB" ]; then
+        echo "Error: Insufficient disk space. Required: ${REQUIRED_GB}GB, Available: ${AVAILABLE_GB}GB"
+        exit 1
+    fi
+    echo "Disk space check passed: ${AVAILABLE_GB}GB available (minimum: ${REQUIRED_GB}GB)"
+fi
+
 echo "Installing Game Node Server dependencies..."
 curl -sfL https://tailscale.com/install.sh | sh
 

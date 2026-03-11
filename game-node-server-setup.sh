@@ -149,6 +149,11 @@ cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/cpu-state-check.conf
 	ExecStartPre=/usr/local/bin/5stack-cpu-state-check.sh
 DROPIN
 
+cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/update-tailscale-ip.conf
+	[Service]
+	ExecStartPre=/bin/bash -c 'TSIP=$(tailscale ip -4 2>/dev/null | head -n 1); if [ -n "$TSIP" ] && [ -f /etc/rancher/k3s/config.yaml ]; then sed -i "s/^node-ip:.*/node-ip: $TSIP/" /etc/rancher/k3s/config.yaml; echo "[5stack] Updated k3s node-ip to $TSIP"; fi'
+DROPIN
+
 systemctl daemon-reload
 systemctl restart k3s
 

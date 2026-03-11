@@ -19,6 +19,30 @@ echo "Environment files setup complete"
 echo "Installing K3s"
 curl -sfL https://get.k3s.io | sh -s - --disable=traefik
 
+cat <<-'SCRIPT' >/usr/local/bin/5stack-cpu-state-check.sh
+	#!/bin/bash
+	STATE=/var/lib/kubelet/cpu_manager_state
+	[ ! -f "$STATE" ] && exit 0
+	CACHE="$(dirname "$STATE")/cpu_count"
+	CURRENT=$(nproc)
+	PREVIOUS=$(cat "$CACHE" 2>/dev/null || echo "$CURRENT")
+	if [ "$CURRENT" != "$PREVIOUS" ]; then
+	  echo "CPU count changed from $PREVIOUS to $CURRENT, removing $STATE"
+	  rm -f "$STATE"
+	fi
+	echo "$CURRENT" > "$CACHE"
+SCRIPT
+chmod +x /usr/local/bin/5stack-cpu-state-check.sh
+
+mkdir -p /etc/systemd/system/k3s.service.d
+
+cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/cpu-state-check.conf
+	[Service]
+	ExecStartPre=/usr/local/bin/5stack-cpu-state-check.sh
+DROPIN
+
+systemctl daemon-reload
+
 echo "Installing Ingress Nginx, this may take a few minutes..."
 install_ingress_nginx true
 

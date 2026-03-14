@@ -142,7 +142,9 @@ cat <<-EOF >/etc/rancher/k3s/config.yaml
 	node-ip: $TAILSCALE_NODE_IP
 EOF
 
-sed -i '/vpn-auth/d' /etc/systemd/system/k3s.service
+# TODO - right now there is a bug where k3s will not join the tailscale network if the vpn-auth line is not present.
+# gamde nodes seem to be ok, yet to be verified.
+# sed -i '/vpn-auth/d' /etc/systemd/system/k3s.service
 
 mkdir -p /etc/systemd/system/k3s.service.d
 

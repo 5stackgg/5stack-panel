@@ -233,6 +233,11 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
         update_env_var "overlays/config/api-config.env" "MAIL_FROM" "$MAIL_FROM"
     fi
 
+    if [ -z "$ACME_EMAIL" ]; then
+        ACME_EMAIL="$MAIL_FROM"
+        update_env_var "overlays/config/api-config.env" "ACME_EMAIL" "$ACME_EMAIL"
+    fi
+
     if [ -z "$S3_CONSOLE_HOST" ]; then
         S3_CONSOLE_HOST="console.$WEB_DOMAIN"
         update_env_var "overlays/config/s3-config.env" "S3_CONSOLE_HOST" "$S3_CONSOLE_HOST"

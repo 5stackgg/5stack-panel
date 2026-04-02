@@ -1,4 +1,4 @@
-# TimescaleDB: allow from hasura and api only
+# TimescaleDB: allow from hasura, api, and backup jobs
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,6 +16,9 @@ spec:
         - podSelector:
             matchLabels:
               app: api
+        - podSelector:
+            matchLabels:
+              app: postgres-backup
       ports:
         - port: 5432
           protocol: TCP
@@ -73,7 +76,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# API: allow from ingress, connector, and game server pods
+# API: allow from ingress, hasura (webhooks), connector, and game server pods
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -90,6 +93,9 @@ spec:
               kubernetes.io/metadata.name: ingress-nginx
         - podSelector:
             matchLabels:
+              app: hasura
+        - podSelector:
+            matchLabels:
               app: game-server-node-connector
         - podSelector:
             matchExpressions:
@@ -98,6 +104,59 @@ spec:
                 values: [game-server]
       ports:
         - port: 5585
+          protocol: TCP
+  policyTypes:
+    - Ingress
+---
+# MinIO: allow from api and backup jobs
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-ingress
+  namespace: 5stack
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+        - podSelector:
+            matchLabels:
+              app: postgres-backup
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 9090
+          protocol: TCP
+  policyTypes:
+    - Ingress
+---
+# Typesense: allow from api and ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-typesense-ingress
+  namespace: 5stack
+spec:
+  podSelector:
+    matchLabels:
+      app: typesense
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8108
           protocol: TCP
   policyTypes:
     - Ingress

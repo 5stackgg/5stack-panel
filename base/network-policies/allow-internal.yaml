@@ -73,7 +73,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# API: allow from ingress and game-server-node-connector
+# API: allow from ingress, connector, and game server pods
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -91,6 +91,11 @@ spec:
         - podSelector:
             matchLabels:
               app: game-server-node-connector
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [game-server]
       ports:
         - port: 5585
           protocol: TCP

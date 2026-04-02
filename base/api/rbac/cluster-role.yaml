@@ -3,6 +3,7 @@ kind: ClusterRole
 metadata:
   name: server-creator-clusterrole
 rules:
+  # Nodes are cluster-scoped — patch needed for game server node labeling
   - apiGroups:
       - ''
     resources:
@@ -11,47 +12,12 @@ rules:
       - get
       - list
       - patch
-  - apiGroups:
-      - ''
-    resources:
-      - persistentvolumeclaims
-    verbs:
-      - create
-      - get
-      - list
-      - watch
-      - delete
+  # PVs are cluster-scoped — read-only for monitoring storage
   - apiGroups:
       - ''
     resources:
       - persistentvolumes
     verbs:
-      - create
       - get
       - list
       - watch
-      - delete
-  - apiGroups:
-      - batch
-    resources:
-      - jobs
-      - jobs/status
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - ''
-    resources:
-      - pods
-      - pods/log
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-    verbs:
-      - patch

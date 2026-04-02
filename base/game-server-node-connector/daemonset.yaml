@@ -80,9 +80,6 @@ spec:
             - name: cpu-sys
               mountPath: /host-cpu
               readOnly: true
-            - name: mem-sys
-              mountPath: /host-mem
-              readOnly: true
       volumes:
         - name: server-files
           hostPath:
@@ -114,6 +111,3 @@ spec:
         - name: cpu-sys
           hostPath:
             path: /sys/devices/system/cpu/
-        - name: mem-sys
-          hostPath:
-            path: /dev/mem

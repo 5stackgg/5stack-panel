@@ -4,8 +4,8 @@ metadata:
   name: api
   namespace: 5stack
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "100M"
-    nginx.ingress.kubernetes.io/client-max-body-size: "100M"
+    nginx.ingress.kubernetes.io/proxy-body-size: "500M"
+    nginx.ingress.kubernetes.io/client-max-body-size: "500M"
 spec:
   ingressClassName: nginx
   rules:

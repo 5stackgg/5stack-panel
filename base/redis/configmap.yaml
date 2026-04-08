@@ -5,9 +5,9 @@ metadata:
   namespace: 5stack
 data:
   redis.conf: |
+    # Persistence strategy: hybrid RDB snapshots + AOF for durability.
+    # RDB provides point-in-time snapshots; AOF provides write-level durability.
     tcp-keepalive 240
-    appendonly no
-    save ""
     maxmemory-policy noeviction
     user default on >${REDIS_PASSWORD} allcommands allkeys +@all &*
     io-threads-do-reads yes

@@ -204,6 +204,11 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
         echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
         read WEB_DOMAIN
     fi
+
+    if [ -z "$WEB_DOMAIN" ] || echo "$WEB_DOMAIN" | grep -q ' '; then
+        echo "ERROR: Invalid domain '$WEB_DOMAIN'. Domain must be non-empty and contain no spaces."
+        exit 1
+    fi
     
     echo "WEB_DOMAIN: $WEB_DOMAIN"
     update_env_var "overlays/config/api-config.env" "WEB_DOMAIN" "$WEB_DOMAIN"

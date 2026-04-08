@@ -6,6 +6,10 @@ metadata:
   name: game-server-node-connector
   namespace: 5stack
 spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: game-server-node-connector
@@ -14,6 +18,7 @@ spec:
       labels:
         app: game-server-node-connector
     spec:
+      terminationGracePeriodSeconds: 30
       dnsConfig:
         options:
           - name: ndots

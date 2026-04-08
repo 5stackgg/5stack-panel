@@ -20,6 +20,7 @@ spec:
       labels:
         app: api
     spec:
+      terminationGracePeriodSeconds: 30
       serviceAccountName: server-creator
       dnsConfig:
         options:

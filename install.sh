@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 source setup-env.sh "$@"
 check_sudo
@@ -17,7 +18,10 @@ mkdir -p /opt/5stack/custom-plugins
 echo "Environment files setup complete"
 
 echo "Installing K3s"
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik
+if ! curl -sfL https://get.k3s.io | sh -s - --disable=traefik; then
+  echo "ERROR: K3s installation failed"
+  exit 1
+fi
 
 cat <<-'SCRIPT' >/usr/local/bin/5stack-cpu-state-check.sh
 	#!/bin/bash
@@ -46,7 +50,12 @@ systemctl daemon-reload
 echo "Installing Ingress Nginx, this may take a few minutes..."
 install_ingress_nginx true
 
-kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
+NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+if [ -z "$NODE_NAME" ]; then
+  echo "ERROR: Could not determine node name"
+  exit 1
+fi
+kubectl label node "$NODE_NAME" 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
 
 source update.sh "$@"
 

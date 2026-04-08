@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hasura-pdb
+  namespace: 5stack
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hasura

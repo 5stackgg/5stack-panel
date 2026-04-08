@@ -36,6 +36,13 @@ spec:
       containers:
         - image: ghcr.io/5stackgg/web:latest
           name: web
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
           ports:
             - containerPort: 3000
           startupProbe:

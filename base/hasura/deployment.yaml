@@ -36,6 +36,13 @@ spec:
       containers:
         - image: hasura/graphql-engine:v2.48.9-ce.cli-migrations-v3
           name: hasura
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
           ports:
             - containerPort: 8080
           startupProbe:

@@ -31,6 +31,13 @@ spec:
       containers:
         - name: typesense
           image: typesense/typesense:29.0
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
           ports:
             - containerPort: 8108
           startupProbe:

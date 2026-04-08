@@ -4,7 +4,7 @@ metadata:
   name: api-pdb
   namespace: 5stack
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: api

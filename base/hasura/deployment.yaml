@@ -42,7 +42,6 @@ spec:
               cpu: "250m"
             limits:
               memory: "4Gi"
-              cpu: "1000m"
           ports:
             - containerPort: 8080
           startupProbe:

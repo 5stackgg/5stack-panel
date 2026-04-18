@@ -73,6 +73,13 @@ spec:
                 name: api
                 port:
                   number: 5585
+            path: /trophies
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
             path: /system/healthz
             pathType: Exact
           - backend:

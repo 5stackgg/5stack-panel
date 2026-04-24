@@ -18,7 +18,6 @@ spec:
       labels:
         app: game-server-node-connector
     spec:
-
       dnsConfig:
         options:
           - name: ndots

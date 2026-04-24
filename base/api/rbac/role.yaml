@@ -46,9 +46,26 @@ rules:
       - create
       - get
   - apiGroups:
+      - ''
+    resources:
+      - pods/log
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - delete
+  - apiGroups:
       - 'batch'
     resources:
       - jobs
+      - jobs/status
     verbs:
       - create
       - get
@@ -70,4 +87,5 @@ rules:
       - get
       - list
       - watch
+      - patch
       - delete

@@ -37,6 +37,12 @@ spec:
       containers:
         - image: ghcr.io/5stackgg/api:latest
           name: api
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "4Gi"
           ports:
             - containerPort: 5585
           startupProbe:

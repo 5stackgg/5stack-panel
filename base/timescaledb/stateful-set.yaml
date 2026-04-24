@@ -29,6 +29,10 @@ spec:
       containers:
         - name: timescaledb
           image: timescale/timescaledb:latest-pg17
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
           args:
             - postgres
             - '-c'

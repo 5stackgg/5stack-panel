@@ -21,7 +21,7 @@ spec:
                 - |
                   set -euo pipefail
                   
-                  apk add --no-cache zip curl ca-certificates bash aws-cli || true
+                  apk add --no-cache zip curl ca-certificates bash aws-cli
 
                   TS=$(date -u +"%Y%m%d%H%M%S")
                   DUMP_FILE="/tmp/backup-$TS.dump"
@@ -30,7 +30,12 @@ spec:
                   export PGPASSWORD="$POSTGRES_PASSWORD"
 
                   pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -F c -Z 0 --no-owner --no-privileges -f "$DUMP_FILE"
-                  
+
+                  if [ ! -f "$DUMP_FILE" ] || [ ! -s "$DUMP_FILE" ]; then
+                    echo "ERROR: pg_dump failed or produced empty file"
+                    exit 1
+                  fi
+
                   zip -j "$ZIP_FILE" "$DUMP_FILE"
 
                   ENDPOINT="${S3_ENDPOINT:-minio}"
@@ -49,7 +54,10 @@ spec:
 
                   echo "Uploading to $ENDPOINT : $S3_DB_BACKUP_BUCKET/backup-$TS.zip"
 
-                  aws s3 cp "$ZIP_FILE" "s3://$S3_DB_BACKUP_BUCKET/backup-$TS.zip" --endpoint-url "$ENDPOINT"
+                  if ! aws s3 cp "$ZIP_FILE" "s3://$S3_DB_BACKUP_BUCKET/backup-$TS.zip" --endpoint-url "$ENDPOINT"; then
+                    echo "ERROR: S3 upload failed"
+                    exit 1
+                  fi
 
                   echo "Backup complete: $ZIP_FILE"
 

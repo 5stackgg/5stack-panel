@@ -20,7 +20,6 @@ spec:
       labels:
         app: hasura
     spec:
-      terminationGracePeriodSeconds: 30
       dnsConfig:
         options:
           - name: ndots

@@ -18,7 +18,7 @@ spec:
       labels:
         app: game-server-node-connector
     spec:
-      terminationGracePeriodSeconds: 30
+
       dnsConfig:
         options:
           - name: ndots

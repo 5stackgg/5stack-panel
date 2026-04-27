@@ -12,7 +12,7 @@ rules:
       - get
       - list
       - patch
-  # PVs are cluster-scoped — read-only for monitoring storage
+  # PVs are cluster-scoped — server-creator provisions per-node game server volumes
   - apiGroups:
       - ''
     resources:
@@ -21,3 +21,6 @@ rules:
       - get
       - list
       - watch
+      - create
+      - patch
+      - delete

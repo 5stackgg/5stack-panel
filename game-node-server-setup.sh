@@ -136,7 +136,74 @@ cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/update-tailscale-ip.conf
 	ExecStartPre=/bin/bash -c 'TSIP=$(tailscale ip -4 2>/dev/null | head -n 1); if [ -n "$TSIP" ] && [ -f /etc/rancher/k3s/config.yaml ]; then sed -i "s/^node-ip:.*/node-ip: $TSIP/" /etc/rancher/k3s/config.yaml; echo "[5stack] Updated k3s node-ip to $TSIP"; fi'
 DROPIN
 
+cat <<-'SCRIPT' >/usr/local/bin/5stack-tailscale-state-check.sh
+	#!/bin/bash
+	command -v tailscale >/dev/null 2>&1 || exit 0
+
+	check_health() {
+	  local status backend health_count
+	  status=$(tailscale status --json 2>/dev/null) || return 1
+	  backend=$(echo "$status" | jq -r '.BackendState // "Unknown"')
+	  health_count=$(echo "$status" | jq -r '.Health | length')
+	  [ "$backend" = "Running" ] && [ "$health_count" -eq 0 ]
+	}
+
+	if check_health; then
+	  exit 0
+	fi
+
+	STATUS=$(tailscale status --json 2>/dev/null)
+	BACKEND=$(echo "$STATUS" | jq -r '.BackendState // "Unknown"')
+	HEALTH=$(echo "$STATUS" | jq -rc '.Health // []')
+	echo "[5stack] tailscale unhealthy (BackendState=$BACKEND, Health=$HEALTH), restarting tailscaled"
+	systemctl restart tailscaled
+
+	for i in {1..15}; do
+	  sleep 2
+	  if check_health; then
+	    echo "[5stack] tailscale recovered after restart"
+	    exit 0
+	  fi
+	done
+
+	echo "[5stack] tailscale still unhealthy after restart"
+	exit 0
+SCRIPT
+chmod +x /usr/local/bin/5stack-tailscale-state-check.sh
+
+mkdir -p /etc/systemd/system/k3s.service.d
+
+cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/tailscale-state-check.conf
+	[Service]
+	ExecStartPre=/usr/local/bin/5stack-tailscale-state-check.sh
+DROPIN
+
+cat <<-'UNIT' >/etc/systemd/system/5stack-tailscale-state-check.service
+	[Unit]
+	Description=5stack tailscale state check
+	After=tailscaled.service
+	Wants=tailscaled.service
+
+	[Service]
+	Type=oneshot
+	ExecStart=/usr/local/bin/5stack-tailscale-state-check.sh
+UNIT
+
+cat <<-'UNIT' >/etc/systemd/system/5stack-tailscale-state-check.timer
+	[Unit]
+	Description=Run 5stack tailscale state check every 5 minutes
+
+	[Timer]
+	OnBootSec=2min
+	OnUnitActiveSec=5min
+	Unit=5stack-tailscale-state-check.service
+
+	[Install]
+	WantedBy=timers.target
+UNIT
+
 systemctl daemon-reload
+systemctl enable --now 5stack-tailscale-state-check.timer
 systemctl restart k3s
 
 source update.sh "$@"

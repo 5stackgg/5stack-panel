@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: 5stack
+
+resources:
+  - ../mediamtx
+  - certificate.yaml
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: mediamtx-env
+      fieldPath: data.GAME_STREAM_DOMAIN
+    targets:
+      - select:
+          kind: Certificate
+          name: 5stack-mediamtx-ssl
+        fieldPaths:
+          - spec.dnsNames.0
+      - select:
+          kind: Ingress
+          name: mediamtx
+        fieldPaths:
+          - spec.tls.0.hosts.0
+
+patches:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: mediamtx
+    path: ingress-patch.yaml

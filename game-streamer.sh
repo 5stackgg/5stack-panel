@@ -155,7 +155,11 @@ case "$GPU_VENDOR" in
     nvidia) apply_overlay "overlays/nvidia" "Updating NVIDIA device plugin, time slicing, and connector" ;;
 esac
 
-apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
+if [ "$REVERSE_PROXY" = true ]; then
+    apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
+else
+    apply_overlay "overlays/mediamtx-https" "Updating MediaMTX stream server"
+fi
 
 MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)
 if [ -z "$MEDIAMTX_NODE" ]; then

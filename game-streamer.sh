@@ -89,7 +89,6 @@ fi
 SECRETS_OVERLAY="overlays/local-secrets"
 STEAM_SECRETS_FILE="$SECRETS_OVERLAY/steam-secrets.env"
 
-STEAM_SECRETS_CHANGED=0
 STEAM_USER_CURRENT=$(grep -h "^STEAM_USER=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)
 STEAM_PASSWORD_CURRENT=$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)
 
@@ -108,7 +107,6 @@ while [ -z "$STEAM_USER_CURRENT" ]; do
 done
 if [ "$STEAM_USER_CURRENT" != "$(grep -h "^STEAM_USER=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)" ]; then
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_USER" "$STEAM_USER_CURRENT"
-    STEAM_SECRETS_CHANGED=1
 fi
 
 while [ -z "$STEAM_PASSWORD_CURRENT" ]; do
@@ -117,8 +115,9 @@ while [ -z "$STEAM_PASSWORD_CURRENT" ]; do
 done
 if [ "$STEAM_PASSWORD_CURRENT" != "$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)" ]; then
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_PASSWORD" "$STEAM_PASSWORD_CURRENT"
-    STEAM_SECRETS_CHANGED=1
 fi
+
+source update.sh "$@"
 
 MEDIAMTX_OVERLAY="overlays/mediamtx"
 MEDIAMTX_CONFIG="$MEDIAMTX_OVERLAY/mediamtx.env"
@@ -157,10 +156,6 @@ case "$GPU_VENDOR" in
 esac
 
 apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
-
-if [ "$STEAM_SECRETS_CHANGED" -eq 1 ]; then
-    apply_overlay "$SECRETS_OVERLAY" "Updating Steam credentials"
-fi
 
 MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)
 if [ -z "$MEDIAMTX_NODE" ]; then

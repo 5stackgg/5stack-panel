@@ -17,7 +17,7 @@ echo "DEMOS_DOMAIN: $DEMOS_DOMAIN" | tee -a "$debug_file"
 echo "MAIL_FROM: $MAIL_FROM" | tee -a "$debug_file"
 echo "S3_CONSOLE_HOST: $S3_CONSOLE_HOST" | tee -a "$debug_file"
 echo "TYPESENSE_HOST: $TYPESENSE_HOST" | tee -a "$debug_file"
-echo "--------------------------------" | tee -a "$debug_file"  
+echo "--------------------------------" | tee -a "$debug_file"
 
 echo "Checking pod status and restarts in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"

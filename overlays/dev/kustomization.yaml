@@ -5,7 +5,7 @@ resources:
   - config
   - secrets
   # - dev-game-server
-  - dev-game-stream
+  # - dev-game-streamer
   - queues
   - hasura
 

@@ -1,0 +1,28 @@
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: :9997
+
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigin: "*"
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+webrtc: yes
+webrtcAddress: :8889
+
+webrtcAllowOrigin: "*"
+
+srt: yes
+srtAddress: :8890
+
+rtmp: yes
+rtmpAddress: :1935
+
+pathDefaults:
+  source: publisher
+  sourceOnDemand: no

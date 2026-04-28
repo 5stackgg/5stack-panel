@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-game-streamer
+  namespace: 5stack
+  labels:
+    app: dev-game-streamer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-game-streamer
+  template:
+    metadata:
+      labels:
+        app: dev-game-streamer
+    spec:
+      restartPolicy: Always
+      runtimeClassName: nvidia
+      nodeSelector:
+        5stack-game-streamer: "true"
+      initContainers:
+        - name: prep-cache
+          image: busybox:1.36
+          command: ["sh", "-c", "mkdir -p /mnt/game-streamer/steam /mnt/game-streamer/steamapps /mnt/game-streamer/demos /mnt/game-streamer/clips"]
+          volumeMounts:
+            - { name: cache, mountPath: /mnt/game-streamer }
+      containers:
+        - name: streamer
+          image: ghcr.io/5stackgg/game-streamer:latest
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+          command: ["sleep", "infinity"]
+          ports:
+            - { name: openhud, containerPort: 1349 }
+            - { name: spec, containerPort: 1350 }
+          env: []
+          envFrom:
+            - configMapRef: { name: dev-game-streamer-config }
+            - secretRef:    { name: steam-secrets }
+          resources:
+            limits:
+              memory: 16Gi
+              cpu: "8"
+              nvidia.com/gpu: 1
+            requests:
+              memory: 2Gi
+              cpu: "1"
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - { name: dshm,  mountPath: /dev/shm }
+            - { name: cache, mountPath: /mnt/game-streamer }
+      volumes:
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 2Gi }
+        - name: cache
+          hostPath:
+            path: /opt/5stack/game-streamer
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-game-streamer-openhud
+  namespace: 5stack
+spec:
+  selector:
+    app: dev-game-streamer
+  ports:
+    - { name: openhud, port: 1349, targetPort: openhud }
+    - { name: spec,    port: 1350, targetPort: spec }

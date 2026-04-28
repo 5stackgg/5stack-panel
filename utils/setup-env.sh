@@ -1,6 +1,4 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils/utils.sh"
 
 if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
     return;
@@ -71,13 +69,6 @@ ask_reverse_proxy() {
     fi
 }
 
-output_redirect() {
-    if [ "$DEBUG" = true ]; then
-        "$@"
-    else
-        "$@" >/dev/null
-    fi
-}
 
 migrate_secrets_to_vault() {
     local secret_file=$1

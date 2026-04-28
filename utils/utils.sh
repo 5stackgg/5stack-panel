@@ -21,5 +21,4 @@ source "$SCRIPT_DIR/setup_kustomize.sh"
 source "$SCRIPT_DIR/tailscale-api.sh"
 source "$SCRIPT_DIR/interactive_select.sh"
 
-# Must be sourced last: its body runs setup actions that call the helpers above.
 source "$SCRIPT_DIR/setup-env.sh" "$@"

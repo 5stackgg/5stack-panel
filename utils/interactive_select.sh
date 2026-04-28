@@ -1,8 +1,4 @@
 #!/bin/bash
-# Pure-bash interactive single-select menu and multi-select checklist.
-# No external dependencies — works wherever bash + an ANSI-capable TTY exists.
-# ESC sequences and cursor control use raw ANSI so we don't depend on tput
-# or terminfo (works on minimal containers with TERM=dumb).
 
 _isel_hide_cursor() { printf '\033[?25l'; }
 _isel_show_cursor() { printf '\033[?25h'; }

@@ -1,11 +1,9 @@
 logLevel: info
 logDestinations: [stdout]
 
-# Global API (for programmatic publishing/auth hooks if we want them later)
 api: yes
 apiAddress: :9997
 
-# HLS — what end-user browsers watch
 hls: yes
 hlsAddress: :8888
 hlsAllowOrigin: "*"
@@ -14,36 +12,17 @@ hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
-# WHIP/WHEP (WebRTC-HTTP) — for ultra-low-latency publish from the live pod
-#
-# DEPLOYMENT REQUIREMENT: this Pod must run with `hostNetwork: true`.
-# WebRTC media flows over UDP via ICE-negotiated candidates; with
-# normal CNI networking, mediamtx advertises its pod IP / port and
-# external browsers can't reach those (kube-proxy doesn't NAT UDP
-# the way it does TCP service ports). hostNetwork puts mediamtx on
-# the node's stack so the advertised candidates are actually routable.
-#
-# If your node's public IP differs from the address mediamtx sees on
-# its NICs (e.g. behind a cloud load balancer with NAT), set
-# `webrtcAdditionalHosts: [<public-ip-or-hostname>]` so the right
-# candidate is advertised in the SDP answer.
 webrtc: yes
 webrtcAddress: :8889
-# Wide-open CORS so the streamer-controls page can POST its WHEP SDP
-# offer cross-origin during testing. Tighten to the web origin once
-# we're done verifying.
+
 webrtcAllowOrigin: "*"
 
-# SRT — primary publish transport from the live pod (MPEG-TS in)
 srt: yes
 srtAddress: :8890
 
-# Classic RTMP — kept as a fallback ingest
 rtmp: yes
 rtmpAddress: :1935
 
-# Path defaults: anyone inside the cluster can publish, anyone can read.
-# Tighten with publishUser/publishPass once a secret-based auth flow lands.
 pathDefaults:
   source: publisher
   sourceOnDemand: no

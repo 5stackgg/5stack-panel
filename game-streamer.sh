@@ -11,9 +11,6 @@
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$REPO_DIR/utils/utils.sh" "$@"
 
-# GPU vendor + nodes are stored in .5stack-env.config (sourced by setup-env.sh)
-# as $GPU_VENDOR and $GPU_NODES. Re-runs use those as defaults so a user can
-# add or remove a GPU node by re-running this script.
 PREVIOUS_GPU_VENDOR="${GPU_VENDOR:-}"
 PREVIOUS_GPU_NODES="${GPU_NODES:-}"
 
@@ -24,8 +21,6 @@ case "$PREVIOUS_GPU_VENDOR" in
     *)      DEFAULT_VENDOR_CHOICE=1 ;;
 esac
 
-# Pure-bash interactive selectors (utils/interactive_select.sh): arrow keys
-# to move, Space to toggle in checklist, Enter to confirm. No external deps.
 interactive_menu VENDOR_INDEX \
     "Which GPU vendor will the streamer nodes use?" \
     $((DEFAULT_VENDOR_CHOICE - 1)) \
@@ -74,10 +69,6 @@ for node in $GPU_NODES; do
     fi
 done
 
-# nvidia-gpu drives the connector DaemonSet, 5stack-game-streamer drives the
-# streamer Deployment. We set both together by default; an operator can later
-# strip one with `kubectl label node X nvidia-gpu-` (or 5stack-game-streamer-)
-# to opt a node out of one workload while keeping the other.
 for node in $ALL_NODES; do
     if echo " $GPU_NODES " | grep -q " $node "; then
         kubectl --kubeconfig=$KUBECONFIG label node "$node" nvidia-gpu=true 5stack-game-streamer=true --overwrite >/dev/null
@@ -98,13 +89,6 @@ fi
 SECRETS_OVERLAY="overlays/local-secrets"
 STEAM_SECRETS_FILE="$SECRETS_OVERLAY/steam-secrets.env"
 
-# ---------------------------------------------------------------------------
-# Steam credentials. The streamer logs into Steam non-interactively via
-# steamcmd to download CS2, so we need a username + password that don't sit
-# behind Steam Guard / 2FA. If the values are already filled (including a
-# `VAULT` placeholder for the HashiCorp Vault integration), we leave them
-# alone.
-# ---------------------------------------------------------------------------
 STEAM_SECRETS_CHANGED=0
 STEAM_USER_CURRENT=$(grep -h "^STEAM_USER=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)
 STEAM_PASSWORD_CURRENT=$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)
@@ -169,7 +153,7 @@ apply_overlay() {
 }
 
 case "$GPU_VENDOR" in
-    nvidia) apply_overlay "overlays/nvidia" "Installing NVIDIA device plugin and connector" ;;
+    nvidia) apply_overlay "overlays/nvidia" "Installing NVIDIA device plugin, time slicing, and connector" ;;
 esac
 
 apply_overlay "$MEDIAMTX_OVERLAY" "Deploying MediaMTX stream server"

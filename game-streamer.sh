@@ -153,10 +153,10 @@ apply_overlay() {
 }
 
 case "$GPU_VENDOR" in
-    nvidia) apply_overlay "overlays/nvidia" "Installing NVIDIA device plugin, time slicing, and connector" ;;
+    nvidia) apply_overlay "overlays/nvidia" "Updating NVIDIA device plugin, time slicing, and connector" ;;
 esac
 
-apply_overlay "$MEDIAMTX_OVERLAY" "Deploying MediaMTX stream server"
+apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
 
 if [ "$STEAM_SECRETS_CHANGED" -eq 1 ]; then
     apply_overlay "$SECRETS_OVERLAY" "Updating Steam credentials"

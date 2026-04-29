@@ -133,35 +133,47 @@ ok "ip forwarding enabled"
 step "Writing systemd helper scripts"
 cat <<-'SCRIPT' >/usr/local/bin/5stack-tailscale-state-check.sh
 	#!/bin/bash
+	set -o pipefail
 	command -v tailscale >/dev/null 2>&1 || exit 0
+	command -v jq >/dev/null 2>&1 || exit 0
 
-	check_health() {
-	  local status backend health_count
-	  status=$(tailscale status --json 2>/dev/null) || return 1
-	  backend=$(echo "$status" | jq -r '.BackendState // "Unknown"')
-	  health_count=$(echo "$status" | jq -r '.Health | length')
-	  [ "$backend" = "Running" ] && [ "$health_count" -eq 0 ]
-	}
+	STATE_DIR=/run/5stack-tailscale-state-check
+	STATE_FILE="$STATE_DIR/consecutive-failures"
+	THRESHOLD=3
+	mkdir -p "$STATE_DIR"
 
-	if check_health; then
+	STATUS=$(tailscale status --json 2>/dev/null) || STATUS=""
+	if [ -n "$STATUS" ]; then
+	  BACKEND=$(echo "$STATUS" | jq -r '.BackendState // "Unknown"')
+	  HEALTH_COUNT=$(echo "$STATUS" | jq -r '.Health | length')
+	else
+	  BACKEND="Unknown"
+	  HEALTH_COUNT=0
+	fi
+
+	if [ "$BACKEND" = "Running" ] && [ "$HEALTH_COUNT" -eq 0 ]; then
+	  rm -f "$STATE_FILE"
 	  exit 0
 	fi
 
-	STATUS=$(tailscale status --json 2>/dev/null)
-	BACKEND=$(echo "$STATUS" | jq -r '.BackendState // "Unknown"')
-	HEALTH=$(echo "$STATUS" | jq -rc '.Health // []')
-	echo "[5stack] tailscale unhealthy (BackendState=$BACKEND, Health=$HEALTH), restarting tailscaled"
-	systemctl restart tailscaled
+	FAILURES=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+	FAILURES=$((FAILURES + 1))
+	echo "$FAILURES" >"$STATE_FILE"
 
-	for i in {1..15}; do
-	  sleep 2
-	  if check_health; then
-	    echo "[5stack] tailscale recovered after restart"
-	    exit 0
-	  fi
-	done
+	HEALTH=$(echo "$STATUS" | jq -rc '.Health // []' 2>/dev/null || echo "[]")
+	echo "[5stack] tailscale unhealthy (BackendState=$BACKEND, Health=$HEALTH), failure $FAILURES/$THRESHOLD"
 
-	echo "[5stack] tailscale still unhealthy after restart"
+	if [ "$FAILURES" -lt "$THRESHOLD" ]; then
+	  exit 0
+	fi
+
+	# Async restart so we don't deadlock when invoked as a k3s ExecStartPre.
+	echo "[5stack] threshold reached, restarting tailscaled"
+	if ! systemd-run --no-block --unit=5stack-tailscale-restart systemctl restart tailscaled 2>/dev/null; then
+	  echo "[5stack] failed to schedule tailscaled restart"
+	  exit 1
+	fi
+	rm -f "$STATE_FILE"
 	exit 0
 SCRIPT
 ok "helper scripts written"
@@ -188,6 +200,10 @@ cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/update-tailscale-ip.conf
 DROPIN
 
 cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/tailscale-state-check.conf
+	[Unit]
+	After=tailscaled.service
+	Wants=tailscaled.service
+
 	[Service]
 	ExecStartPre=/usr/local/bin/5stack-tailscale-state-check.sh
 DROPIN
@@ -200,7 +216,9 @@ cat <<-'UNIT' >/etc/systemd/system/5stack-tailscale-state-check.service
 
 	[Service]
 	Type=oneshot
+	RemainAfterExit=yes
 	ExecStart=/usr/local/bin/5stack-tailscale-state-check.sh
+	NoNewPrivileges=yes
 UNIT
 
 cat <<-'UNIT' >/etc/systemd/system/5stack-tailscale-state-check.timer

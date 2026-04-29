@@ -31,28 +31,26 @@ interactive_menu VENDOR_INDEX \
 case "$VENDOR_INDEX" in
     0) GPU_VENDOR=nvidia ;;
     1)
-        echo ""
-        echo "ERROR: AMD GPUs are not supported yet."
-        echo "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/467"
-        echo "  Docs:           https://docs.5stack.gg/advanced/game-streaming/amd"
+        err "AMD GPUs are not supported yet."
+        err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/467"
+        err "  Docs:           https://docs.5stack.gg/advanced/game-streaming/amd"
         exit 1
         ;;
     2)
-        echo ""
-        echo "ERROR: Intel GPUs are not supported yet."
-        echo "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/468"
-        echo "  Docs:           https://docs.5stack.gg/advanced/game-streaming/intel"
+        err "Intel GPUs are not supported yet."
+        err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/468"
+        err "  Docs:           https://docs.5stack.gg/advanced/game-streaming/intel"
         exit 1
         ;;
 esac
-echo ""
 
+step "Discovering cluster nodes"
 ALL_NODES=$(kubectl --kubeconfig=$KUBECONFIG get nodes -o jsonpath='{.items[*].metadata.name}')
 ALL_NODES_ARR=()
 for node in $ALL_NODES; do ALL_NODES_ARR+=("$node"); done
 
 if [ ${#ALL_NODES_ARR[@]} -eq 0 ]; then
-    echo "ERROR: no cluster nodes found via kubectl. Check KUBECONFIG=$KUBECONFIG."
+    err "no cluster nodes found via kubectl. Check KUBECONFIG=$KUBECONFIG."
     exit 1
 fi
 
@@ -63,29 +61,32 @@ interactive_checklist GPU_NODES \
 
 for node in $GPU_NODES; do
     if ! echo "$ALL_NODES" | tr ' ' '\n' | grep -qx "$node"; then
-        echo "ERROR: node '$node' is not in this cluster."
-        echo "Available: $ALL_NODES"
+        err "node '$node' is not in this cluster."
+        err "Available: $ALL_NODES"
         exit 1
     fi
 done
 
+step "Labeling GPU nodes"
 for node in $ALL_NODES; do
     if echo " $GPU_NODES " | grep -q " $node "; then
         kubectl --kubeconfig=$KUBECONFIG label node "$node" nvidia-gpu=true 5stack-game-streamer=true --overwrite >/dev/null
+        ok "$node: labeled as GPU node"
     elif echo " $PREVIOUS_GPU_NODES " | grep -q " $node "; then
         kubectl --kubeconfig=$KUBECONFIG label node "$node" nvidia-gpu- 5stack-game-streamer- >/dev/null 2>&1 || true
+        warn "$node: GPU labels removed"
     fi
 done
 
 update_env_var ".5stack-env.config" "GPU_VENDOR" "$GPU_VENDOR"
 update_env_var ".5stack-env.config" "GPU_NODES" "\"$GPU_NODES\""
-echo ""
 
 if [ -z "$GPU_NODES" ]; then
-    echo "ERROR: no GPU nodes selected; the streamer cannot run without a GPU node."
+    err "no GPU nodes selected; the streamer cannot run without a GPU node."
     exit 1
 fi
 
+step "Configuring Steam credentials"
 SECRETS_OVERLAY="overlays/local-secrets"
 STEAM_SECRETS_FILE="$SECRETS_OVERLAY/steam-secrets.env"
 
@@ -93,13 +94,12 @@ STEAM_USER_CURRENT=$(grep -h "^STEAM_USER=" "$STEAM_SECRETS_FILE" | cut -d '=' -
 STEAM_PASSWORD_CURRENT=$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_FILE" | cut -d '=' -f2-)
 
 if [ -z "$STEAM_USER_CURRENT" ] || [ -z "$STEAM_PASSWORD_CURRENT" ]; then
-    echo ""
+    echo
     echo "Steam credentials are required for the streamer to download CS2."
-    echo ""
-    echo "WARNING: This account must NOT have Steam Guard / 2FA enabled."
-    echo "  steamcmd cannot prompt for an auth code; the streamer will hang."
-    echo "  Use a dedicated Steam account with 2FA disabled."
-    echo ""
+    warn "This account must NOT have Steam Guard / 2FA enabled."
+    warn "  steamcmd cannot prompt for an auth code; the streamer will hang."
+    warn "  Use a dedicated Steam account with 2FA disabled."
+    echo
 fi
 
 while [ -z "$STEAM_USER_CURRENT" ]; do
@@ -130,7 +130,7 @@ if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]
     read -p "Enter the playback domain for game streams (default: $DEFAULT_HLS): " GAME_STREAM_DOMAIN
     GAME_STREAM_DOMAIN=${GAME_STREAM_DOMAIN:-$DEFAULT_HLS}
     if echo "$GAME_STREAM_DOMAIN" | grep -q ' '; then
-        echo "ERROR: Invalid domain '$GAME_STREAM_DOMAIN'."
+        err "Invalid domain '$GAME_STREAM_DOMAIN'."
         exit 1
     fi
     update_env_var "$MEDIAMTX_CONFIG" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
@@ -139,16 +139,16 @@ fi
 apply_overlay() {
     local overlay="$1"
     local description="$2"
-    echo "$description..."
+    step "$description"
     set -o pipefail
     "$REPO_DIR/kustomize" build "$overlay" | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
     local status=$?
     set +o pipefail
     if [ $status -ne 0 ]; then
-        echo ""
-        echo "ERROR: $description failed (exit $status)"
+        err "$description failed (exit $status)"
         exit $status
     fi
+    ok "applied"
 }
 
 case "$GPU_VENDOR" in
@@ -167,5 +167,4 @@ if [ -z "$MEDIAMTX_NODE" ]; then
     kubectl --kubeconfig=$KUBECONFIG label node "$MEDIAMTX_NODE" 5stack-mediamtx=true --overwrite
 fi
 
-echo ""
-echo "Game Streamer : Updated"
+banner "Game Streamer : Updated"

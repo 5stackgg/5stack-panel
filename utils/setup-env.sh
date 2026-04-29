@@ -4,6 +4,8 @@ if [ -n "$FIVE_STACK_ENV_SETUP" ]; then
     return;
 fi
 
+source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
+
 DEBUG=false
 FIVE_STACK_ENV_SETUP=true
 REVERSE_PROXY=""

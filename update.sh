@@ -8,14 +8,16 @@ if [ "$REVERSE_PROXY" = true ]; then
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then
-    # Apply cert-manager CRDs and controller first to avoid race conditions with Certificate/Issuer
+    step "Installing cert-manager CRDs"
     ./kustomize build overlays/cert-manager-crds | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
 
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/certificates.cert-manager.io --timeout=120s 
+    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/certificates.cert-manager.io --timeout=120s
     output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/issuers.cert-manager.io --timeout=120s
     output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s
+    ok "cert-manager CRDs ready"
 fi
 
+step "Building overlay manifests"
 HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
 HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
 
@@ -42,7 +44,9 @@ EOF
         fi
     done
 done
+ok "overlays generated"
 
+step "Applying kustomize overlay"
 if [ "$VAULT_MANAGER" = true ]; then
     if [ "$REVERSE_PROXY" = true ]; then
         ./kustomize build overlays/vault-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
@@ -56,7 +60,9 @@ else
         ./kustomize build overlays/local-secrets-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
     fi
 fi
+ok "overlay applied"
 
+step "Recycling stateful workloads"
 kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
@@ -70,4 +76,4 @@ if [ "$REVERSE_PROXY" = false ]; then
     watch_ssl_status
 fi
 
-echo "5Stack : Updated"
+banner "5Stack : Updated"

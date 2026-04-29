@@ -3,6 +3,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source all utility functions
+source "$SCRIPT_DIR/colors.sh"
 source "$SCRIPT_DIR/check_sudo.sh"
 source "$SCRIPT_DIR/output_redirect.sh"
 source "$SCRIPT_DIR/update_env_var.sh"

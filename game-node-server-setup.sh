@@ -117,6 +117,26 @@ ok "tailscale IP: $TAILSCALE_NODE_IP"
 
 update_env_var "overlays/config/api-config.env" "TAILSCALE_NODE_IP" "$TAILSCALE_NODE_IP"
 
+step "Configuring kernel IP forwarding"
+if [ -d "/etc/sysctl.d" ]; then
+  if ! grep -q "^net.ipv4.ip_forward = 1" /etc/sysctl.d/99-tailscale.conf 2>/dev/null; then
+    echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf >/dev/null
+  fi
+  if ! grep -q "^net.ipv6.conf.all.forwarding = 1" /etc/sysctl.d/99-tailscale.conf 2>/dev/null; then
+    echo 'net.ipv6.conf.all.forwarding = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf >/dev/null
+  fi
+  sudo sysctl -p /etc/sysctl.d/99-tailscale.conf >/dev/null
+else
+  if ! grep -q "^net.ipv4.ip_forward = 1" /etc/sysctl.conf; then
+    echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf >/dev/null
+  fi
+  if ! grep -q "^net.ipv6.conf.all.forwarding = 1" /etc/sysctl.conf; then
+    echo 'net.ipv6.conf.all.forwarding = 1' | sudo tee -a /etc/sysctl.conf >/dev/null
+  fi
+  sudo sysctl -p /etc/sysctl.conf >/dev/null
+fi
+ok "ip forwarding enabled"
+
 step "Writing systemd helper scripts"
 cat <<-'SCRIPT' >/usr/local/bin/5stack-tailscale-state-check.sh
 	#!/bin/bash
@@ -168,8 +188,6 @@ chmod +x /usr/local/bin/5stack-tailscale-state-check.sh
 
 rm -f /etc/systemd/system/k3s.service.d/update-tailscale-ip.conf
 rm -f /etc/systemd/system/k3s.service.d/tailscale-state-check.conf
-
-mkdir -p /etc/systemd/system/k3s.service.d
 
 cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/update-tailscale-ip.conf
 	[Service]

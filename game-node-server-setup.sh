@@ -22,8 +22,8 @@ echo
 echo "    ${C_STEP}2.${C_RESET} Create an OAuth Client at:"
 echo "       ${C_OK}https://login.tailscale.com/admin/settings/trust-credentials/add${C_RESET}"
 echo "       OAuth scopes:"
-echo "         - Keys : ${C_OK}Auth Keys (write)${C_RESET}"
 echo "         - General: ${C_OK}Policy File (write)${C_RESET}"
+echo "         - Keys : ${C_OK}Auth Keys (write)${C_RESET}"
 echo "       Required tag: ${C_OK}fivestack${C_RESET}"
 echo
 echo "    ${C_STEP}3.${C_RESET} After creating the OAuth client, you'll receive:"

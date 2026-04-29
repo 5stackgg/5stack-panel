@@ -12,30 +12,23 @@ fi
 step "Installing tailscale"
 curl -sfL https://tailscale.com/install.sh | sh
 
+banner "Tailscale OAuth Setup Required"
+echo "    This script automates Tailscale configuration using OAuth API."
 echo
-echo "${C_STEP}=========================================="
-echo "Tailscale OAuth Setup Required"
-echo "==========================================${C_RESET}"
+echo "    ${C_STEP}1.${C_RESET} Create Access Control Tag at:"
+echo "       ${C_OK}https://login.tailscale.com/admin/acls/visual/tags/add${C_RESET}"
+echo "       Required tag: ${C_OK}fivestack${C_RESET}"
 echo
-echo "This script automates Tailscale configuration using OAuth API."
+echo "    ${C_STEP}2.${C_RESET} Create an OAuth Client at:"
+echo "       ${C_OK}https://login.tailscale.com/admin/settings/trust-credentials/add${C_RESET}"
+echo "       OAuth scopes:"
+echo "         - Keys : ${C_OK}Auth Keys (write)${C_RESET}"
+echo "         - General: ${C_OK}Policy File (write)${C_RESET}"
+echo "       Required tag: ${C_OK}fivestack${C_RESET}"
 echo
-echo "Create Access Control Tag at:"
-echo "  https://login.tailscale.com/admin/acls/visual/tags/add"
-echo "  - fivestack"
-echo
-echo "Create an OAuth Client at:"
-echo "  https://login.tailscale.com/admin/settings/trust-credentials/add"
-echo
-echo "OAuth scopes:"
-echo "  Keys : Auth Keys (write)"
-echo "  General: Policy File (write)"
-echo
-echo "Required tag:"
-echo "  - fivestack"
-echo
-echo "After creating the OAuth client, you'll receive:"
-echo "  - Client ID"
-echo "  - Client Secret (shown only once!)"
+echo "    ${C_STEP}3.${C_RESET} After creating the OAuth client, you'll receive:"
+echo "         - Client ID"
+echo "         - Client Secret ${C_WARN}(shown only once!)${C_RESET}"
 echo
 
 echo -e "${C_STEP}Enter your Tailscale OAuth Client ID:${C_RESET}"

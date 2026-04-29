@@ -273,16 +273,14 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/discord-secrets.env" "kv/discord"
 fi
 
-echo "Domains and Hosts Configuration:"
-echo "--------------------------------"
-echo "WEB_DOMAIN: $WEB_DOMAIN"
-echo "WS_DOMAIN: $WS_DOMAIN" 
-echo "API_DOMAIN: $API_DOMAIN"
-echo "RELAY_DOMAIN: $RELAY_DOMAIN"
-echo "DEMOS_DOMAIN: $DEMOS_DOMAIN"
-echo "MAIL_FROM: $MAIL_FROM"
-echo "S3_CONSOLE_HOST: $S3_CONSOLE_HOST"
-echo "TYPESENSE_HOST: $TYPESENSE_HOST"
-echo "--------------------------------"
+step "Domains and Hosts Configuration"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "WEB_DOMAIN:"      "$WEB_DOMAIN"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "WS_DOMAIN:"       "$WS_DOMAIN"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "API_DOMAIN:"      "$API_DOMAIN"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "RELAY_DOMAIN:"    "$RELAY_DOMAIN"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "DEMOS_DOMAIN:"    "$DEMOS_DOMAIN"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "MAIL_FROM:"       "$MAIL_FROM"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "S3_CONSOLE_HOST:" "$S3_CONSOLE_HOST"
+printf "    %-18s ${C_OK}%s${C_RESET}\n" "TYPESENSE_HOST:"  "$TYPESENSE_HOST"
 
 

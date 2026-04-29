@@ -38,12 +38,11 @@ while [ -z "$TAILSCALE_CLIENT_ID" ]; do
     read TAILSCALE_CLIENT_ID
 done
 
-while true; do
-    read_masked "${C_STEP}Enter your Tailscale OAuth Client Secret: ${C_RESET}" TAILSCALE_CLIENT_SECRET
-    if [ -n "$TAILSCALE_CLIENT_SECRET" ]; then
-        break
-    fi
-    warn "Client Secret cannot be empty."
+echo -e "${C_STEP}Enter your Tailscale OAuth Client Secret:${C_RESET}"
+read TAILSCALE_CLIENT_SECRET
+while [ -z "$TAILSCALE_CLIENT_SECRET" ]; do
+    warn "Client Secret cannot be empty. Please enter your OAuth Client Secret:"
+    read TAILSCALE_CLIENT_SECRET
 done
 
 step "Authenticating with Tailscale API"

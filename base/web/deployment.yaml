@@ -91,11 +91,6 @@ spec:
                 configMapKeyRef:
                   name: api-config
                   key: WS_DOMAIN
-            - name: NUXT_PUBLIC_GAME_STREAM_HLS_BASE
-              valueFrom:
-                configMapKeyRef:
-                  name: api-config
-                  key: GAME_STREAM_HLS_BASE
             - name: NUXT_PUBLIC_TYPESENSE_HOST
               valueFrom:
                 configMapKeyRef:

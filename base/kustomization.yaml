@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - api
+  - demo-parser
   - game-server-node-connector
   - hasura
   - minio

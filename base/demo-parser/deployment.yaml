@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-parser
+  namespace: 5stack
+  labels:
+    app: demo-parser
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-parser
+  template:
+    metadata:
+      labels:
+        app: demo-parser
+    spec:
+      containers:
+        - name: demo-parser
+          image: ghcr.io/5stackgg/demo-parser:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi

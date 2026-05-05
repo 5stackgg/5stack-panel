@@ -20,6 +20,10 @@ fi
 step "Building overlay manifests"
 HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
 HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
+GPU_RESOURCE=""
+if [ "$GPU_VENDOR" = "nvidia" ]; then
+    GPU_RESOURCE="- ../nvidia"
+fi
 
 OVERLAY_BASES=("vault" "local-secrets")
 for BASE in "${OVERLAY_BASES[@]}"; do
@@ -34,6 +38,7 @@ kind: Kustomization
 resources:
 - ../$BASE
 - ../config
+$GPU_RESOURCE
 $(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; fi)
 EOF
         if [ "$PROTOCOL" = "https" ]; then

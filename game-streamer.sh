@@ -151,10 +151,6 @@ apply_overlay() {
     ok "applied"
 }
 
-case "$GPU_VENDOR" in
-    nvidia) apply_overlay "overlays/nvidia" "Updating NVIDIA device plugin, time slicing, and connector" ;;
-esac
-
 if [ "$REVERSE_PROXY" = true ]; then
     apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
 else

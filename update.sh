@@ -26,6 +26,11 @@ for BASE in "${OVERLAY_BASES[@]}"; do
     for PROTOCOL in "http" "https"; do
         OVERLAY="overlays/${BASE}-${PROTOCOL}"
         mkdir -p "$OVERLAY"
+        STREAMING_RESOURCES=""
+        if [ "$GPU_VENDOR" = "nvidia" ]; then
+            STREAMING_RESOURCES="- ../nvidia
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../mediamtx-https"; else echo "- ../mediamtx"; fi)"
+        fi
 
         cat > "$OVERLAY/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -34,6 +39,7 @@ kind: Kustomization
 resources:
 - ../$BASE
 - ../config
+$STREAMING_RESOURCES
 $(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; fi)
 EOF
         if [ "$PROTOCOL" = "https" ]; then

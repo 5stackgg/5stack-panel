@@ -117,8 +117,6 @@ if [ "$STEAM_PASSWORD_CURRENT" != "$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_PASSWORD" "$STEAM_PASSWORD_CURRENT"
 fi
 
-source update.sh "$@"
-
 MEDIAMTX_OVERLAY="overlays/mediamtx"
 MEDIAMTX_CONFIG="$MEDIAMTX_OVERLAY/mediamtx.env"
 
@@ -136,31 +134,12 @@ if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]
     update_env_var "$MEDIAMTX_CONFIG" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi
 
-apply_overlay() {
-    local overlay="$1"
-    local description="$2"
-    step "$description"
-    set -o pipefail
-    "$REPO_DIR/kustomize" build "$overlay" | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    local status=$?
-    set +o pipefail
-    if [ $status -ne 0 ]; then
-        err "$description failed (exit $status)"
-        exit $status
-    fi
-    ok "applied"
-}
-
-if [ "$REVERSE_PROXY" = true ]; then
-    apply_overlay "$MEDIAMTX_OVERLAY" "Updating MediaMTX stream server"
-else
-    apply_overlay "overlays/mediamtx-https" "Updating MediaMTX stream server"
-fi
-
 MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)
 if [ -z "$MEDIAMTX_NODE" ]; then
     MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes -o jsonpath='{.items[0].metadata.name}')
     kubectl --kubeconfig=$KUBECONFIG label node "$MEDIAMTX_NODE" 5stack-mediamtx=true --overwrite
 fi
+
+source update.sh "$@"
 
 banner "Game Streamer : Updated"

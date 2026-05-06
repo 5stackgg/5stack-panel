@@ -117,13 +117,6 @@ if [ "$STEAM_PASSWORD_CURRENT" != "$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_PASSWORD" "$STEAM_PASSWORD_CURRENT"
 fi
 
-# GAME_STREAM_DOMAIN now lives in overlays/config/api-config.env (alongside
-# RELAY_DOMAIN etc.) — that's the user-editable source of truth, and
-# setup-env.sh both defaults it to hls.$WEB_DOMAIN when missing and mirrors
-# it into overlays/mediamtx/mediamtx.env (the kustomize replacement source
-# for the mediamtx Ingress + Cert host). Only prompt here when the value is
-# still the example placeholder, so a re-run of game-streamer.sh on an
-# already-configured panel is non-interactive.
 if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]; then
     DEFAULT_HLS="hls.$WEB_DOMAIN"
     read -p "Enter the playback domain for game streams (default: $DEFAULT_HLS): " GAME_STREAM_DOMAIN

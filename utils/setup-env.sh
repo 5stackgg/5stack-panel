@@ -254,10 +254,7 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 fi
 
-# Mirror GAME_STREAM_DOMAIN from api-config.env (source of truth) into the
-# mediamtx overlay's env file (kustomize replacement source for the mediamtx
-# Ingress host + Certificate dnsNames). Run on every setup so edits to
-# api-config.env propagate without the user having to touch mediamtx.env.
+# mirror api-config -> mediamtx.env (kustomize replacement source)
 if [ -n "$GAME_STREAM_DOMAIN" ] && [ -f overlays/mediamtx/mediamtx.env ]; then
     update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi

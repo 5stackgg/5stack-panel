@@ -117,10 +117,13 @@ if [ "$STEAM_PASSWORD_CURRENT" != "$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_PASSWORD" "$STEAM_PASSWORD_CURRENT"
 fi
 
-MEDIAMTX_OVERLAY="overlays/mediamtx"
-MEDIAMTX_CONFIG="$MEDIAMTX_OVERLAY/mediamtx.env"
-
-GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" "$MEDIAMTX_CONFIG" | cut -d '=' -f2-)
+# GAME_STREAM_DOMAIN now lives in overlays/config/api-config.env (alongside
+# RELAY_DOMAIN etc.) — that's the user-editable source of truth, and
+# setup-env.sh both defaults it to hls.$WEB_DOMAIN when missing and mirrors
+# it into overlays/mediamtx/mediamtx.env (the kustomize replacement source
+# for the mediamtx Ingress + Cert host). Only prompt here when the value is
+# still the example placeholder, so a re-run of game-streamer.sh on an
+# already-configured panel is non-interactive.
 if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]; then
     DEFAULT_HLS="hls.$WEB_DOMAIN"
     read -p "Enter the playback domain for game streams (default: $DEFAULT_HLS): " GAME_STREAM_DOMAIN
@@ -129,7 +132,8 @@ if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]
         err "Invalid domain '$GAME_STREAM_DOMAIN'."
         exit 1
     fi
-    update_env_var "$MEDIAMTX_CONFIG" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
+    update_env_var "overlays/config/api-config.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
+    update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi
 
 MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)

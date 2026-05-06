@@ -161,6 +161,11 @@ fi
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
 copy_config_or_secrets "overlays/config" "overlays/config"
+# overlays/mediamtx/mediamtx.env is a derived mirror of GAME_STREAM_DOMAIN
+# (kustomize replacements pull from this file to populate the Ingress + Cert
+# host). The user-editable source of truth lives in api-config.env; we sync
+# from there further down. Seed the file from .example so the kustomize
+# build doesn't fail before the sync runs.
 copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
@@ -192,9 +197,9 @@ DEMOS_DOMAIN=$(grep -h "^DEMOS_DOMAIN=" overlays/config/api-config.env | cut -d 
 MAIL_FROM=$(grep -h "^MAIL_FROM=" overlays/config/api-config.env | cut -d '=' -f2-)
 S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" overlays/config/s3-config.env | cut -d '=' -f2-)
 TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" overlays/config/typesense-config.env | cut -d '=' -f2-)
-GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" overlays/mediamtx/mediamtx.env 2>/dev/null | cut -d '=' -f2-)
+GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
 
-if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
+if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$GAME_STREAM_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
     if [ -z "$WEB_DOMAIN" ]; then
         echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
         read WEB_DOMAIN
@@ -228,6 +233,11 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
         update_env_var "overlays/config/api-config.env" "DEMOS_DOMAIN" "$DEMOS_DOMAIN"
     fi
 
+    if [ -z "$GAME_STREAM_DOMAIN" ]; then
+        GAME_STREAM_DOMAIN="hls.$WEB_DOMAIN"
+        update_env_var "overlays/config/api-config.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
+    fi
+
     if [ -z "$MAIL_FROM" ]; then
         MAIL_FROM="hello@$WEB_DOMAIN"
         update_env_var "overlays/config/api-config.env" "MAIL_FROM" "$MAIL_FROM"
@@ -247,6 +257,14 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
         TYPESENSE_HOST="search.$WEB_DOMAIN"
         update_env_var "overlays/config/typesense-config.env" "TYPESENSE_HOST" "$TYPESENSE_HOST"
     fi
+fi
+
+# Mirror GAME_STREAM_DOMAIN from api-config.env (source of truth) into the
+# mediamtx overlay's env file (kustomize replacement source for the mediamtx
+# Ingress host + Certificate dnsNames). Run on every setup so edits to
+# api-config.env propagate without the user having to touch mediamtx.env.
+if [ -n "$GAME_STREAM_DOMAIN" ] && [ -f overlays/mediamtx/mediamtx.env ]; then
+    update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi
 
 setup_steam_web_api_key "overlays/local-secrets/steam-secrets.env"

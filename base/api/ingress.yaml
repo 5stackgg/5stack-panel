@@ -156,6 +156,13 @@ spec:
             pathType: Prefix
           - backend:
               service:
+                name: api
+                port:
+                  number: 5585
+            path: /clips
+            pathType: Prefix
+          - backend:
+              service:
                 name: minio
                 port:
                   number: 9000

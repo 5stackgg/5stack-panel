@@ -30,8 +30,36 @@ spec:
         - name: mediamtx
           image: bluenviron/mediamtx:latest
           env:
+            # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
+            # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR
+            # clients see replies sourced from cni0 and SRT drops them.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # Public hostname for WebRTC ICE — must resolve to a public
+            # IP that has UDP/8189 reachable from outside-LAN viewers.
+            - name: GAME_STREAM_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: mediamtx-env
+                  key: GAME_STREAM_DOMAIN
             - name: MTX_CONFPATH
               value: /config/mediamtx.yml
+            - name: MTX_SRTADDRESS
+              value: "$(HOST_IP):8890"
+            # Pin WebRTC media to a single UDP port so the public
+            # port-forward / firewall rule is one line, not a range.
+            - name: MTX_WEBRTCLOCALUDPADDRESS
+              value: ":8189"
+            # ICE host candidates advertised to viewers. Public hostname
+            # for outside-LAN browsers; host IP for on-LAN/on-tailnet.
+            - name: MTX_WEBRTCADDITIONALHOSTS
+              value: "$(GAME_STREAM_DOMAIN),$(HOST_IP)"
+            # Public STUN for server-reflexive candidates (helps NAT'd
+            # viewers find a path without us hosting TURN).
+            - name: MTX_WEBRTCICESERVERS2_0_URL
+              value: "stun:stun.l.google.com:19302"
           ports:
             - { name: hls,      containerPort: 8888, protocol: TCP }
             - { name: whip,     containerPort: 8889, protocol: TCP }

@@ -120,8 +120,6 @@ fi
 MEDIAMTX_OVERLAY="overlays/mediamtx"
 MEDIAMTX_CONFIG="$MEDIAMTX_OVERLAY/mediamtx.env"
 
-copy_config_or_secrets "$MEDIAMTX_OVERLAY" "$MEDIAMTX_OVERLAY"
-
 GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" "$MEDIAMTX_CONFIG" | cut -d '=' -f2-)
 if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]; then
     DEFAULT_HLS="hls.$WEB_DOMAIN"

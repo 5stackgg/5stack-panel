@@ -161,6 +161,7 @@ fi
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
 copy_config_or_secrets "overlays/config" "overlays/config"
+copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"
@@ -191,6 +192,7 @@ DEMOS_DOMAIN=$(grep -h "^DEMOS_DOMAIN=" overlays/config/api-config.env | cut -d 
 MAIL_FROM=$(grep -h "^MAIL_FROM=" overlays/config/api-config.env | cut -d '=' -f2-)
 S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" overlays/config/s3-config.env | cut -d '=' -f2-)
 TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" overlays/config/typesense-config.env | cut -d '=' -f2-)
+GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" overlays/mediamtx/mediamtx.env 2>/dev/null | cut -d '=' -f2-)
 
 if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
     if [ -z "$WEB_DOMAIN" ]; then
@@ -282,5 +284,8 @@ printf "    %-18s ${C_OK}%s${C_RESET}\n" "DEMOS_DOMAIN:"    "$DEMOS_DOMAIN"
 printf "    %-18s ${C_OK}%s${C_RESET}\n" "MAIL_FROM:"       "$MAIL_FROM"
 printf "    %-18s ${C_OK}%s${C_RESET}\n" "S3_CONSOLE_HOST:" "$S3_CONSOLE_HOST"
 printf "    %-18s ${C_OK}%s${C_RESET}\n" "TYPESENSE_HOST:"  "$TYPESENSE_HOST"
+if [ -n "$GAME_STREAM_DOMAIN" ] && [ "$GAME_STREAM_DOMAIN" != "hls.example.com" ]; then
+    printf "    %-18s ${C_OK}%s${C_RESET}\n" "GAME_STREAM_DOMAIN:" "$GAME_STREAM_DOMAIN"
+fi
 
 

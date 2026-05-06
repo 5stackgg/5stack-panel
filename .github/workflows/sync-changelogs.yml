@@ -1,0 +1,70 @@
+name: Sync Changelogs
+
+on:
+  schedule:
+    # Runs daily at 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Fetch commits since (YYYY-MM-DD). Defaults to last sync."
+        required: false
+        default: ""
+      repo:
+        description: "Only sync a specific repo name (leave blank for all)"
+        required: false
+        default: ""
+      all_history:
+        description: "Re-fetch full history (ignores saved sync state)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Generate and commit changelogs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate changelogs
+        env:
+          # GITHUB_TOKEN is sufficient for reading public repos.
+          # For higher rate limits or private repos, create a PAT and store it
+          # as a repository secret named CHANGELOG_TOKEN, then replace below.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          args=()
+          [[ -n "${{ inputs.since }}"       ]] && args+=(--since "${{ inputs.since }}")
+          [[ -n "${{ inputs.repo }}"        ]] && args+=(--repo  "${{ inputs.repo }}")
+          [[ "${{ inputs.all_history }}" == "true" ]] && args+=(--all)
+          python3 changelogs/scripts/generate_changelog.py "${args[@]}"
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet; then
+            echo "No changelog changes detected."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add changelogs/
+          git commit -m "chore: sync changelogs [skip ci]"
+          git push origin ${{ github.ref_name }}

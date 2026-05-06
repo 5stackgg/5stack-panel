@@ -1,0 +1,26 @@
+{
+  "_comment": "Auto-generated sync state. Do not edit manually.",
+  "_updated_at": "2026-05-06T17:30:00Z",
+  "repos": {
+    "5stack-panel": {
+      "last_synced_at": "2026-05-06T17:30:00Z",
+      "last_sha": "a8fe483edbdae54629f9c47e8f03826fc51d88cf"
+    },
+    "api": {
+      "last_synced_at": "2026-05-06T17:30:00Z",
+      "last_sha": "ece43c63fe7069327bc9d124fcb1ad832dd4f030"
+    },
+    "web": {
+      "last_synced_at": "2026-05-06T17:30:00Z",
+      "last_sha": "bf7ea28584cc939908a9863a066a9ac9b149245c"
+    },
+    "game-server": {
+      "last_synced_at": "2026-05-06T17:30:00Z",
+      "last_sha": "595daf58060ed0c7e7fbcd75964eec543a2d7a62"
+    },
+    "game-streamer": {
+      "last_synced_at": "2026-05-06T17:30:00Z",
+      "last_sha": "6229c8cd1285750970b5493fe81f8dca89168a8e"
+    }
+  }
+}

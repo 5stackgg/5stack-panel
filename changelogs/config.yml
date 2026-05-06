@@ -1,0 +1,36 @@
+# 5stack Centralized Changelog Configuration
+# ─────────────────────────────────────────────
+# To add a new repository, append an entry to `repositories`.
+# Each entry is automatically picked up by the sync workflow and
+# generate_changelog.py without any code changes required.
+
+org: 5stackgg
+
+# How many days of history to fetch on the very first sync (or when --all is passed)
+changelog_lookback_days: 90
+
+repositories:
+  - name: 5stack-panel
+    repo: 5stackgg/5stack-panel
+    description: Platform panel, infrastructure, and deployment scripts
+    default_branch: main
+
+  - name: api
+    repo: 5stackgg/api
+    description: Backend API service
+    default_branch: main
+
+  - name: web
+    repo: 5stackgg/web
+    description: Frontend web application
+    default_branch: main
+
+  - name: game-server
+    repo: 5stackgg/game-server
+    description: Game server management and CS2 plugin
+    default_branch: main
+
+  - name: game-streamer
+    repo: 5stackgg/game-streamer
+    description: Game streaming and highlight service
+    default_branch: main

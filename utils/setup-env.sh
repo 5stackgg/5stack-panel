@@ -161,11 +161,6 @@ fi
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
 copy_config_or_secrets "overlays/config" "overlays/config"
-# overlays/mediamtx/mediamtx.env is a derived mirror of GAME_STREAM_DOMAIN
-# (kustomize replacements pull from this file to populate the Ingress + Cert
-# host). The user-editable source of truth lives in api-config.env; we sync
-# from there further down. Seed the file from .example so the kustomize
-# build doesn't fail before the sync runs.
 copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files

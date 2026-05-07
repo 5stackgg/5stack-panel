@@ -1,0 +1,40 @@
+# 5Stack Changelog Configuration
+#
+# Add new repositories to the 'repositories' list to include them.
+# The generator reads this file on every run, so changes take effect immediately.
+#
+# Required per-repo fields:
+#   name          GitHub repository name (under org)
+#   display_name  Human-friendly label used in generated markdown
+#   branch        Branch to pull commits from (defaults to main)
+#
+# Optional per-repo fields:
+#   description   Short description shown in the global index
+
+org: 5stackgg
+
+repositories:
+  - name: 5stack-panel
+    display_name: 5Stack Panel
+    branch: main
+    description: Kubernetes manifests and platform setup scripts
+
+  - name: api
+    display_name: API
+    branch: main
+    description: Backend API service
+
+  - name: web
+    display_name: Web
+    branch: main
+    description: Frontend web application
+
+  - name: game-server
+    display_name: Game Server
+    branch: main
+    description: CS2 game server plugin
+
+  - name: game-streamer
+    display_name: Game Streamer
+    branch: main
+    description: Game streaming and recording service

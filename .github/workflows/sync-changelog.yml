@@ -1,0 +1,92 @@
+# Sync Changelogs
+#
+# Aggregates commits and releases from all 5stack repositories into
+# changelogs/ inside this repo on a schedule and on demand.
+#
+# Required secret:
+#   CHANGELOG_PAT — GitHub Personal Access Token with `repo` (read) scope
+#   for all 5stackgg/* repositories.  The default GITHUB_TOKEN only covers
+#   the current repo, which is why a PAT is needed.
+#
+# To create the PAT:
+#   1. GitHub → Settings → Developer settings → Personal access tokens
+#   2. New token → Permissions: Contents (read) for all 5stackgg repos
+#      (or classic token with `repo` scope)
+#   3. Add as a repository secret named CHANGELOG_PAT in 5stack-panel
+
+name: Sync Changelogs
+
+on:
+  schedule:
+    # Every 6 hours
+    - cron: '0 */6 * * *'
+
+  push:
+    branches: [main]
+    paths:
+      # Re-run whenever the repository list changes
+      - 'changelogs/config.yml'
+
+  workflow_dispatch:
+    inputs:
+      full_sync:
+        description: 'Full sync — ignore state and fetch all history'
+        type: boolean
+        default: false
+      repo:
+        description: 'Sync a single repo only (leave blank for all)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync changelogs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use the default token for the push-back step; reads from other
+          # repos happen via CHANGELOG_PAT set on the Python script.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pyyaml
+        # pyyaml is optional — the script includes a fallback YAML parser.
+        # Installing it here gives cleaner error messages on malformed config.
+        run: pip install --quiet pyyaml
+
+      - name: Generate changelogs
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_PAT }}
+        run: |
+          args=""
+          if [ "${{ inputs.full_sync }}" = "true" ]; then
+            args="$args --full"
+          fi
+          if [ -n "${{ inputs.repo }}" ]; then
+            args="$args --repo ${{ inputs.repo }}"
+          fi
+          python scripts/generate-changelog.py $args
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add changelogs/
+          if git diff --staged --quiet; then
+            echo "No changelog changes to commit."
+          else
+            git commit -m "chore: sync changelogs [skip ci]"
+            git push origin main
+          fi

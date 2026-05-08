@@ -129,12 +129,6 @@ if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]
     update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi
 
-MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)
-if [ -z "$MEDIAMTX_NODE" ]; then
-    MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes -o jsonpath='{.items[0].metadata.name}')
-    kubectl --kubeconfig=$KUBECONFIG label node "$MEDIAMTX_NODE" 5stack-mediamtx=true --overwrite
-fi
-
 source update.sh "$@"
 
 banner "Game Streamer : Updated"

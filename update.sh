@@ -78,6 +78,10 @@ GIT_SHA=$(git rev-parse HEAD)
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite
 
+if [ "$GPU_VENDOR" = "nvidia" ] && [ -n "$GPU_NODES" ]; then
+    kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-mediamtx=true --overwrite
+fi
+
 if [ "$REVERSE_PROXY" = false ]; then
     watch_ssl_status
 fi

@@ -131,8 +131,14 @@ fi
 
 MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='5stack-mediamtx=true' -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | head -n1)
 if [ -z "$MEDIAMTX_NODE" ]; then
-    MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes -o jsonpath='{.items[0].metadata.name}')
-    kubectl --kubeconfig=$KUBECONFIG label node "$MEDIAMTX_NODE" 5stack-mediamtx=true --overwrite
+    # Pin MediaMTX to the panel controlplane node (same selector used by update.sh).
+    MEDIAMTX_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')
+    if [ -z "$MEDIAMTX_NODE" ]; then
+        err "no control-plane node found; cannot place MediaMTX."
+        exit 1
+    fi
+    kubectl --kubeconfig=$KUBECONFIG label node "$MEDIAMTX_NODE" 5stack-mediamtx=true --overwrite >/dev/null
+    ok "$MEDIAMTX_NODE: labeled 5stack-mediamtx=true"
 fi
 
 source update.sh "$@"

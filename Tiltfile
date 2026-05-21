@@ -99,15 +99,14 @@ k8s_resource(
     links=['hasura.5stack.localhost'],
 )
 
+k8s_resource(
+    'demo-parser',
+    labels=['application'],
+)
+
 # k8s_resource(
 #     'dev-game-server',
 #     port_forwards=['27015:27015', '27020:27020'],
-#     labels=['application'],
-# )
-
-# k8s_resource(
-#     'steam-headless',
-#     port_forwards=['8083:8083', '31982:31982'],
 #     labels=['application'],
 # )
 

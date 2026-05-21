@@ -105,11 +105,11 @@ k8s_resource(
 #     labels=['application'],
 # )
 
-k8s_resource(
-    'steam-headless',
-    port_forwards=['8083:8083', '31982:31982'],
-    labels=['application'],
-)
+# k8s_resource(
+#     'steam-headless',
+#     port_forwards=['8083:8083', '31982:31982'],
+#     labels=['application'],
+# )
 
 k8s_resource(
     'postgres-backup',

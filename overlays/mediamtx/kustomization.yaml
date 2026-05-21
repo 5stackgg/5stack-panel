@@ -7,6 +7,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - snapshot-ingress.yaml
 
 configMapGenerator:
   - name: mediamtx-config
@@ -27,5 +28,10 @@ replacements:
       - select:
           kind: Ingress
           name: mediamtx
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: Ingress
+          name: snapshot
         fieldPaths:
           - spec.rules.0.host

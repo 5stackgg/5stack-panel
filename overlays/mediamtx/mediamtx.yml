@@ -38,3 +38,6 @@ rtmpAddress: :1935
 pathDefaults:
   source: publisher
   sourceOnDemand: no
+
+paths:
+  all_others:

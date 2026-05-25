@@ -4,9 +4,21 @@ logDestinations: [stdout]
 api: yes
 apiAddress: :9997
 
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+      - action: metrics
+      - action: pprof
+
 hls: yes
 hlsAddress: :8888
-hlsAllowOrigin: "*"
+hlsAllowOrigins: ["*"]
 hlsVariant: lowLatency
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
@@ -15,7 +27,7 @@ hlsPartDuration: 200ms
 webrtc: yes
 webrtcAddress: :8889
 
-webrtcAllowOrigin: "*"
+webrtcAllowOrigins: ["*"]
 
 srt: yes
 srtAddress: :8890

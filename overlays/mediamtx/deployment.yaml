@@ -44,8 +44,6 @@ spec:
                 configMapKeyRef:
                   name: mediamtx-env
                   key: GAME_STREAM_DOMAIN
-            - name: MTX_CONFPATH
-              value: /config/mediamtx.yml
             - name: MTX_SRTADDRESS
               value: "$(HOST_IP):8890"
             # Pin WebRTC media to a single UDP port so the public
@@ -68,7 +66,9 @@ spec:
             - { name: api,      containerPort: 9997, protocol: TCP }
             - { name: webrtc,   containerPort: 8189, protocol: UDP }
           volumeMounts:
-            - { name: config, mountPath: /config }
+            - name: config
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
           resources:
             requests: { cpu: 100m, memory: 128Mi }
       volumes:

@@ -30,7 +30,7 @@ spec:
                   - "true"
       containers:
         - name: typesense
-          image: typesense/typesense:29.0
+          image: typesense/typesense:30.2
           resources:
             requests:
               memory: "256Mi"

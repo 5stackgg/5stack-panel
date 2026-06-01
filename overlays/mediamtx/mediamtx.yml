@@ -19,10 +19,9 @@ authInternalUsers:
 hls: yes
 hlsAddress: :8888
 hlsAllowOrigins: ["*"]
-hlsVariant: lowLatency
+hlsVariant: fmp4
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
 
 webrtc: yes
 webrtcAddress: :8889

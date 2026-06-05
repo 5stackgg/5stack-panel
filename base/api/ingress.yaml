@@ -110,6 +110,13 @@ spec:
                   number: 5585
             path: /steam-match-history/upload
             pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /clip-views
+            pathType: Prefix
     - host: $(WEB_DOMAIN)
       http:
         paths:

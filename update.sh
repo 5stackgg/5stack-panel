@@ -3,6 +3,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Keep each host's superseded-image prune timer installed / up to date. Every
+# setup script in this repo funnels through here, so hosts with a panel checkout
+# pick it up too (nodes joined through the api join script do not).
+setup_image_prune
+
 # Nothing terminates TLS in the cluster in this mode, so any Certificate left
 # over from a previous https install keeps retrying HTTP-01 against a server
 # that no longer answers the challenge -- silently accumulating failed orders

@@ -70,8 +70,41 @@ fi
 
 echo "Creating Vault policy for external-secrets..."
 cat <<EOF | vault policy write external-secrets -
-path "*" {
-  capabilities = ["read", "list", "create", "update", "delete"]
+path "kv/data/api" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/steam" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/timescaledb" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/typesense" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/tailscale" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/s3" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/redis" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/minio" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/hasura" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/faceit" {
+  capabilities = ["read", "list"]
+}
+path "kv/data/discord" {
+  capabilities = ["read", "list"]
+}
+path "kv/metadata/*" {
+  capabilities = ["read", "list"]
 }
 EOF
 

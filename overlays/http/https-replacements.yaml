@@ -16,6 +16,14 @@ replacements:
           - spec.rules.1.host
       - select:
           kind: Ingress
+          name: mediamtx
+        fieldPaths:
+          - metadata.annotations.[nginx.ingress.kubernetes.io/cors-allow-origin]
+        options:
+          delimiter: "://"
+          index: 1
+      - select:
+          kind: Ingress
           name: web
         fieldPaths:
           - spec.tls.0.hosts.0

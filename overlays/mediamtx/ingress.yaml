@@ -10,9 +10,20 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # Credentialed CORS: the browser sends the session cookie on the WHEP
+    # fetch, so the origin can't be "*" and credentials must be allowed.
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://${WEB_DOMAIN}"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS, PATCH, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Accept, Authorization, If-Match"
+    # Require login to watch: every stream request is authorized by the API,
+    # which enforces the public.require_login_for_live_streams setting (logged
+    # in, and not a player/coach of the live match — anti-cheat). The cache key
+    # includes the request URI because the decision depends on the match (path)
+    # AND the viewer (cookie); caching 200s briefly keeps per-segment HLS cheap.
+    nginx.ingress.kubernetes.io/auth-url: "http://api.5stack.svc.cluster.local:5585/streams/authorize"
+    nginx.ingress.kubernetes.io/auth-cache-key: "$http_cookie$request_uri"
+    nginx.ingress.kubernetes.io/auth-cache-duration: "200 30s"
 spec:
   ingressClassName: nginx
   rules:

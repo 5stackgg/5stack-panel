@@ -19,6 +19,7 @@ source "$SCRIPT_DIR/checkout_repos.sh"
 source "$SCRIPT_DIR/check_dev_dependencies.sh"
 source "$SCRIPT_DIR/watch_ssl_status.sh"
 source "$SCRIPT_DIR/setup_kustomize.sh"
+source "$SCRIPT_DIR/setup_image_prune.sh"
 source "$SCRIPT_DIR/tailscale-api.sh"
 source "$SCRIPT_DIR/interactive_select.sh"
 

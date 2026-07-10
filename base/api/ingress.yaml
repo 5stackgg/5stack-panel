@@ -155,9 +155,6 @@ spec:
                   number: 5585
             path: /discord-bot
             pathType: Exact
-          # Public team calendar feed (/calendar/team/<uuid>.ics?token=...).
-          # Deliberately not /teams — that prefix is a Nuxt page route and the
-          # web ingress catch-all would otherwise lose it to this backend.
           - backend:
               service:
                 name: api

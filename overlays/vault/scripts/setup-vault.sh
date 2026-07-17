@@ -32,12 +32,12 @@ else
     echo "EXTERNAL_SECRETS_URL=$VAULT_ADDR" > "$EXTERNAL_SECRETS_CONFIG_FILE"
 fi
 
-if [ ! -f "setup-env.sh" ]; then
-    echo "Error: setup-env.sh not found. Please run this script from the root directory of the project."
+if [ ! -f "utils/utils.sh" ]; then
+    echo "Error: utils/utils.sh not found. Please run this script from the root directory of the project."
     exit 1
 fi
 
-source setup-env.sh "$@"
+source utils/utils.sh "$@"
 
 host=$(kubectl --kubeconfig=$KUBECONFIG config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 certificate=$(kubectl --kubeconfig=$KUBECONFIG config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 --decode)

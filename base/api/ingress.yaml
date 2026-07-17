@@ -108,6 +108,13 @@ spec:
                 name: api
                 port:
                   number: 5585
+            path: /custom-pages
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
             path: /events/media
             pathType: Prefix
           - backend:

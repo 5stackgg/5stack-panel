@@ -36,11 +36,21 @@ select_node() {
 }
 
 add_node_selector() {
-    kubectl --kubeconfig=$KUBECONFIG label node $NODE_NAME 5stack-$CUSTOM_DIR=true
+    kubectl --kubeconfig=$KUBECONFIG label node $NODE_NAME 5stack-$CUSTOM_DIR=true --overwrite
 }
 
-select_node
-add_node_selector
+# The node label IS the memory: if a node is already labeled for this custom dir
+# from a previous deploy, reuse it instead of prompting again.
+EXISTING_NODE=$(kubectl --kubeconfig=$KUBECONFIG get nodes -l 5stack-$CUSTOM_DIR=true -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+if [ -n "$EXISTING_NODE" ]; then
+    NODE_NAME=$EXISTING_NODE
+    echo "Reusing node from a previous deploy: $NODE_NAME (labeled 5stack-$CUSTOM_DIR=true)"
+    echo "To pick a different node: kubectl label node $NODE_NAME 5stack-$CUSTOM_DIR- && ./custom.sh $CUSTOM_DIR"
+else
+    select_node
+    add_node_selector
+fi
 
 ./kustomize build ./custom/$CUSTOM_DIR | kubectl --kubeconfig=$KUBECONFIG apply -f - --kubeconfig=$KUBECONFIG
 

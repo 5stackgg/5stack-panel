@@ -1,13 +1,13 @@
 #!/bin/bash
 
-if [ ! -f "setup-env.sh" ]; then
-    echo "Error: setup-env.sh not found. Please run this script from the root directory of the project."
+if [ ! -f "utils/utils.sh" ]; then
+    echo "Error: utils/utils.sh not found. Please run this script from the root directory of the project."
     exit 1
 fi
 
 source overlays/vault/scripts/setup-vault.sh "$@"
 
-source setup-env.sh "$@"
+source utils/utils.sh "$@"
 
 echo "Installing external-secrets..."
 

@@ -1,19 +1,51 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# utils.sh reassigns SCRIPT_DIR to utils/, so keep our own copy of the repo root
+PANEL_DIR="$SCRIPT_DIR"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
 CUSTOM_DIR=""
 
 while [[ $# -gt 0 ]]; do
-    if [[ -z "$CUSTOM_DIR" ]]; then
-        CUSTOM_DIR="$1"
-    fi
+    case "$1" in
+        --kubeconfig)
+            # flag consumed by setup-env.sh; skip it and its value
+            shift 2
+            continue
+            ;;
+        -*)
+            ;;
+        *)
+            if [[ -z "$CUSTOM_DIR" ]]; then
+                CUSTOM_DIR="$1"
+            fi
+            ;;
+    esac
     shift
 done
 
+select_custom_dir() {
+    local dirs=() dir index
+    for dir in "$PANEL_DIR"/custom/*/; do
+        [ -f "$dir/kustomization.yaml" ] || [ -f "$dir/kustomization.yml" ] || continue
+        dirs+=("$(basename "$dir")")
+    done
+
+    if [ ${#dirs[@]} -eq 0 ]; then
+        echo "Error: no custom directories found in ./custom."
+        exit 1
+    fi
+
+    interactive_menu index "Select the custom resource to deploy:" 0 "${dirs[@]}"
+    CUSTOM_DIR=${dirs[$index]}
+    echo "Selected custom resource: $CUSTOM_DIR"
+}
+
 if [ -z "$CUSTOM_DIR" ]; then
-    echo "Error: CUSTOM_DIR is required."
+    select_custom_dir
+elif [ ! -d "$PANEL_DIR/custom/$CUSTOM_DIR" ]; then
+    echo "Error: ./custom/$CUSTOM_DIR does not exist."
     exit 1
 fi
 

@@ -9,6 +9,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
 DEBUG=false
 FIVE_STACK_ENV_SETUP=true
 REVERSE_PROXY=""
+CLOUDFLARE=""
+
+CLOUDFLARE_DOCS="https://docs.5stack.gg/install/cloudflare/"
 
 # Load environment variables from .5stack-env.config if it exists
 if [ -f .5stack-env.config ]; then
@@ -45,6 +48,15 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --cloudflare=*)
+            CLOUDFLARE="${1#*=}"
+            if [ "$CLOUDFLARE" = "0" ] || [ "$CLOUDFLARE" = "n" ]; then
+                CLOUDFLARE=false
+            else
+                CLOUDFLARE=true
+            fi
+            shift
+            ;;
         *)
             shift
             ;;
@@ -52,19 +64,47 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "$DEBUG" = true ]; then
-    echo "Debug mode enabled (KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)"
+    echo "Debug mode enabled (KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY, CLOUDFLARE: $CLOUDFLARE)"
 fi
 
-ask_reverse_proxy() {
+ask_yes_no() {
+    local prompt="$1" answer
     while true; do
-        read -p "Are you using a reverse proxy or cloudflare proxies ? (https://docs.5stack.gg/install/reverse-proxy) (y/n): " use_reverse_proxy
-        if [ "$use_reverse_proxy" = "y" ] || [ "$use_reverse_proxy" = "n" ]; then
+        read -p "$prompt (y/n): " answer
+        if [ "$answer" = "y" ] || [ "$answer" = "n" ]; then
             break
         fi
         echo "Please enter 'y' or 'n'"
     done
+    [ "$answer" = "y" ]
+}
 
-    if [ "$use_reverse_proxy" = "y" ]; then
+ask_cloudflare() {
+    if ask_yes_no "Is your domain's DNS managed by Cloudflare?"; then
+        CLOUDFLARE=true
+    else
+        CLOUDFLARE=false
+        return
+    fi
+
+    step "Cloudflare Setup"
+    warn "Cloudflare needs a few 5Stack specific settings — SSL/TLS mode, an ACME"
+    warn "challenge rule, and tunnel routes. Follow the guide before continuing:"
+    open_docs "$CLOUDFLARE_DOCS" "Cloudflare"
+    echo
+}
+
+ask_reverse_proxy() {
+    if [ "$CLOUDFLARE" = true ]; then
+        if ask_yes_no "Are you using the Cloudflare proxy (orange cloud) or a Cloudflare Tunnel?"; then
+            REVERSE_PROXY=true
+        else
+            REVERSE_PROXY=false
+        fi
+        return
+    fi
+
+    if ask_yes_no "Are you using a reverse proxy? (https://docs.5stack.gg/install/reverse-proxy)"; then
         REVERSE_PROXY=true
     else
         REVERSE_PROXY=false
@@ -129,7 +169,10 @@ migrate_secrets_to_vault() {
 }
 
 if [ -z "$REVERSE_PROXY" ]; then
-    ask_reverse_proxy   
+    if [ -z "$CLOUDFLARE" ]; then
+        ask_cloudflare
+    fi
+    ask_reverse_proxy
 fi
 
 if [ ! -f .5stack-env.config ]; then
@@ -138,6 +181,7 @@ if [ ! -f .5stack-env.config ]; then
     # Save environment variables to .5stack-env.config
     cat > .5stack-env.config << EOF
 REVERSE_PROXY=$REVERSE_PROXY
+CLOUDFLARE=$CLOUDFLARE
 KUBECONFIG=$KUBECONFIG
 EOF
 fi

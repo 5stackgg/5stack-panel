@@ -3,7 +3,10 @@
 watch_ssl_status() {
     echo "--------------------------------"
     echo "Watching SSL certificate and ACME challenge status (will exit when all certs are valid, Ctrl+C to stop)..."
-    echo "If you're using Cloudflare make sure to add a page rule (https://docs.5stack.gg/install/reverse-proxy#cloudflare-required-page-rule) to filter the ACME challenge."
+    if [ "$CLOUDFLARE" != false ]; then
+        echo "If you're using Cloudflare make sure to add a redirect rule to exclude the ACME challenge:"
+        echo "  https://docs.5stack.gg/install/cloudflare/dns-and-ssl"
+    fi
     local interval="${WATCH_SSL_INTERVAL:-10}"
     # Save the cursor position so we can redraw the status section in-place
     if [ -t 1 ]; then

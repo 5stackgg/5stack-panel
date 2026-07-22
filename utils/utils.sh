@@ -21,5 +21,6 @@ source "$SCRIPT_DIR/watch_ssl_status.sh"
 source "$SCRIPT_DIR/setup_kustomize.sh"
 source "$SCRIPT_DIR/tailscale-api.sh"
 source "$SCRIPT_DIR/interactive_select.sh"
+source "$SCRIPT_DIR/open_docs.sh"
 
 source "$SCRIPT_DIR/setup-env.sh" "$@"

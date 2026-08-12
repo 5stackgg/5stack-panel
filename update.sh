@@ -26,10 +26,13 @@ for BASE in "${OVERLAY_BASES[@]}"; do
     for PROTOCOL in "http" "https"; do
         OVERLAY="overlays/${BASE}-${PROTOCOL}"
         mkdir -p "$OVERLAY"
-        STREAMING_RESOURCES=""
+        # MediaMTX is a WebRTC relay, not an encoder, and it now also carries
+        # player cameras — which have nothing to do with GPU game streaming.
+        # Only the nvidia device plugin stays GPU-gated.
+        STREAMING_RESOURCES="$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../mediamtx-https"; else echo "- ../mediamtx"; fi)"
         if [ "$GPU_VENDOR" = "nvidia" ]; then
             STREAMING_RESOURCES="- ../nvidia
-$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../mediamtx-https"; else echo "- ../mediamtx"; fi)"
+$STREAMING_RESOURCES"
         fi
 
         cat > "$OVERLAY/kustomization.yaml" <<EOF
@@ -78,9 +81,9 @@ GIT_SHA=$(git rev-parse HEAD)
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite
 
-if [ "$GPU_VENDOR" = "nvidia" ] && [ -n "$GPU_NODES" ]; then
-    kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-mediamtx=true --overwrite
-fi
+# Must track the mediamtx overlay above: the deployment's node affinity is
+# requiredDuringScheduling, so without this label the pod never schedules.
+kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-mediamtx=true --overwrite
 
 if [ "$REVERSE_PROXY" = false ]; then
     watch_ssl_status

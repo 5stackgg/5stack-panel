@@ -45,7 +45,7 @@ spec:
               cpu: "8"
               nvidia.com/gpu: 1
             requests:
-              memory: 2Gi
+              memory: 8Gi
               cpu: "1"
               nvidia.com/gpu: 1
           volumeMounts:

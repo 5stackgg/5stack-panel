@@ -183,6 +183,24 @@ spec:
                   number: 5585
             path: /calendar
             pathType: Prefix
+          # Served on the web domain so the browser treats these as same-origin.
+          # Both carry an application/sdp body, which is not a CORS-safelisted
+          # content type, so cross-origin they would need a preflight to pass --
+          # and a dev origin never will.
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /voice
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /matches/camera
+            pathType: Prefix
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

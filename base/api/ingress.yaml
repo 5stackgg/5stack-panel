@@ -145,6 +145,15 @@ spec:
                   number: 5585
             path: /clip-views
             pathType: Prefix
+          # Also on the api domain so every route is reachable there, the way
+          # the rest of the API is. Browsers use the web-domain copy below.
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /voice
+            pathType: Prefix
     - host: $(WEB_DOMAIN)
       http:
         paths:

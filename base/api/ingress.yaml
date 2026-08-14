@@ -152,6 +152,20 @@ spec:
                   number: 5585
             path: /voice
             pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /notifications
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /chat
+            pathType: Prefix
     - host: $(WEB_DOMAIN)
       http:
         paths:

@@ -71,6 +71,13 @@ else
 fi
 ok "overlay applied"
 
+if [ "$VAULT_MANAGER" = true ]; then
+    step "Syncing Vault secrets"
+    if ! resync_vault_secrets; then
+        exit 1
+    fi
+fi
+
 step "Recycling stateful workloads"
 kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null

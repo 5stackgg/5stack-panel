@@ -74,9 +74,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: api-config
-            - secretRef:  
+            - secretRef:
                 name: api-secrets
-            - secretRef:  
+            - secretRef:
+                name: push-secrets
+            - secretRef:
                 name: steam-secrets
             - secretRef:
                 name: hasura-secrets

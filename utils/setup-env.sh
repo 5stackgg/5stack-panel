@@ -210,6 +210,12 @@ copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"
 
+# Web Push (VAPID) keys. Added here rather than via the .env.example because
+# copy_config_or_secrets only creates env files that don't already exist, so an
+# existing install would never pick a new key up. Only fills in what's missing,
+# so an update never rotates a working keypair out from under its subscribers.
+ensure_vapid_keys_in_env_file "overlays/local-secrets/push-secrets.env"
+
 # Setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
 setup_postgres_connection_string "overlays/local-secrets/timescaledb-secrets.env"
 
@@ -317,6 +323,7 @@ if [ "$VAULT_MANAGER" = true ]; then
     fi
     
     migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "overlays/local-secrets/push-secrets.env" "kv/push"
     migrate_secrets_to_vault "overlays/local-secrets/steam-secrets.env" "kv/steam"
     migrate_secrets_to_vault "overlays/local-secrets/timescaledb-secrets.env" "kv/timescaledb"
     migrate_secrets_to_vault "overlays/local-secrets/typesense-secrets.env" "kv/typesense"

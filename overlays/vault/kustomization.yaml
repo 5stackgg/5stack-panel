@@ -8,6 +8,7 @@ resources:
   - rbac/service-account.yaml
   - secret-store.yaml
   - secrets/api.yaml
+  - secrets/push.yaml
   - secrets/steam.yaml
   - secrets/timescaledb.yaml
   - secrets/typesense.yaml

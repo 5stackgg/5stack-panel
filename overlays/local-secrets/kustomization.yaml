@@ -11,6 +11,12 @@ secretGenerator:
     envs:
       - api-secrets.env
 
+  - name: push-secrets
+    type: Opaque
+    namespace: 5stack
+    envs:
+      - push-secrets.env
+
   - name: timescaledb-secrets
     type: Opaque
     namespace: 5stack

@@ -206,9 +206,20 @@ fi
 copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
 copy_config_or_secrets "overlays/config" "overlays/config"
 copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
+copy_config_or_secrets "overlays/coturn" "overlays/coturn"
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"
+
+# Web Push (VAPID) keys. Added here rather than via the .env.example because
+# copy_config_or_secrets only creates env files that don't already exist, so an
+# existing install would never pick a new key up. Only fills in what's missing,
+# so an update never rotates a working keypair out from under its subscribers.
+ensure_vapid_keys_in_env_file "overlays/local-secrets/push-secrets.env"
+
+# Same reasoning as the VAPID keys above: an existing install never picks up a
+# newly added key, and coturn refuses to start without this one.
+ensure_turn_secret_in_env_file "overlays/local-secrets/coturn-secrets.env"
 
 # Setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
 setup_postgres_connection_string "overlays/local-secrets/timescaledb-secrets.env"
@@ -317,6 +328,7 @@ if [ "$VAULT_MANAGER" = true ]; then
     fi
     
     migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "overlays/local-secrets/push-secrets.env" "kv/push"
     migrate_secrets_to_vault "overlays/local-secrets/steam-secrets.env" "kv/steam"
     migrate_secrets_to_vault "overlays/local-secrets/timescaledb-secrets.env" "kv/timescaledb"
     migrate_secrets_to_vault "overlays/local-secrets/typesense-secrets.env" "kv/typesense"
@@ -327,6 +339,7 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/hasura-secrets.env" "kv/hasura"
     migrate_secrets_to_vault "overlays/local-secrets/faceit-secrets.env" "kv/faceit"
     migrate_secrets_to_vault "overlays/local-secrets/discord-secrets.env" "kv/discord"
+    migrate_secrets_to_vault "overlays/local-secrets/coturn-secrets.env" "kv/coturn"
 fi
 
 step "Domains and Hosts Configuration"

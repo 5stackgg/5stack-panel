@@ -42,9 +42,6 @@ source utils/utils.sh "$@"
 host=$(kubectl --kubeconfig=$KUBECONFIG config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 certificate=$(kubectl --kubeconfig=$KUBECONFIG config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 --decode)
 
-echo "Getting service account token for external-secrets..."
-SA_TOKEN=$(kubectl --kubeconfig=$KUBECONFIG create token 5stack -n 5stack)
-
 echo "Checking Kubernetes auth method..."
 if ! vault auth list | grep -q "^kubernetes/"; then
     echo "Enabling Kubernetes auth method..."
@@ -54,8 +51,15 @@ else
 fi
 
 echo "Configuring Kubernetes auth method..."
+# token_reviewer_jwt is deliberately left empty so Vault reviews the caller's
+# own service account token instead of a stored one. `kubectl create token`
+# issues a 1h token, so storing it here meant Kubernetes auth broke an hour
+# after every install or update -- every login 403ing while Vault itself was
+# perfectly healthy. The 5stack service account is bound to
+# system:auth-delegator (see rbac/cluster-role.yaml), which is what makes
+# reviewing the caller's token possible, and nothing about it expires.
 vault write auth/kubernetes/config \
-    token_reviewer_jwt="$SA_TOKEN" \
+    token_reviewer_jwt="" \
     kubernetes_host="$host" \
     kubernetes_ca_cert="$certificate" \
     issuer="https://kubernetes.default.svc.cluster.local"

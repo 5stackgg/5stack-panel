@@ -8,6 +8,7 @@ resources:
   - rbac/service-account.yaml
   - secret-store.yaml
   - secrets/api.yaml
+  - secrets/push.yaml
   - secrets/steam.yaml
   - secrets/timescaledb.yaml
   - secrets/typesense.yaml
@@ -18,6 +19,7 @@ resources:
   - secrets/hasura.yaml
   - secrets/faceit.yaml
   - secrets/discord.yaml
+  - secrets/coturn.yaml
 
 configMapGenerator:
   - name: external-secrets-config

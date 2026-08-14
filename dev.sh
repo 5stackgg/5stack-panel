@@ -65,6 +65,8 @@ copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
 replace_rand32_in_env_files "overlays/dev/secrets"
 
+ensure_vapid_keys_in_env_file "overlays/dev/secrets/push-secrets.env"
+
 setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 
 setup_steam_web_api_key "overlays/dev/secrets/steam-secrets.env"

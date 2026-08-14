@@ -4,6 +4,13 @@ logDestinations: [stdout]
 api: yes
 apiAddress: :9997
 
+# Prometheus metrics. The API above is what the panel's own admin view reads --
+# it gives structured per-path detail this cannot -- but this is here for anyone
+# already scraping, and costs nothing when nobody is. authInternalUsers below
+# has always granted the `metrics` action; only the listener was missing.
+metrics: yes
+metricsAddress: :9998
+
 authInternalUsers:
   - user: any
     pass:

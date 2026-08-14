@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  namespace: 5stack
+  labels:
+    app: coturn
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coturn
+  template:
+    metadata:
+      labels:
+        app: coturn
+    spec:
+      # A relay behind a CNI is pointless: it has to hand out candidates on an
+      # address the outside world can actually reach, and it allocates from a
+      # port range rather than a fixed port. Same reasoning as mediamtx.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: 5stack-coturn
+                operator: In
+                values:
+                  - "true"
+      containers:
+        - name: coturn
+          image: coturn/coturn:4.6.2
+          envFrom:
+            # coturn's own config and its own secret. The API mounts the same
+            # two -- one shared secret with one source, because two copies of it
+            # would be a rotation bug waiting to happen -- but the relay owns
+            # them rather than borrowing the API's.
+            - configMapRef:
+                name: coturn-env
+            - secretRef:
+                name: coturn-secrets
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          # Realm, secret and port range cannot live in turnserver.conf: coturn
+          # does not interpolate environment variables, and the secret must not
+          # be baked into a ConfigMap. Flags win over the file, so everything
+          # static stays declarative and only the computed values are here.
+          #
+          # external-ip is what makes this work behind NAT: coturn must
+          # advertise the address clients can reach while binding the one the
+          # host actually has. If the domain does not resolve yet, it is left
+          # off rather than guessed -- a wrong external-ip is worse than none,
+          # because every candidate it hands out is then unreachable.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              # No domain means no relay was asked for, and the API hands out
+              # STUN alone -- so bind nothing. This runs with hostNetwork, and
+              # taking 3478 on an operator's box for a feature they never turned
+              # on is not ours to do. Idles rather than exits, because a
+              # crashlooping pod reads as broken when it is merely unused.
+              if [ -z "$TURN_DOMAIN" ]; then
+                echo "[coturn] TURN_DOMAIN is not set; no relay requested, idling"
+                exec sleep infinity
+              fi
+
+              if [ -z "$TURN_SECRET" ]; then
+                echo "[coturn] TURN_SECRET is empty; refusing to start an open relay" >&2
+                exit 1
+              fi
+
+              REALM="${TURN_REALM:-$TURN_DOMAIN}"
+              ARGS="--realm=$REALM --static-auth-secret=$TURN_SECRET"
+              ARGS="$ARGS --min-port=${TURN_MIN_PORT:-50000} --max-port=${TURN_MAX_PORT:-50200}"
+
+              # Resolved from the domain unless given outright. The override
+              # matters when the domain sits behind a CDN: a proxied record
+              # answers with the CDN's address, and coturn would then advertise
+              # relay candidates nobody can reach. TURN is not HTTP -- the
+              # record has to be DNS-only, or this has to be set by hand.
+              PUBLIC_IP="$TURN_PUBLIC_IP"
+
+              if [ -z "$PUBLIC_IP" ]; then
+                PUBLIC_IP=$(getent hosts "$TURN_DOMAIN" 2>/dev/null | awk '{ print $1; exit }')
+              fi
+
+              if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$HOST_IP" ]; then
+                echo "[coturn] advertising $PUBLIC_IP for $HOST_IP"
+                ARGS="$ARGS --external-ip=$PUBLIC_IP/$HOST_IP"
+              elif [ -n "$PUBLIC_IP" ]; then
+                echo "[coturn] host is publicly addressable at $PUBLIC_IP"
+              else
+                echo "[coturn] $TURN_DOMAIN did not resolve; no external-ip set" >&2
+              fi
+
+              exec turnserver -c /etc/coturn/turnserver.conf $ARGS
+          ports:
+            - { name: turn-udp, containerPort: 3478, protocol: UDP }
+            - { name: turn-tcp, containerPort: 3478, protocol: TCP }
+            # The relay range (TURN_MIN_PORT..TURN_MAX_PORT/udp) is not listed:
+            # hostNetwork means there is no mapping to declare, and 200 entries
+            # here would say nothing coturn.env does not.
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coturn/turnserver.conf
+              subPath: turnserver.conf
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: coturn-config

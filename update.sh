@@ -21,6 +21,13 @@ step "Building overlay manifests"
 HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
 HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
 
+# Whether an operator has asked for a TURN relay at all. Read straight from
+# coturn's own env file rather than the environment: this is the same file the
+# generated ConfigMap is built from, so the two can never disagree.
+TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$(dirname "$0")/overlays/coturn/coturn.env" | tail -1 | cut -d= -f2- | tr -d '\r')"
+TURN_DOMAIN="${TURN_DOMAIN%\"}"
+TURN_DOMAIN="${TURN_DOMAIN#\"}"
+
 OVERLAY_BASES=("vault" "local-secrets")
 for BASE in "${OVERLAY_BASES[@]}"; do
     for PROTOCOL in "http" "https"; do
@@ -30,6 +37,16 @@ for BASE in "${OVERLAY_BASES[@]}"; do
         # player cameras — which have nothing to do with GPU game streaming.
         # Only the nvidia device plugin stays GPU-gated.
         STREAMING_RESOURCES="$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../mediamtx-https"; else echo "- ../mediamtx"; fi)"
+        # The TURN relay is opt-in and most installs never need one: WebRTC
+        # connects directly for the large majority of players, and STUN covers
+        # most of the rest. Deployed only once TURN_DOMAIN is set, so nobody
+        # ends up running a relay -- on hostNetwork, holding port 3478 -- that
+        # they never asked for. It has no http/https split: it speaks TURN, not
+        # HTTP, and the media it relays is already DTLS-encrypted end to end.
+        if [ -n "$TURN_DOMAIN" ]; then
+            STREAMING_RESOURCES="$STREAMING_RESOURCES
+- ../coturn"
+        fi
         if [ "$GPU_VENDOR" = "nvidia" ]; then
             STREAMING_RESOURCES="- ../nvidia
 $STREAMING_RESOURCES"
@@ -91,6 +108,10 @@ kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG g
 # Must track the mediamtx overlay above: the deployment's node affinity is
 # requiredDuringScheduling, so without this label the pod never schedules.
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-mediamtx=true --overwrite
+
+if [ -n "$TURN_DOMAIN" ]; then
+    kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-coturn=true --overwrite
+fi
 
 if [ "$REVERSE_PROXY" = false ]; then
     watch_ssl_status

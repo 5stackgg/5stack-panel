@@ -98,3 +98,13 @@ spec:
                 name: s3-config
             - secretRef:
                 name: faceit-secrets
+            # coturn's own, not a copy: the API signs TURN credentials with the
+            # same secret the relay verifies them against, and reads the domain
+            # to tell clients what to dial. Optional throughout -- an install
+            # with no relay configured just offers STUN.
+            - configMapRef:
+                name: coturn-env
+                optional: true
+            - secretRef:
+                name: coturn-secrets
+                optional: true

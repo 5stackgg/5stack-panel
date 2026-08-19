@@ -565,10 +565,10 @@ if [ -n "$DOMAIN" ]; then
         echo "      2. The certificate issues once that DNS is live:"
         echo "         kubectl -n 5stack get certificate $CERT_NAME -w"
     fi
-    echo "      3. Register it: Settings → Application → Plugins → Add,"
+    echo "      3. Register it: Settings → Application → Panel Plugins → Add,"
     echo "         paste https://$DOMAIN and press Detect."
 else
-    echo "      Register it: Settings → Application → Plugins → Add, then Detect."
+    echo "      Register it: Settings → Application → Panel Plugins → Add, then Detect."
 fi
 echo
 echo "    ${C_DIM}Re-run ./plugin.sh with the same repo to upgrade; your answers are kept.${C_RESET}"

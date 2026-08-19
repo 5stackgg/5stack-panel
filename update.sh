@@ -3,6 +3,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Keep each host's superseded-image prune timer installed / up to date. This is
+# the path every node setup funnels through, so existing nodes pick it up too.
+setup_image_prune
+
 if [ "$REVERSE_PROXY" = true ]; then
     kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
 fi

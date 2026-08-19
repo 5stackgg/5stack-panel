@@ -89,8 +89,6 @@ spec:
               mountPath: /servers
             - name: custom-plugins
               mountPath: /custom-plugins
-            - name: plugin-store
-              mountPath: /plugin-store
             - name: manifests
               mountPath: /pod-manifests
             - name: containerd-sock
@@ -119,10 +117,6 @@ spec:
         - name: custom-plugins
           hostPath:
             path: /opt/5stack/custom-plugins
-            type: DirectoryOrCreate
-        - name: plugin-store
-          hostPath:
-            path: /opt/5stack/plugin-store
             type: DirectoryOrCreate
         - name: manifests
           hostPath:

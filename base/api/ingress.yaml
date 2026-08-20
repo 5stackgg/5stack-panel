@@ -108,7 +108,7 @@ spec:
                 name: api
                 port:
                   number: 5585
-            path: /nades
+            path: /utility
             pathType: Prefix
           - backend:
               service:

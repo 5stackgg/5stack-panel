@@ -84,6 +84,9 @@ else
     add_node_selector
 fi
 
-./kustomize build ./custom/$CUSTOM_DIR | kubectl --kubeconfig=$KUBECONFIG apply -f - --kubeconfig=$KUBECONFIG
+# Was `./kustomize build ... | kubectl apply -f -`, which reported success
+# whether or not either half worked -- the same silent failure apply_overlay
+# exists to stop (see utils/apply_overlay.sh).
+apply_overlay "custom/$CUSTOM_DIR" || die "failed to deploy custom/$CUSTOM_DIR"
 
 echo "Custom resource deployed successfully"

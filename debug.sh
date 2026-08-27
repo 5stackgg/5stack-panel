@@ -1,17 +1,34 @@
 #!/bin/bash
 
 PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$PANEL_DIR/utils/utils.sh" "$@"
+
+# Deliberately NOT utils/utils.sh, which sources setup-env.sh: that asks the
+# Cloudflare and reverse-proxy questions, generates secrets, moves
+# base/secrets into overlays/local-secrets and -- with VAULT_MANAGER=true --
+# pushes every local secrets file into Vault and rewrites it. Collecting a bug
+# report must not change the machine the report is about. Source only what the
+# dump actually reads. (plugin.sh:34 avoids utils.sh for the same reason.)
+source "$PANEL_DIR/utils/colors.sh"
+source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
+
+if [ -f "$PANEL_DIR/.5stack-env.config" ]; then
+    source "$PANEL_DIR/.5stack-env.config"
+fi
+: "${KUBECONFIG:=/etc/rancher/k3s/k3s.yaml}"
+export KUBECONFIG
+load_domains_and_hosts
 
 namespace="5stack"
-debug_file="debug_output_$(date +%Y%m%d_%H%M%S).txt"
+# Absolute, and anchored to the directory the operator ran this from: the path
+# printed at the end has to be one they can actually open.
+debug_file="$PWD/debug_output_$(date +%Y%m%d_%H%M%S).txt"
 
 echo "(KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)" | tee -a "$debug_file"
 
-# Not tee'd: sourcing utils.sh above already printed this to the terminal, so
-# the dump only needs the file copy. Redirecting rather than piping also drops
-# the colors on its way into the file.
-print_domains_and_hosts --all >> "$debug_file"
+# Redirected rather than piped so the colors resolve to plain text in the file;
+# tee'd separately so the operator sees it too.
+print_domains_and_hosts
+print_domains_and_hosts >> "$debug_file"
 
 echo "Checking pod status and restarts in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"

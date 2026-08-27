@@ -14,16 +14,14 @@ fi
 # stuck resources directly -- no downtime, and no ingress recreation to wait on.
 step "Clearing stuck certificate resources"
 
-prune_shim_owned_certificates
-
 # Failed orders and challenges are not retried on their own once the order has
 # reached a terminal state; the Certificate has to be re-issued to make a new
 # one. Only touch certificates that aren't currently valid, so a healthy cert is
 # never thrown away (and never re-requested against Let's Encrypt's rate limit).
-CERTS=$(kubectl --kubeconfig=$KUBECONFIG get certificates.cert-manager.io -n 5stack \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null)
+CERTS="$(list_certificate_status)"
 
-while IFS=$'\t' read -r NAME STATUS; do
+CLEARED=0
+while IFS=$'\t' read -r NAME STATUS _; do
     [ -z "$NAME" ] && continue
     if [ "$STATUS" = "True" ]; then
         ok "$NAME is valid, leaving it alone"
@@ -33,10 +31,26 @@ while IFS=$'\t' read -r NAME STATUS; do
     # The Secret is intentionally kept: nginx keeps serving whatever it has
     # while the replacement is issued.
     output_redirect kubectl --kubeconfig=$KUBECONFIG delete certificate "$NAME" -n 5stack
+
+    # Scoped to this certificate, never `--all`. A certificate that is valid but
+    # inside its renewBefore window has a live Order and Challenge for the
+    # renewal, and deleting those restarts it from scratch -- a fresh ACME order
+    # against exactly the rate limit the check above exists to protect.
+    #
+    # Deleting the Certificate already cascades to its CertificateRequest, Order
+    # and Challenge through ownerReferences; this only sweeps up any that were
+    # orphaned by an earlier run.
+    for RESOURCE in orders.acme.cert-manager.io challenges.acme.cert-manager.io; do
+        output_redirect kubectl --kubeconfig=$KUBECONFIG delete "$RESOURCE" -n 5stack \
+            -l "cert-manager.io/certificate-name=$NAME" 2>/dev/null
+    done
+    CLEARED=$((CLEARED + 1))
 done <<< "$CERTS"
 
-output_redirect kubectl --kubeconfig=$KUBECONFIG delete orders.acme.cert-manager.io --all -n 5stack 2>/dev/null
-output_redirect kubectl --kubeconfig=$KUBECONFIG delete challenges.acme.cert-manager.io --all -n 5stack 2>/dev/null
-ok "cleared"
+if [ "$CLEARED" -eq 0 ]; then
+    ok "nothing to clear"
+else
+    ok "cleared $CLEARED certificate(s)"
+fi
 
 source "$PANEL_DIR/update.sh" "$@"

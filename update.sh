@@ -3,8 +3,15 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Nothing terminates TLS in the cluster in this mode, so any Certificate left
+# over from a previous https install keeps retrying HTTP-01 against a server
+# that no longer answers the challenge -- silently accumulating failed orders
+# against Let's Encrypt's rate limit. watch_ssl_status is skipped below, so
+# there is nothing to report it either.
 if [ "$REVERSE_PROXY" = true ]; then
-    kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
+    for CERT in 5stack-ssl 5stack-mediamtx-ssl; do
+        kubectl --kubeconfig=$KUBECONFIG delete certificate "$CERT" -n 5stack 2>/dev/null
+    done
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then
@@ -25,8 +32,6 @@ if [ "$REVERSE_PROXY" != true ]; then
     step "Waiting for cert-manager"
     wait_for_cert_manager || die "cert-manager did not become ready; re-run ./update.sh once it settles"
     ok "cert-manager is ready"
-
-    prune_shim_owned_certificates
 fi
 
 step "Building overlay manifests"
@@ -100,6 +105,13 @@ fi
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
+# Strictly after the apply: it is the apply that removes the cert-manager.io/issuer
+# annotation from the ingresses, and until that lands ingress-shim recreates an
+# Ingress-owned Certificate as fast as we can let go of one.
+if [ "$REVERSE_PROXY" != true ]; then
+    disown_shim_owned_certificates
+fi
+
 if [ "$VAULT_MANAGER" = true ]; then
     step "Syncing Vault secrets"
     if ! resync_vault_secrets; then
@@ -125,11 +137,23 @@ if [ -n "$TURN_DOMAIN" ]; then
     kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-coturn=true --overwrite
 fi
 
+SSL_OK=true
 if [ "$REVERSE_PROXY" != true ]; then
-    if ! watch_ssl_status; then
-        banner "5Stack : Updated (SSL incomplete)"
+    watch_ssl_status || SSL_OK=false
+fi
+
+if [ "$SSL_OK" != true ]; then
+    banner "5Stack : Updated (SSL incomplete)"
+    # install.sh and game-node-server-setup.sh source this file, and an `exit`
+    # here would take them down with it -- suppressing the install banner and,
+    # on a game node, the Tailscale IP the operator needs to finish joining it.
+    # The cluster work all succeeded; only issuance is outstanding. So report a
+    # non-zero status when update.sh is what was run, and let a caller finish
+    # its own output otherwise.
+    if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
         exit 1
     fi
+    return 1
 fi
 
 banner "5Stack : Updated"

@@ -117,16 +117,35 @@ if [ "$STEAM_PASSWORD_CURRENT" != "$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_
     update_env_var "$STEAM_SECRETS_FILE" "STEAM_PASSWORD" "$STEAM_PASSWORD_CURRENT"
 fi
 
-if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]; then
-    DEFAULT_HLS="hls.$WEB_DOMAIN"
-    read -p "Enter the playback domain for game streams (default: $DEFAULT_HLS): " GAME_STREAM_DOMAIN
-    GAME_STREAM_DOMAIN=${GAME_STREAM_DOMAIN:-$DEFAULT_HLS}
-    if echo "$GAME_STREAM_DOMAIN" | grep -q ' '; then
-        err "Invalid domain '$GAME_STREAM_DOMAIN'."
-        exit 1
-    fi
+# Always asked, with the current value as the default -- the same shape as the
+# GPU vendor and node prompts above, where re-running this script is how you
+# change an answer.
+#
+# This used to be guarded by `[ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]`,
+# which could never be true. That placeholder lives in
+# overlays/mediamtx/mediamtx.env.example, and setup-env.sh copies it to
+# mediamtx.env when the file is missing -- but GAME_STREAM_DOMAIN is read from
+# api-config.env, which setup-env.sh defaults to hls.$WEB_DOMAIN. The check was
+# comparing against a placeholder from a file this variable never comes from,
+# so the prompt never ran and the playback domain could not be changed here.
+DEFAULT_HLS="${GAME_STREAM_DOMAIN:-hls.$WEB_DOMAIN}"
+read -p "Enter the playback domain for game streams (default: $DEFAULT_HLS): " GAME_STREAM_DOMAIN_INPUT
+GAME_STREAM_DOMAIN_INPUT="${GAME_STREAM_DOMAIN_INPUT:-$DEFAULT_HLS}"
+
+if [ -z "$GAME_STREAM_DOMAIN_INPUT" ] || echo "$GAME_STREAM_DOMAIN_INPUT" | grep -q ' '; then
+    err "Invalid domain '$GAME_STREAM_DOMAIN_INPUT'."
+    exit 1
+fi
+
+if [ "$GAME_STREAM_DOMAIN_INPUT" != "$GAME_STREAM_DOMAIN" ]; then
+    GAME_STREAM_DOMAIN="$GAME_STREAM_DOMAIN_INPUT"
     update_env_var "overlays/config/api-config.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
+    # api-config.env is the source of truth; mediamtx.env is a mirror kustomize
+    # reads as a replacement source. setup-env.sh syncs the two at startup,
+    # which has already happened by now, so a change made here has to be
+    # written through to both or mediamtx keeps serving the old host.
     update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
+    ok "playback domain set to $GAME_STREAM_DOMAIN"
 fi
 
 source "$REPO_DIR/update.sh" "$@"

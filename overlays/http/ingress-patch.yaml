@@ -1,7 +1,9 @@
-- op: add
-  path: /metadata/annotations/cert-manager.io~1issuer
-  value: 5stack-issuer
-
+# No cert-manager.io/issuer annotation here on purpose. ingress-shim names the
+# Certificate it creates after the TLS secretName, so every ingress below would
+# race to own a single `5stack-ssl` Certificate -- and a shim-created one only
+# carries the one host of the ingress that made it. The Certificate is declared
+# in full, across all seven hosts, in overlays/cert-manager/certificate.yaml;
+# these ingresses just consume the Secret it produces.
 - op: add
   path: /spec/tls
   value:

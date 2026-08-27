@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils/utils.sh" "$@"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$PANEL_DIR/utils/utils.sh" "$@"
 check_sudo
 
 if ! command -v jq &> /dev/null; then
@@ -242,7 +242,7 @@ step "Restarting k3s"
 systemctl restart k3s
 ok "k3s restarted"
 
-source update.sh "$@"
+source "$PANEL_DIR/update.sh" "$@"
 
 banner "Game node server setup complete"
 echo "  Tailscale IP: $TAILSCALE_NODE_IP"

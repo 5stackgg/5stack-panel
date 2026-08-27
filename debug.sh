@@ -1,24 +1,17 @@
 #!/bin/bash
 
-source setup-env.sh "$@"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$PANEL_DIR/utils/utils.sh" "$@"
 
 namespace="5stack"
 debug_file="debug_output_$(date +%Y%m%d_%H%M%S).txt"
 
 echo "(KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)" | tee -a "$debug_file"
 
-echo "Domains and Hosts Configuration:" | tee -a "$debug_file"
-echo "--------------------------------" | tee -a "$debug_file"
-echo "WEB_DOMAIN: $WEB_DOMAIN" | tee -a "$debug_file"
-echo "WS_DOMAIN: $WS_DOMAIN" | tee -a "$debug_file"
-echo "API_DOMAIN: $API_DOMAIN" | tee -a "$debug_file"
-echo "RELAY_DOMAIN: $RELAY_DOMAIN" | tee -a "$debug_file"
-echo "DEMOS_DOMAIN: $DEMOS_DOMAIN" | tee -a "$debug_file"
-echo "MAIL_FROM: $MAIL_FROM" | tee -a "$debug_file"
-echo "S3_CONSOLE_HOST: $S3_CONSOLE_HOST" | tee -a "$debug_file"
-echo "TYPESENSE_HOST: $TYPESENSE_HOST" | tee -a "$debug_file"
-echo "GAME_STREAM_DOMAIN: $GAME_STREAM_DOMAIN" | tee -a "$debug_file"
-echo "--------------------------------" | tee -a "$debug_file"
+# Not tee'd: sourcing utils.sh above already printed this to the terminal, so
+# the dump only needs the file copy. Redirecting rather than piping also drops
+# the colors on its way into the file.
+print_domains_and_hosts --all >> "$debug_file"
 
 echo "Checking pod status and restarts in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"

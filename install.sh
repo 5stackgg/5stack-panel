@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils/utils.sh" "$@"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$PANEL_DIR/utils/utils.sh" "$@"
 check_sudo
 
 step "Setting up filesystem"
@@ -17,7 +17,10 @@ mkdir -p /opt/5stack/custom-plugins
 ok "directories created"
 
 step "Installing k3s"
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik
+if ! curl -sfL https://get.k3s.io | sh -s - --disable=traefik; then
+    die "k3s install failed"
+fi
+ok "k3s installed"
 
 step "Writing systemd helper scripts"
 cat <<-'SCRIPT' >/usr/local/bin/5stack-cpu-state-check.sh
@@ -48,11 +51,16 @@ systemctl daemon-reload
 ok "drop-ins installed"
 
 step "Installing Ingress Nginx (this may take a few minutes)"
-install_ingress_nginx true
+# Not fatal if the admission-webhook wait times out: the wait exists to avoid a
+# race, and apply_overlay retries webhook failures anyway, so a false negative
+# here must not be able to block an install that would otherwise succeed.
+if ! install_ingress_nginx true; then
+    warn "ingress-nginx admission webhook is not answering yet; continuing"
+fi
 ok "ingress-nginx installed"
 
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
 
-source update.sh "$@"
+source "$PANEL_DIR/update.sh" "$@"
 
 banner "5Stack installed"

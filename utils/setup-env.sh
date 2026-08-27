@@ -13,6 +13,12 @@ CLOUDFLARE=""
 
 CLOUDFLARE_DOCS="https://docs.5stack.gg/install/cloudflare/"
 
+# Every path below -- and in update.sh, custom.sh and the kustomize overlays --
+# is relative to the checkout, so anchor the cwd there once. Running
+# `/opt/5stack/5stack-panel/install.sh` from anywhere else used to render an
+# empty overlay into `kubectl apply`, which then reported nothing to do.
+cd "$PANEL_DIR" || exit 1
+
 # Load environment variables from .5stack-env.config if it exists
 if [ -f .5stack-env.config ]; then
     source .5stack-env.config
@@ -21,6 +27,9 @@ fi
 if [ -z "$KUBECONFIG" ]; then
     KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 fi
+# Exported so the calls that don't pass --kubeconfig explicitly (install.sh,
+# install_ingress_nginx) talk to the same cluster as the ones that do.
+export KUBECONFIG
 
 setup_kustomize
 
@@ -342,17 +351,6 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/coturn-secrets.env" "kv/coturn"
 fi
 
-step "Domains and Hosts Configuration"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "WEB_DOMAIN:"      "$WEB_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "WS_DOMAIN:"       "$WS_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "API_DOMAIN:"      "$API_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "RELAY_DOMAIN:"    "$RELAY_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "DEMOS_DOMAIN:"    "$DEMOS_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "MAIL_FROM:"       "$MAIL_FROM"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "S3_CONSOLE_HOST:" "$S3_CONSOLE_HOST"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "TYPESENSE_HOST:"  "$TYPESENSE_HOST"
-if [ -n "$GAME_STREAM_DOMAIN" ] && [ "$GAME_STREAM_DOMAIN" != "hls.example.com" ]; then
-    printf "    %-18s ${C_OK}%s${C_RESET}\n" "GAME_STREAM_DOMAIN:" "$GAME_STREAM_DOMAIN"
-fi
+print_domains_and_hosts
 
 

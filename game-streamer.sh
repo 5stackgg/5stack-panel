@@ -129,6 +129,6 @@ if [ -z "$GAME_STREAM_DOMAIN" ] || [ "$GAME_STREAM_DOMAIN" = "hls.example.com" ]
     update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
 fi
 
-source update.sh "$@"
+source "$REPO_DIR/update.sh" "$@"
 
 banner "Game Streamer : Updated"

@@ -1,11 +1,17 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Absolute path to the panel checkout. Scripts used to reach the repo through
+# `./kustomize` and `$(dirname "$0")`, both of which depend on how the script
+# was invoked; this does not.
+PANEL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source all utility functions
 source "$SCRIPT_DIR/colors.sh"
 source "$SCRIPT_DIR/check_sudo.sh"
 source "$SCRIPT_DIR/output_redirect.sh"
+source "$SCRIPT_DIR/apply_overlay.sh"
+source "$SCRIPT_DIR/cert_manager.sh"
 source "$SCRIPT_DIR/update_env_var.sh"
 source "$SCRIPT_DIR/copy_config_or_secrets.sh"
 source "$SCRIPT_DIR/replace_rand32_in_env_files.sh"
@@ -25,5 +31,6 @@ source "$SCRIPT_DIR/setup_kustomize.sh"
 source "$SCRIPT_DIR/tailscale-api.sh"
 source "$SCRIPT_DIR/interactive_select.sh"
 source "$SCRIPT_DIR/open_docs.sh"
+source "$SCRIPT_DIR/print_domains_and_hosts.sh"
 
 source "$SCRIPT_DIR/setup-env.sh" "$@"

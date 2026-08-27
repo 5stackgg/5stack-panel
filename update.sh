@@ -8,23 +8,35 @@ if [ "$REVERSE_PROXY" = true ]; then
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then
-    step "Installing cert-manager CRDs"
-    ./kustomize build overlays/cert-manager-crds | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    step "Installing cert-manager"
+    apply_overlay overlays/cert-manager-crds || die "failed to install cert-manager"
 
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/certificates.cert-manager.io --timeout=120s
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/issuers.cert-manager.io --timeout=120s
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s
+    for CRD in certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io; do
+        if ! output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established "crd/$CRD" --timeout=120s; then
+            die "cert-manager CRD $CRD never became established"
+        fi
+    done
     ok "cert-manager CRDs ready"
+
+    # The CRDs are Established within a second of the apply, long before any
+    # cert-manager pod is running -- which is exactly why this wait exists. The
+    # overlay below carries the Certificate and the Issuer, and cert-manager's
+    # admission webhook rejects both outright while it is still starting.
+    step "Waiting for cert-manager"
+    wait_for_cert_manager || die "cert-manager did not become ready; re-run ./update.sh once it settles"
+    ok "cert-manager is ready"
+
+    prune_shim_owned_certificates
 fi
 
 step "Building overlay manifests"
-HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
-HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
+HTTP_REPLACEMENTS="$PANEL_DIR/overlays/http/http-replacements.yaml"
+HTTPS_REPLACEMENTS="$PANEL_DIR/overlays/http/https-replacements.yaml"
 
 # Whether an operator has asked for a TURN relay at all. Read straight from
 # coturn's own env file rather than the environment: this is the same file the
 # generated ConfigMap is built from, so the two can never disagree.
-TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$(dirname "$0")/overlays/coturn/coturn.env" | tail -1 | cut -d= -f2- | tr -d '\r')"
+TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$PANEL_DIR/overlays/coturn/coturn.env" | tail -1 | cut -d= -f2- | tr -d '\r')"
 TURN_DOMAIN="${TURN_DOMAIN%\"}"
 TURN_DOMAIN="${TURN_DOMAIN#\"}"
 
@@ -74,18 +86,18 @@ ok "overlays generated"
 
 step "Applying kustomize overlay"
 if [ "$VAULT_MANAGER" = true ]; then
-    if [ "$REVERSE_PROXY" = true ]; then
-        ./kustomize build overlays/vault-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    else
-        ./kustomize build overlays/vault-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    fi
+    OVERLAY_BASE="vault"
 else
-    if [ "$REVERSE_PROXY" = true ]; then
-        ./kustomize build overlays/local-secrets-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    else
-        ./kustomize build overlays/local-secrets-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    fi
+    OVERLAY_BASE="local-secrets"
 fi
+
+if [ "$REVERSE_PROXY" = true ]; then
+    OVERLAY="overlays/${OVERLAY_BASE}-http"
+else
+    OVERLAY="overlays/${OVERLAY_BASE}-https"
+fi
+
+apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
 if [ "$VAULT_MANAGER" = true ]; then
@@ -113,8 +125,11 @@ if [ -n "$TURN_DOMAIN" ]; then
     kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-coturn=true --overwrite
 fi
 
-if [ "$REVERSE_PROXY" = false ]; then
-    watch_ssl_status
+if [ "$REVERSE_PROXY" != true ]; then
+    if ! watch_ssl_status; then
+        banner "5Stack : Updated (SSL incomplete)"
+        exit 1
+    fi
 fi
 
 banner "5Stack : Updated"

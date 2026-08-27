@@ -1,7 +1,5 @@
-- op: add
-  path: /metadata/annotations/cert-manager.io~1issuer
-  value: 5stack-issuer
-
+# See overlays/http/ingress-patch.yaml: the Certificate is declared explicitly
+# in certificate.yaml rather than left to cert-manager's ingress-shim.
 - op: add
   path: /spec/tls
   value:

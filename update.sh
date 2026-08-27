@@ -3,28 +3,45 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Nothing terminates TLS in the cluster in this mode, so any Certificate left
+# over from a previous https install keeps retrying HTTP-01 against a server
+# that no longer answers the challenge -- silently accumulating failed orders
+# against Let's Encrypt's rate limit. watch_ssl_status is skipped below, so
+# there is nothing to report it either.
 if [ "$REVERSE_PROXY" = true ]; then
-    kubectl --kubeconfig=$KUBECONFIG delete certificate 5stack-ssl -n 5stack 2>/dev/null
+    for CERT in 5stack-ssl 5stack-mediamtx-ssl; do
+        kubectl --kubeconfig=$KUBECONFIG delete certificate "$CERT" -n 5stack 2>/dev/null
+    done
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then
-    step "Installing cert-manager CRDs"
-    ./kustomize build overlays/cert-manager-crds | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
+    step "Installing cert-manager"
+    apply_overlay overlays/cert-manager-crds || die "failed to install cert-manager"
 
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/certificates.cert-manager.io --timeout=120s
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/issuers.cert-manager.io --timeout=120s
-    output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s
+    for CRD in certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io; do
+        if ! output_redirect kubectl --kubeconfig=$KUBECONFIG wait --for=condition=Established "crd/$CRD" --timeout=120s; then
+            die "cert-manager CRD $CRD never became established"
+        fi
+    done
     ok "cert-manager CRDs ready"
+
+    # The CRDs are Established within a second of the apply, long before any
+    # cert-manager pod is running -- which is exactly why this wait exists. The
+    # overlay below carries the Certificate and the Issuer, and cert-manager's
+    # admission webhook rejects both outright while it is still starting.
+    step "Waiting for cert-manager"
+    wait_for_cert_manager || die "cert-manager did not become ready; re-run ./update.sh once it settles"
+    ok "cert-manager is ready"
 fi
 
 step "Building overlay manifests"
-HTTP_REPLACEMENTS="$(dirname "$0")/overlays/http/http-replacements.yaml"
-HTTPS_REPLACEMENTS="$(dirname "$0")/overlays/http/https-replacements.yaml"
+HTTP_REPLACEMENTS="$PANEL_DIR/overlays/http/http-replacements.yaml"
+HTTPS_REPLACEMENTS="$PANEL_DIR/overlays/http/https-replacements.yaml"
 
 # Whether an operator has asked for a TURN relay at all. Read straight from
 # coturn's own env file rather than the environment: this is the same file the
 # generated ConfigMap is built from, so the two can never disagree.
-TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$(dirname "$0")/overlays/coturn/coturn.env" | tail -1 | cut -d= -f2- | tr -d '\r')"
+TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$PANEL_DIR/overlays/coturn/coturn.env" | tail -1 | cut -d= -f2- | tr -d '\r')"
 TURN_DOMAIN="${TURN_DOMAIN%\"}"
 TURN_DOMAIN="${TURN_DOMAIN#\"}"
 
@@ -74,19 +91,26 @@ ok "overlays generated"
 
 step "Applying kustomize overlay"
 if [ "$VAULT_MANAGER" = true ]; then
-    if [ "$REVERSE_PROXY" = true ]; then
-        ./kustomize build overlays/vault-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    else
-        ./kustomize build overlays/vault-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    fi
+    OVERLAY_BASE="vault"
 else
-    if [ "$REVERSE_PROXY" = true ]; then
-        ./kustomize build overlays/local-secrets-http | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    else
-        ./kustomize build overlays/local-secrets-https | output_redirect kubectl --kubeconfig=$KUBECONFIG apply -f -
-    fi
+    OVERLAY_BASE="local-secrets"
 fi
+
+if [ "$REVERSE_PROXY" = true ]; then
+    OVERLAY="overlays/${OVERLAY_BASE}-http"
+else
+    OVERLAY="overlays/${OVERLAY_BASE}-https"
+fi
+
+apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
+
+# Strictly after the apply: it is the apply that removes the cert-manager.io/issuer
+# annotation from the ingresses, and until that lands ingress-shim recreates an
+# Ingress-owned Certificate as fast as we can let go of one.
+if [ "$REVERSE_PROXY" != true ]; then
+    disown_shim_owned_certificates
+fi
 
 if [ "$VAULT_MANAGER" = true ]; then
     step "Syncing Vault secrets"
@@ -113,8 +137,23 @@ if [ -n "$TURN_DOMAIN" ]; then
     kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-coturn=true --overwrite
 fi
 
-if [ "$REVERSE_PROXY" = false ]; then
-    watch_ssl_status
+SSL_OK=true
+if [ "$REVERSE_PROXY" != true ]; then
+    watch_ssl_status || SSL_OK=false
+fi
+
+if [ "$SSL_OK" != true ]; then
+    banner "5Stack : Updated (SSL incomplete)"
+    # install.sh and game-node-server-setup.sh source this file, and an `exit`
+    # here would take them down with it -- suppressing the install banner and,
+    # on a game node, the Tailscale IP the operator needs to finish joining it.
+    # The cluster work all succeeded; only issuance is outstanding. So report a
+    # non-zero status when update.sh is what was run, and let a caller finish
+    # its own output otherwise.
+    if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+        exit 1
+    fi
+    return 1
 fi
 
 banner "5Stack : Updated"

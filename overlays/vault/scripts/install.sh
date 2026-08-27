@@ -1,13 +1,12 @@
 #!/bin/bash
 
-if [ ! -f "utils/utils.sh" ]; then
-    echo "Error: utils/utils.sh not found. Please run this script from the root directory of the project."
-    exit 1
-fi
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# every path below is relative to the repo root
+cd "$PANEL_DIR" || exit 1
 
-source overlays/vault/scripts/setup-vault.sh "$@"
+source "$PANEL_DIR/overlays/vault/scripts/setup-vault.sh" "$@"
 
-source utils/utils.sh "$@"
+source "$PANEL_DIR/utils/utils.sh" "$@"
 
 echo "Installing external-secrets..."
 

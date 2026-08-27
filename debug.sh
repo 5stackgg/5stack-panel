@@ -1,24 +1,34 @@
 #!/bin/bash
 
-source setup-env.sh "$@"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Deliberately NOT utils/utils.sh, which sources setup-env.sh: that asks the
+# Cloudflare and reverse-proxy questions, generates secrets, moves
+# base/secrets into overlays/local-secrets and -- with VAULT_MANAGER=true --
+# pushes every local secrets file into Vault and rewrites it. Collecting a bug
+# report must not change the machine the report is about. Source only what the
+# dump actually reads. (plugin.sh:34 avoids utils.sh for the same reason.)
+source "$PANEL_DIR/utils/colors.sh"
+source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
+
+if [ -f "$PANEL_DIR/.5stack-env.config" ]; then
+    source "$PANEL_DIR/.5stack-env.config"
+fi
+: "${KUBECONFIG:=/etc/rancher/k3s/k3s.yaml}"
+export KUBECONFIG
+load_domains_and_hosts
 
 namespace="5stack"
-debug_file="debug_output_$(date +%Y%m%d_%H%M%S).txt"
+# Absolute, and anchored to the directory the operator ran this from: the path
+# printed at the end has to be one they can actually open.
+debug_file="$PWD/debug_output_$(date +%Y%m%d_%H%M%S).txt"
 
 echo "(KUBECONFIG: $KUBECONFIG, REVERSE_PROXY: $REVERSE_PROXY)" | tee -a "$debug_file"
 
-echo "Domains and Hosts Configuration:" | tee -a "$debug_file"
-echo "--------------------------------" | tee -a "$debug_file"
-echo "WEB_DOMAIN: $WEB_DOMAIN" | tee -a "$debug_file"
-echo "WS_DOMAIN: $WS_DOMAIN" | tee -a "$debug_file"
-echo "API_DOMAIN: $API_DOMAIN" | tee -a "$debug_file"
-echo "RELAY_DOMAIN: $RELAY_DOMAIN" | tee -a "$debug_file"
-echo "DEMOS_DOMAIN: $DEMOS_DOMAIN" | tee -a "$debug_file"
-echo "MAIL_FROM: $MAIL_FROM" | tee -a "$debug_file"
-echo "S3_CONSOLE_HOST: $S3_CONSOLE_HOST" | tee -a "$debug_file"
-echo "TYPESENSE_HOST: $TYPESENSE_HOST" | tee -a "$debug_file"
-echo "GAME_STREAM_DOMAIN: $GAME_STREAM_DOMAIN" | tee -a "$debug_file"
-echo "--------------------------------" | tee -a "$debug_file"
+# Redirected rather than piped so the colors resolve to plain text in the file;
+# tee'd separately so the operator sees it too.
+print_domains_and_hosts
+print_domains_and_hosts >> "$debug_file"
 
 echo "Checking pod status and restarts in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"

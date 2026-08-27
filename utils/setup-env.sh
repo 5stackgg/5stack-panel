@@ -13,6 +13,21 @@ CLOUDFLARE=""
 
 CLOUDFLARE_DOCS="https://docs.5stack.gg/install/cloudflare/"
 
+# Every path below -- and in update.sh, custom.sh and the kustomize overlays --
+# is relative to the checkout, so anchor the cwd there once. Running
+# `/opt/5stack/5stack-panel/install.sh` from anywhere else used to render an
+# empty overlay into `kubectl apply`, which then reported nothing to do.
+#
+# The emptiness check is not redundant: `cd ""` is a silent no-op that returns
+# 0, so an unset PANEL_DIR would sail past `cd ... || exit 1` and leave the cwd
+# wherever it was -- reintroducing the exact failure this exists to prevent.
+# PANEL_DIR is set by utils/utils.sh; running this file on its own has none.
+if [ -z "$PANEL_DIR" ]; then
+    echo "Error: PANEL_DIR is not set. Source utils/utils.sh rather than this file directly." >&2
+    exit 1
+fi
+cd "$PANEL_DIR" || exit 1
+
 # Load environment variables from .5stack-env.config if it exists
 if [ -f .5stack-env.config ]; then
     source .5stack-env.config
@@ -21,6 +36,9 @@ fi
 if [ -z "$KUBECONFIG" ]; then
     KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 fi
+# Exported so the calls that don't pass --kubeconfig explicitly (install.sh,
+# install_ingress_nginx) talk to the same cluster as the ones that do.
+export KUBECONFIG
 
 setup_kustomize
 
@@ -238,16 +256,7 @@ if [ -n "$K3S_TOKEN" ]; then
     fi
 fi
 
-# Using -h to suppress filename headers in grep output for Linux compatibility
-WEB_DOMAIN=$(grep -h "^WEB_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
-WS_DOMAIN=$(grep -h "^WS_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
-API_DOMAIN=$(grep -h "^API_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
-RELAY_DOMAIN=$(grep -h "^RELAY_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
-DEMOS_DOMAIN=$(grep -h "^DEMOS_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
-MAIL_FROM=$(grep -h "^MAIL_FROM=" overlays/config/api-config.env | cut -d '=' -f2-)
-S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" overlays/config/s3-config.env | cut -d '=' -f2-)
-TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" overlays/config/typesense-config.env | cut -d '=' -f2-)
-GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" overlays/config/api-config.env | cut -d '=' -f2-)
+load_domains_and_hosts
 
 if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$GAME_STREAM_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
     if [ -z "$WEB_DOMAIN" ]; then
@@ -342,17 +351,6 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/coturn-secrets.env" "kv/coturn"
 fi
 
-step "Domains and Hosts Configuration"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "WEB_DOMAIN:"      "$WEB_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "WS_DOMAIN:"       "$WS_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "API_DOMAIN:"      "$API_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "RELAY_DOMAIN:"    "$RELAY_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "DEMOS_DOMAIN:"    "$DEMOS_DOMAIN"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "MAIL_FROM:"       "$MAIL_FROM"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "S3_CONSOLE_HOST:" "$S3_CONSOLE_HOST"
-printf "    %-18s ${C_OK}%s${C_RESET}\n" "TYPESENSE_HOST:"  "$TYPESENSE_HOST"
-if [ -n "$GAME_STREAM_DOMAIN" ] && [ "$GAME_STREAM_DOMAIN" != "hls.example.com" ]; then
-    printf "    %-18s ${C_OK}%s${C_RESET}\n" "GAME_STREAM_DOMAIN:" "$GAME_STREAM_DOMAIN"
-fi
+print_domains_and_hosts
 
 

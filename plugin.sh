@@ -35,6 +35,7 @@ source "$PANEL_DIR/utils/colors.sh"
 source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/interactive_select.sh"
 source "$PANEL_DIR/utils/setup_kustomize.sh"
+source "$PANEL_DIR/utils/apply_overlay.sh"
 
 # Deliberately NOT utils/utils.sh: that sources setup-env.sh, which re-runs the
 # whole panel setup (cloudflare/reverse-proxy questions, secret generation,
@@ -541,7 +542,11 @@ if [ "$DRY_RUN" = true ]; then
     exit 0
 fi
 
-./kustomize build "$TARGET/$OVERLAY" | kubectl apply -f -
+# apply_overlay rather than `./kustomize build ... | kubectl apply -f -`: the
+# pipeline discarded the status of both halves, so a render error or a rejected
+# resource still printed "applied". It also retries a plugin's resources past an
+# admission webhook that is still starting.
+apply_overlay "$TARGET/$OVERLAY" || die "failed to apply $NAME"
 ok "applied"
 
 for deployment in $DEPLOYMENTS; do

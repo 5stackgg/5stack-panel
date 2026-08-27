@@ -1,5 +1,9 @@
 #!/bin/bash
 
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# every path below is relative to the repo root
+cd "$PANEL_DIR" || exit 1
+
 if [ -z "$VAULT_ADDR" ]; then
     echo "ERROR: VAULT_ADDR is not set. Please login to Vault with 'vault login'"
     exit 1
@@ -32,12 +36,7 @@ else
     echo "EXTERNAL_SECRETS_URL=$VAULT_ADDR" > "$EXTERNAL_SECRETS_CONFIG_FILE"
 fi
 
-if [ ! -f "utils/utils.sh" ]; then
-    echo "Error: utils/utils.sh not found. Please run this script from the root directory of the project."
-    exit 1
-fi
-
-source utils/utils.sh "$@"
+source "$PANEL_DIR/utils/utils.sh" "$@"
 
 host=$(kubectl --kubeconfig=$KUBECONFIG config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 certificate=$(kubectl --kubeconfig=$KUBECONFIG config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 --decode)

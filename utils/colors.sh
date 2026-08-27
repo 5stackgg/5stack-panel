@@ -46,3 +46,8 @@ read_masked() {
   echo
   printf -v "$__outvar" '%s' "$__value"
 }
+
+# Bail out with a message. Sourced scripts (update.sh runs inside install.sh)
+# rely on this actually stopping the install rather than letting a half-applied
+# cluster carry on to the next step.
+die() { err "$1"; exit "${2:-1}"; }

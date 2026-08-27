@@ -1,8 +1,9 @@
 #!/bin/bash
 
 setup_kustomize() {
-    local dir
-    dir="$(dirname "$0")"
+    # $PANEL_DIR, not $(dirname "$0"): when update.sh is sourced from
+    # install.sh, $0 is still install.sh, and both depend on the caller's cwd.
+    local dir="$PANEL_DIR"
     if ! [ -f "$dir/kustomize" ] || ! [ -x "$dir/kustomize" ]
     then
         echo "kustomize not found. Installing..."

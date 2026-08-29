@@ -97,3 +97,13 @@ rules:
       - watch
       - patch
       - delete
+  - apiGroups:
+      - 'apps'
+    resources:
+      - daemonsets
+    resourceNames:
+      - game-server-node-connector
+      - game-server-node-connector-nvidia
+    verbs:
+      - get
+      - patch

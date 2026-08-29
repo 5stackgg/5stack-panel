@@ -15,3 +15,4 @@ resources:
   - volumes
   - nginx
   - backups
+  - network-policies

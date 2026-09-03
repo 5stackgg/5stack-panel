@@ -239,6 +239,10 @@ ensure_vapid_keys_in_env_file "overlays/local-secrets/push-secrets.env"
 # newly added key, and coturn refuses to start without this one.
 ensure_turn_secret_in_env_file "overlays/local-secrets/coturn-secrets.env"
 
+# Same reasoning again: these two only matter for a remote bucket, and an
+# existing install would never see them turn up in its own s3-config.env.
+ensure_s3_config_keys_in_env_file "overlays/config/s3-config.env"
+
 # Setup POSTGRES_CONNECTION_STRING based on POSTGRES_PASSWORD
 setup_postgres_connection_string "overlays/local-secrets/timescaledb-secrets.env"
 

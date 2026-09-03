@@ -112,12 +112,14 @@ if kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2
     step "Migrating MinIO to RustFS"
     kubectl --kubeconfig=$KUBECONFIG delete statefulset minio -n 5stack >/dev/null 2>&1
     kubectl --kubeconfig=$KUBECONFIG wait --for=delete pod -l app=minio -n 5stack --timeout=120s >/dev/null 2>&1
+    # Asserted against the live state rather than the wait's exit code: `wait`
+    # also fails when the selector matches nothing, which is the case where
+    # there is nothing left to wait for.
+    if [ -n "$(kubectl --kubeconfig=$KUBECONFIG get pods -l app=minio -n 5stack -o name 2>/dev/null)" ]; then
+        die "minio is still running; refusing to start rustfs on the same volume"
+    fi
     ok "minio stopped; its volume is now served by rustfs"
 fi
-
-# Must track the node affinity in base/rustfs: it is requiredDuringScheduling,
-# and a node installed before this rename only carries the 5stack-minio label.
-kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-rustfs=true --overwrite >/dev/null
 
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"

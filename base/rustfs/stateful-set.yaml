@@ -63,6 +63,13 @@ spec:
               value: "true"
             - name: RUSTFS_CONSOLE_ADDRESS
               value: 0.0.0.0:9001
+            # Load-bearing: RustFS defaults this to empty and then sends no
+            # CORS headers, which fails the preflight on the cross-origin PUTs
+            # the browser makes straight to a presigned part URL. MinIO needed
+            # no equivalent because its default already allowed any origin.
+            # The wildcard is safe because those PUTs carry no ambient
+            # credentials -- the SigV4 query signature is the authorization,
+            # and "*" cannot be paired with credentials at all.
             - name: RUSTFS_CORS_ALLOWED_ORIGINS
               value: "*"
           startupProbe:
@@ -98,11 +105,9 @@ spec:
               mountPath: /data
         # RustFS ships no admin CLI in its own image, and MinIO's mc cannot
         # drive it -- the admin routes answer in a shape mc will not parse. The
-        # bootstrap runs from RustFS's own rc client instead. Every command here
-        # is idempotent, including against a volume migrated from MinIO where
-        # the bucket and the user already exist.
+        # bootstrap runs from RustFS's own rc client instead.
         - name: bootstrap
-          image: rustfs/rc:latest
+          image: rustfs/rc:v0.1.31
           command:
             - /bin/sh
             - -c
@@ -115,9 +120,15 @@ spec:
               until wget -q -O /dev/null http://127.0.0.1:9000/health; do
                 sleep 2
               done
+
+              # Re-runs on every restart, and on a volume migrated from MinIO
+              # the buckets and the user are already there. -p is the
+              # documented contract for that on the bucket creates; the two
+              # admin calls are relied on to stay no-ops for already-done
+              # work, which is part of why the rc tag above is pinned.
               rc alias set local http://127.0.0.1:9000 "${RUSTFS_ACCESS_KEY}" "${RUSTFS_SECRET_KEY}" &&
-              rc mb "local/${S3_BUCKET}" &&
-              rc mb "local/${S3_DB_BACKUP_BUCKET:-5stack-db-backups}" &&
+              rc bucket create -p "local/${S3_BUCKET}" &&
+              rc bucket create -p "local/${S3_DB_BACKUP_BUCKET:-5stack-db-backups}" &&
               rc admin user add local "${S3_ACCESS_KEY}" "${S3_SECRET}" &&
               rc admin policy attach local readwrite --user "${S3_ACCESS_KEY}" ||
                 echo "bootstrap failed; rustfs is still serving, but the api user may be missing"

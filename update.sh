@@ -102,6 +102,25 @@ else
     OVERLAY="overlays/${OVERLAY_BASE}-https"
 fi
 
+# RustFS replaces MinIO on the *same* volume -- it reads a MinIO data directory
+# in place, buckets, objects and IAM users included. That only holds while one
+# of them is running: minio-pvc is ReadWriteOnce, but both pods land on the same
+# node, and Kubernetes happily lets two pods on one node mount the same RWO
+# claim. Two object stores writing one directory corrupts it, so the old
+# StatefulSet has to be gone before the apply below creates the new one.
+if kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2>&1; then
+    step "Migrating MinIO to RustFS"
+    kubectl --kubeconfig=$KUBECONFIG delete statefulset minio -n 5stack >/dev/null 2>&1
+    kubectl --kubeconfig=$KUBECONFIG wait --for=delete pod -l app=minio -n 5stack --timeout=120s >/dev/null 2>&1
+    # Asserted against the live state rather than the wait's exit code: `wait`
+    # also fails when the selector matches nothing, which is the case where
+    # there is nothing left to wait for.
+    if [ -n "$(kubectl --kubeconfig=$KUBECONFIG get pods -l app=minio -n 5stack -o name 2>/dev/null)" ]; then
+        die "minio is still running; refusing to start rustfs on the same volume"
+    fi
+    ok "minio stopped; its volume is now served by rustfs"
+fi
+
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
@@ -120,7 +139,7 @@ if [ "$VAULT_MANAGER" = true ]; then
 fi
 
 step "Recycling stateful workloads"
-kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
+kubectl --kubeconfig=$KUBECONFIG delete deployment rustfs -n 5stack 2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null

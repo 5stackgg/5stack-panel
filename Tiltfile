@@ -85,7 +85,7 @@ k8s_resource(
 )
 
 k8s_resource(
-    'minio',
+    'rustfs',
     port_forwards=['9000:9000', '9090:9090'],
     labels=['infrastructure'],
     links=['console.5stack.localhost'],

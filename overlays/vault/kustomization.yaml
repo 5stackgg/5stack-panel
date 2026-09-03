@@ -15,7 +15,7 @@ resources:
   - secrets/tailscale.yaml
   - secrets/s3.yaml
   - secrets/redis.yaml
-  - secrets/minio.yaml
+  - secrets/rustfs.yaml
   - secrets/hasura.yaml
   - secrets/faceit.yaml
   - secrets/discord.yaml

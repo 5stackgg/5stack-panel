@@ -1,3 +1,8 @@
+# RustFS serves this volume now, but every identifier here deliberately keeps
+# the MinIO name. The migration is an in-place read of the existing data
+# directory: renaming the PV forces a rebind, and renaming the hostPath would
+# be a full copy -- or an outright failure -- for anyone who mounted a
+# dedicated disk at /opt/5stack/minio to hold their demos.
 apiVersion: v1
 kind: PersistentVolume
 metadata:

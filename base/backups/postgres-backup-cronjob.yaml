@@ -38,10 +38,14 @@ spec:
 
                   zip -j "$ZIP_FILE" "$DUMP_FILE"
 
-                  ENDPOINT="${S3_ENDPOINT:-minio}"
+                  ENDPOINT="${S3_ENDPOINT:-rustfs}"
 
-                  if [ "$ENDPOINT" = "minio" ]; then
-                    ENDPOINT="http://minio:9000"
+                  # Both names mean the in-cluster store: installs predating the
+                  # RustFS migration still carry S3_ENDPOINT=minio, and that
+                  # Service is kept as an alias. Anything else is a real remote
+                  # bucket reached over https.
+                  if [ "$ENDPOINT" = "rustfs" ] || [ "$ENDPOINT" = "minio" ]; then
+                    ENDPOINT="http://$ENDPOINT:9000"
                   else
                     ENDPOINT="https://$S3_ENDPOINT"
                   fi

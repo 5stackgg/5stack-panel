@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: 5stack
+spec:
+  ports:
+  - port: 9000
+    name: api
+    targetPort: 9000
+    protocol: TCP
+  - port: 9001
+    name: console
+    targetPort: 9001
+    protocol: TCP
+  selector:
+    app: rustfs
+---
+# The api resolves its S3 endpoint by service name, and installs that predate
+# the RustFS migration still carry S3_ENDPOINT=minio in their generated
+# s3-config.env. Keeping the old name pointed at the same pods means the
+# migration does not depend on rewriting a config file the operator owns.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: 5stack
+spec:
+  ports:
+  - port: 9000
+    name: api
+    targetPort: 9000
+    protocol: TCP
+  - port: 9090
+    name: console
+    targetPort: 9001
+    protocol: TCP
+  selector:
+    app: rustfs

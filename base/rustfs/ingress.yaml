@@ -14,8 +14,8 @@ spec:
         paths:
           - backend:
               service:
-                name: minio
+                name: rustfs
                 port:
-                  number: 9090
+                  number: 9001
             path: /(.*)
             pathType: ImplementationSpecific

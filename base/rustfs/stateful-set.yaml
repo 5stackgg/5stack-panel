@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+  namespace: 5stack
+spec:
+  replicas: 1
+  serviceName: rustfs
+  selector:
+    matchLabels:
+      app: rustfs
+  template:
+    metadata:
+      labels:
+        app: rustfs
+    spec:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nodeSelectorTerms are OR'd. The legacy 5stack-minio label is kept
+            # so an install that predates the RustFS migration keeps scheduling
+            # -- its node was never labelled 5stack-rustfs.
+            - matchExpressions:
+              - key: 5stack-rustfs
+                operator: In
+                values:
+                  - "true"
+            - matchExpressions:
+              - key: 5stack-minio
+                operator: In
+                values:
+                  - "true"
+      securityContext:
+        # RustFS images default to uid 10001, but every byte already on the
+        # volume was written by the MinIO pod running as root. Dropping to
+        # 10001 makes a migrated volume unreadable.
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.0-rc.5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          env:
+            - name: RUSTFS_VOLUMES
+              value: /data
+            - name: RUSTFS_ADDRESS
+              value: 0.0.0.0:9000
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: 0.0.0.0:9001
+            - name: RUSTFS_CORS_ALLOWED_ORIGINS
+              value: "*"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+            successThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: s3-config
+            - secretRef:
+                name: rustfs-secrets
+            - secretRef:
+                name: s3-secrets
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+        # RustFS ships no admin CLI in its own image, and MinIO's mc cannot
+        # drive it -- the admin routes answer in a shape mc will not parse. The
+        # bootstrap runs from RustFS's own rc client instead. Every command here
+        # is idempotent, including against a volume migrated from MinIO where
+        # the bucket and the user already exist.
+        - name: bootstrap
+          image: rustfs/rc:latest
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              # 127.0.0.1, never localhost: this image resolves localhost to ::1
+              # first and RustFS listens on IPv4 only, so wget gets a refusal it
+              # never retries over IPv4 -- the loop would spin here forever and
+              # the api's user would silently never be created.
+              until wget -q -O /dev/null http://127.0.0.1:9000/health; do
+                sleep 2
+              done
+              rc alias set local http://127.0.0.1:9000 "${RUSTFS_ACCESS_KEY}" "${RUSTFS_SECRET_KEY}" &&
+              rc mb "local/${S3_BUCKET}" &&
+              rc mb "local/${S3_DB_BACKUP_BUCKET:-5stack-db-backups}" &&
+              rc admin user add local "${S3_ACCESS_KEY}" "${S3_SECRET}" &&
+              rc admin policy attach local readwrite --user "${S3_ACCESS_KEY}" ||
+                echo "bootstrap failed; rustfs is still serving, but the api user may be missing"
+              sleep infinity
+          envFrom:
+            - configMapRef:
+                name: s3-config
+            - secretRef:
+                name: rustfs-secrets
+            - secretRef:
+                name: s3-secrets
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-pvc

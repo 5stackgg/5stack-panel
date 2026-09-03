@@ -344,7 +344,7 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale"
     migrate_secrets_to_vault "overlays/local-secrets/s3-secrets.env" "kv/s3"
     migrate_secrets_to_vault "overlays/local-secrets/redis-secrets.env" "kv/redis"
-    migrate_secrets_to_vault "overlays/local-secrets/minio-secrets.env" "kv/minio"
+    migrate_secrets_to_vault "overlays/local-secrets/rustfs-secrets.env" "kv/rustfs"
     migrate_secrets_to_vault "overlays/local-secrets/hasura-secrets.env" "kv/hasura"
     migrate_secrets_to_vault "overlays/local-secrets/faceit-secrets.env" "kv/faceit"
     migrate_secrets_to_vault "overlays/local-secrets/discord-secrets.env" "kv/discord"

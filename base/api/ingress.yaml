@@ -255,7 +255,7 @@ spec:
             pathType: Prefix
           - backend:
               service:
-                name: minio
+                name: rustfs
                 port:
                   number: 9000
             path: /5stack

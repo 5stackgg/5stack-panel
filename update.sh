@@ -102,6 +102,23 @@ else
     OVERLAY="overlays/${OVERLAY_BASE}-https"
 fi
 
+# RustFS replaces MinIO on the *same* volume -- it reads a MinIO data directory
+# in place, buckets, objects and IAM users included. That only holds while one
+# of them is running: minio-pvc is ReadWriteOnce, but both pods land on the same
+# node, and Kubernetes happily lets two pods on one node mount the same RWO
+# claim. Two object stores writing one directory corrupts it, so the old
+# StatefulSet has to be gone before the apply below creates the new one.
+if kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2>&1; then
+    step "Migrating MinIO to RustFS"
+    kubectl --kubeconfig=$KUBECONFIG delete statefulset minio -n 5stack >/dev/null 2>&1
+    kubectl --kubeconfig=$KUBECONFIG wait --for=delete pod -l app=minio -n 5stack --timeout=120s >/dev/null 2>&1
+    ok "minio stopped; its volume is now served by rustfs"
+fi
+
+# Must track the node affinity in base/rustfs: it is requiredDuringScheduling,
+# and a node installed before this rename only carries the 5stack-minio label.
+kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-rustfs=true --overwrite >/dev/null
+
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
@@ -120,7 +137,7 @@ if [ "$VAULT_MANAGER" = true ]; then
 fi
 
 step "Recycling stateful workloads"
-kubectl --kubeconfig=$KUBECONFIG delete deployment minio -n 5stack 2>/dev/null
+kubectl --kubeconfig=$KUBECONFIG delete deployment rustfs -n 5stack 2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null

@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# plugin.sh sources this and runs under `set -u`, without utils/setup-env.sh --
+# so the flags setup-env.sh would have defined are not necessarily set here.
+: "${DEBUG:=false}"
+: "${VAULT_MANAGER:=false}"
+
 # Is this failure "an admission webhook isn't serving yet" rather than "the
 # manifest is wrong"? Worth telling apart: the first is worth waiting out, the
 # second should be reported immediately instead of after a minute of pointless
@@ -49,7 +54,7 @@ wait_for_webhook() {
     local deadline=$((SECONDS + timeout))
     local output
     local -a kc=()
-    [ -n "$KUBECONFIG" ] && kc=(--kubeconfig="$KUBECONFIG")
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
     echo "Waiting for the ${label}..."
     while true; do
@@ -89,7 +94,7 @@ apply_overlay() {
     local rendered errors output attempt
     # --kubeconfig only when there is one to pass; see wait_for_webhook.
     local -a kc=()
-    [ -n "$KUBECONFIG" ] && kc=(--kubeconfig="$KUBECONFIG")
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
     local target="$overlay"
     case "$overlay" in

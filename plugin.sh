@@ -16,7 +16,7 @@
 # credentials — all of that was settled when you installed the panel, and this
 # reads it rather than asking you again:
 #
-#   .5stack-env.config       -> KUBECONFIG, REVERSE_PROXY
+#   .5stack-env.config       -> KUBECONFIG, REVERSE_PROXY, VAULT_MANAGER
 #   REVERSE_PROXY            -> which of the plugin's two installs to apply
 #   overlays/config/*.env    -> WEB_DOMAIN, so the plugin defaults to
 #                               <prefix>.<your domain>
@@ -136,14 +136,15 @@ ask() {
 [ -f "$PANEL_DIR/.5stack-env.config" ] \
     || die "No .5stack-env.config here — run ./install.sh first."
 
-PANEL_KUBECONFIG=""; REVERSE_PROXY=""
+PANEL_KUBECONFIG=""; REVERSE_PROXY=""; VAULT_MANAGER=false
 while IFS='=' read -r key value; do
     value="${value%\"}"; value="${value#\"}"
     case "$key" in
         KUBECONFIG)    PANEL_KUBECONFIG="$value" ;;
         REVERSE_PROXY) REVERSE_PROXY="$value" ;;
+        VAULT_MANAGER) VAULT_MANAGER="$value" ;;
     esac
-done < <(grep -E '^(KUBECONFIG|REVERSE_PROXY)=' "$PANEL_DIR/.5stack-env.config" || true)
+done < <(grep -E '^(KUBECONFIG|REVERSE_PROXY|VAULT_MANAGER)=' "$PANEL_DIR/.5stack-env.config" || true)
 
 if [ "$KUBECONFIG_ARG" != true ]; then
     KUBECONFIG="${PANEL_KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"

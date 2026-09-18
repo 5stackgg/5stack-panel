@@ -124,6 +124,17 @@ spec:
                   number: 5585
             path: /plugins
             pathType: Prefix
+          # Broadcast HUD bundles. The game-streamer pod fetches these
+          # in-cluster and never touches the ingress, but the panel's import and
+          # delete come from a browser, and an OBS browser source may load one
+          # directly -- both of which arrive here.
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /huds
+            pathType: Prefix
           - backend:
               service:
                 name: api

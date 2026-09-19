@@ -33,7 +33,7 @@ spec:
                   - "true"
       containers:
         - name: coturn
-          image: coturn/coturn:4.6.2
+          image: coturn/coturn:4.18.0
           envFrom:
             # coturn's own config and its own secret. The API mounts the same
             # two -- one shared secret with one source, because two copies of it

@@ -28,7 +28,7 @@ spec:
       runtimeClassName: nvidia
       containers:
       - name: nvidia-device-plugin-ctr
-        image: nvcr.io/nvidia/k8s-device-plugin:v0.18.1
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.20.0
         args:
           - "--config-file=/config/config.yaml"
         securityContext:

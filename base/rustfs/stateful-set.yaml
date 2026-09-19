@@ -107,7 +107,7 @@ spec:
         # drive it -- the admin routes answer in a shape mc will not parse. The
         # bootstrap runs from RustFS's own rc client instead.
         - name: bootstrap
-          image: rustfs/rc:v0.1.31
+          image: rustfs/rc:v0.1.36
           command:
             - /bin/sh
             - -c

@@ -76,7 +76,7 @@ spec:
             - --enable-cors
             - --cors-domains=http://localhost,https://$(TYPESENSE_HOST)
         - name: typesense-web
-          image: ghcr.io/bfritscher/typesense-dashboard:2.3.0
+          image: ghcr.io/bfritscher/typesense-dashboard:2.5.0
           ports:
             - containerPort: 80
           volumeMounts:

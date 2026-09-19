@@ -1,5 +1,27 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# cert-manager.yaml is the upstream release manifest, byte for byte. Upgrading is
+# replacing that file; anything of ours belongs here, where it survives that.
 resources:
   - cert-manager.yaml
+
+patches:
+  # Since 1.18 the HTTP-01 solver writes its challenge Ingress with pathType
+  # Exact. ingress-nginx before v1.12.6 / v1.13.2 rejects that outright: its
+  # strict path validation does not allow the dot in /.well-known, so the
+  # admission webhook denies every challenge and renewals fail without a sound
+  # until the certificate expires. update.sh never upgrades ingress-nginx, and
+  # this panel installed v1.12.1 until September 2025 -- so those clusters are
+  # out there. Off means ImplementationSpecific, which is what 1.17 did and what
+  # every ingress-nginx accepts.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: cert-manager
+      namespace: cert-manager
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --feature-gates=ACMEHTTP01IngressPathTypeExact=false

@@ -17,6 +17,7 @@ load_domains_and_hosts() {
     DEMOS_DOMAIN=$(grep -h "^DEMOS_DOMAIN=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
     MAIL_FROM=$(grep -h "^MAIL_FROM=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
     GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
+    CLOUDFLARE_WORKER_DOMAIN=$(grep -h "^CLOUDFLARE_WORKER_DOMAIN=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
     S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" "$config/s3-config.env" 2>/dev/null | cut -d '=' -f2-)
     TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" "$config/typesense-config.env" 2>/dev/null | cut -d '=' -f2-)
 }
@@ -53,5 +54,8 @@ print_domains_and_hosts() {
     # existed to override it never had anything to override.
     if [ -n "$GAME_STREAM_DOMAIN" ]; then
         printf "    %-20s ${c_ok}%s${c_reset}\n" "GAME_STREAM_DOMAIN:" "$GAME_STREAM_DOMAIN"
+    fi
+    if [ -n "$CLOUDFLARE_WORKER_DOMAIN" ]; then
+        printf "    %-20s ${c_ok}%s${c_reset}\n" "CLOUDFLARE_WORKER_DOMAIN:" "$CLOUDFLARE_WORKER_DOMAIN"
     fi
 }

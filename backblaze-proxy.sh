@@ -7,8 +7,9 @@
 #
 # Walks through everything it needs: the hostname (default cf.<WEB_DOMAIN>),
 # signing in to Cloudflare, the hostname's DNS record, the deploy, the bucket
-# keys and the routes, then points the panel's Cloudflare Worker URL setting
-# at it. The bucket comes from the panel's config. Safe to run again; it
+# keys and the routes, then saves the hostname as CLOUDFLARE_WORKER_DOMAIN in
+# overlays/config/api-config.env, which the panel builds its download URLs
+# from. The bucket comes from the panel's config. Safe to run again; it
 # updates the worker in place and keeps any routes it already has on other
 # hostnames, so older links keep working.
 #
@@ -18,6 +19,7 @@ PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PANEL_DIR/utils/colors.sh"
 source "$PANEL_DIR/utils/interactive_select.sh"
 source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
+source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/cloudflare_workers.sh"
 
 # Existing Cloudflare routes point at this name; renaming spawns a second
@@ -62,12 +64,14 @@ panel_graphql() {
             --data "$body" "https://$API_DOMAIN/v1/graphql"
 }
 
-show_manual_setting_step() {
-    echo "    In Settings -> Application -> Demo settings, set Cloudflare Worker URL to"
-    echo "    $WORKER_URL"
-    if [ -n "$WEB_DOMAIN" ]; then
-        cf_link "https://$WEB_DOMAIN/settings/application/demo-settings"
-    fi
+# The api copies CLOUDFLARE_WORKER_DOMAIN into this setting when it boots;
+# writing it here as well means it applies without an ./update.sh.
+set_live_worker_url() {
+    local variables
+    variables="$(node -p 'JSON.stringify({ value: process.argv[1] })' "$1")"
+    [ -n "$(panel_graphql \
+        'mutation ($value: String!) { insert_settings(objects: [{ name: "cloudflare_worker_url", value: $value }], on_conflict: { constraint: settings_pkey, update_columns: [value] }) { affected_rows } }' \
+        "$variables" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]
 }
 
 load_domains_and_hosts
@@ -119,8 +123,8 @@ fi
 
 step "Hostname"
 echo "    The worker gets a hostname of its own, on a domain you have on Cloudflare."
-DEFAULT_HOST=""
-if [ -n "$WEB_DOMAIN" ]; then
+DEFAULT_HOST="$CLOUDFLARE_WORKER_DOMAIN"
+if [ -z "$DEFAULT_HOST" ] && [ -n "$WEB_DOMAIN" ]; then
     DEFAULT_HOST="cf.$WEB_DOMAIN"
 fi
 WORKER_HOST="$(normalize_host "$1")"
@@ -226,42 +230,37 @@ fi
 
 step "Pointing the panel at it"
 WORKER_URL="https://$WORKER_HOST"
-if [ -z "$API_DOMAIN" ] || [ -z "$HASURA_ADMIN_SECRET" ]; then
-    warn "The panel's Hasura admin secret is not in overlays/local-secrets/hasura-secrets.env"
-    warn "(with Vault it lives there instead), so set the worker's URL in the panel yourself:"
-    show_manual_setting_step
+LIVE_URL=""
+if [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ]; then
+    LIVE_URL="$(panel_graphql 'query { settings_by_pk(name: "cloudflare_worker_url") { value } }' '{}' \
+        | cf_json 'j.data ? (j.data.settings_by_pk?.value ?? "") : undefined')"
+fi
+
+CURRENT_URL="$LIVE_URL"
+if [ -n "$CLOUDFLARE_WORKER_DOMAIN" ]; then
+    CURRENT_URL="https://$CLOUDFLARE_WORKER_DOMAIN"
+fi
+SWITCH=y
+if [ -n "$CURRENT_URL" ] && [ "$CURRENT_URL" != "$WORKER_URL" ]; then
+    ok "The panel serves files through $CURRENT_URL now."
+    read -r -p "    Switch it to $WORKER_URL? [Y/n] " SWITCH
+    SWITCH="${SWITCH:-y}"
+fi
+
+if [[ ! "$SWITCH" =~ ^[Yy] ]]; then
+    warn "Left it on $CURRENT_URL. Run this again to switch later."
 else
-    RESPONSE="$(panel_graphql 'query { settings_by_pk(name: "cloudflare_worker_url") { value } }' '{}')"
-    if [ -z "$(echo "$RESPONSE" | cf_json 'j.data ? "ok" : undefined')" ]; then
-        warn "Could not read the panel's settings through https://$API_DOMAIN:"
-        warn "  $(echo "$RESPONSE" | cf_json '(j.errors || []).map((e) => e.message).join("; ")')"
-        warn "Set the worker's URL in the panel yourself:"
-        show_manual_setting_step
+    if [ "$CLOUDFLARE_WORKER_DOMAIN" != "$WORKER_HOST" ]; then
+        update_env_var "$PANEL_DIR/overlays/config/api-config.env" CLOUDFLARE_WORKER_DOMAIN "$WORKER_HOST"
+    fi
+    ok "CLOUDFLARE_WORKER_DOMAIN=$WORKER_HOST is in overlays/config/api-config.env"
+
+    if [ "$LIVE_URL" = "$WORKER_URL" ]; then
+        ok "The panel already serves files through $WORKER_URL"
+    elif [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ] && set_live_worker_url "$WORKER_URL"; then
+        ok "The panel now serves demos, clips and media through $WORKER_URL"
     else
-        CURRENT_URL="$(echo "$RESPONSE" | cf_json 'j.data.settings_by_pk?.value ?? ""')"
-        SWITCH=y
-        if [ "$CURRENT_URL" = "$WORKER_URL" ]; then
-            ok "The panel already serves files through $WORKER_URL"
-            SWITCH=n
-        elif [ -n "$CURRENT_URL" ]; then
-            ok "The panel serves files through $CURRENT_URL now."
-            read -r -p "    Switch it to $WORKER_URL? [Y/n] " SWITCH
-            SWITCH="${SWITCH:-y}"
-        fi
-        if [[ "$SWITCH" =~ ^[Yy] ]]; then
-            RESPONSE="$(panel_graphql \
-                'mutation ($value: String!) { insert_settings(objects: [{ name: "cloudflare_worker_url", value: $value }], on_conflict: { constraint: settings_pkey, update_columns: [value] }) { affected_rows } }' \
-                "$(node -p 'JSON.stringify({ value: process.argv[1] })' "$WORKER_URL")")"
-            if [ -n "$(echo "$RESPONSE" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]; then
-                ok "The panel now serves demos, clips and media through $WORKER_URL"
-            else
-                warn "Could not save the setting: $(echo "$RESPONSE" | cf_json '(j.errors || []).map((e) => e.message).join("; ")')"
-                show_manual_setting_step
-            fi
-        elif [ "$CURRENT_URL" != "$WORKER_URL" ]; then
-            warn "Left it on $CURRENT_URL. To switch later:"
-            show_manual_setting_step
-        fi
+        warn "The panel picks it up the next time you run ./update.sh."
     fi
 fi
 echo

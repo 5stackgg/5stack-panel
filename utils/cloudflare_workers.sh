@@ -208,7 +208,10 @@ cf_curl() {
 
 cf_wait_to_retry() {
     local answer
-    read -r -p "    Press Enter to check again, or type skip to carry on anyway: " answer
+    if ! read -r -p "    Press Enter to check again, or type skip to carry on anyway: " answer; then
+        echo
+        die "Stopped."
+    fi
     if [ "$answer" = "skip" ]; then
         warn "Carrying on without this check."
         return 1

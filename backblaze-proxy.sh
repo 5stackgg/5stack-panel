@@ -304,15 +304,19 @@ cf_ensure_routes "$WORKER_NAME" false "${ROUTES[@]}"
 
 step "Waiting for it to answer on https://$WORKER_HOST"
 # The worker's health check signs a read against the bucket itself, so this
-# fails on keys Backblaze rejects, not only on a route that is missing.
+# fails on keys Backblaze rejects, not only on a route that is missing. New
+# secrets take a few seconds to reach every Cloudflare location, so a rejection
+# right after storing them is the previous keys still answering: keep asking.
 ANSWERING=false
 BUCKET_STATE=""
 for _ in $(seq 1 24); do
     HEALTH="$(cf_curl "$WORKER_HOST" -sS --max-time 20 "https://$WORKER_HOST/demo/_health" 2>/dev/null)"
     if [ "$(echo "$HEALTH" | cf_json 'j.worker')" = "5stack-backblaze-proxy" ]; then
-        BUCKET_STATE="$(echo "$HEALTH" | cf_json 'j.bucket')"
         ANSWERING=true
-        break
+        BUCKET_STATE="$(echo "$HEALTH" | cf_json 'j.bucket')"
+        if [ "$BUCKET_STATE" = "ok" ]; then
+            break
+        fi
     fi
     sleep 5
 done
@@ -323,8 +327,9 @@ if [ "$ANSWERING" != true ]; then
     exit 1
 fi
 if [ "$BUCKET_STATE" != "ok" ]; then
-    err "The worker is up, but it cannot read $S3_BUCKET ($BUCKET_STATE: $(echo "$HEALTH" | cf_json 'j.code')). Run this"
-    err "again and enter the application key the panel's API uses."
+    err "The worker is up, but it still cannot read $S3_BUCKET after two minutes"
+    err "($BUCKET_STATE: $(echo "$HEALTH" | cf_json 'j.code')). Run this again and enter the application"
+    err "key the panel's API uses."
     exit 1
 fi
 ok "The Backblaze proxy is live on https://$WORKER_HOST"

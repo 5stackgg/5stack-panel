@@ -1,0 +1,17 @@
+# Edge cache for a 5stack panel's Playcast relay. Deploy it with
+# ./playcast-relay.sh from the panel root, which puts it on the relay domain
+# from overlays/config/api-config.env (RELAY_DOMAIN). By hand, from the panel
+# root:
+#
+#   npx wrangler deploy --config cloudflare-workers/playcast-relay/wrangler.toml \
+#     --route "tv.example.com/*"
+#
+# The relay domain has to be proxied through Cloudflare (orange cloud). Set the
+# route's request limit failure mode to "Fail open" in the Cloudflare dashboard,
+# so broadcasts keep flowing straight to the panel if the Workers daily request
+# limit is ever reached.
+
+name = "5stack-playcast-relay"
+main = "worker.js"
+compatibility_date = "2025-04-29"
+workers_dev = false

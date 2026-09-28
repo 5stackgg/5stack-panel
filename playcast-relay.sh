@@ -1,60 +1,73 @@
 #!/bin/bash
 
-# Deploys the Playcast edge relay: a Cloudflare Worker that runs as a route on
-# the panel's relay domain (RELAY_DOMAIN). Game servers' uploads pass straight
-# through it to the panel, and Playcast viewers are served from Cloudflare's
-# cache.
+# Deploys the Playcast edge relay: a Cloudflare Worker on the panel's relay
+# domain (RELAY_DOMAIN). Game servers' uploads pass straight through it to the
+# panel, and Playcast viewers are served from Cloudflare's cache.
 #
-# The relay domain has to be proxied through Cloudflare (orange cloud).
-# Wrangler signs in to Cloudflare in a browser the first time; on a machine
-# without one, export CLOUDFLARE_API_TOKEN (Workers Scripts: Edit and Workers
-# Routes: Edit) first.
+# Walks through everything it needs: signing in to Cloudflare, the relay
+# domain's DNS and SSL settings, the deploy, and the route (set to fail open,
+# so the Workers Free daily limit bypasses the worker instead of breaking
+# broadcasts). Safe to run again; it updates the worker in place.
 
 PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PANEL_DIR/utils/colors.sh"
+source "$PANEL_DIR/utils/interactive_select.sh"
 source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
+source "$PANEL_DIR/utils/cloudflare_workers.sh"
+
+WORKER_NAME="5stack-playcast-relay"
+WORKER_CONFIG="$PANEL_DIR/cloudflare-workers/playcast-relay/wrangler.toml"
 
 load_domains_and_hosts
 
 if [ -z "$RELAY_DOMAIN" ]; then
-    err "RELAY_DOMAIN is not set in overlays/config/api-config.env. Run install.sh first."
-    exit 1
+    die "RELAY_DOMAIN is not set in overlays/config/api-config.env. Run install.sh first."
 fi
 
-if ! command -v npx >/dev/null 2>&1; then
-    err "npx was not found. Install Node.js (https://nodejs.org), or run this from a machine that has it."
-    exit 1
+banner "Playcast edge relay"
+echo "    Puts a Cloudflare Worker in front of https://$RELAY_DOMAIN, so Playcast viewers"
+echo "    are served from Cloudflare's cache instead of your server. Needs the domain on"
+echo "    Cloudflare; the Workers Free plan covers 100,000 requests a day."
+
+cf_require_node
+cf_sign_in "$RELAY_DOMAIN"
+
+step "Finding $RELAY_DOMAIN in Cloudflare"
+cf_find_zone "$RELAY_DOMAIN"
+
+cf_wait_for_proxied "$RELAY_DOMAIN"
+cf_check_origin "$RELAY_DOMAIN"
+
+step "Ready to deploy"
+ok "Worker:  $WORKER_NAME"
+ok "Route:   $RELAY_DOMAIN/*"
+read -r -p "    Deploy it? [Y/n] " CONFIRM
+if [[ "$CONFIRM" =~ ^[Nn] ]]; then
+    warn "Nothing deployed."
+    exit 0
 fi
 
-step "Checking that $RELAY_DOMAIN goes through Cloudflare"
-if ! curl -sI --max-time 10 "https://$RELAY_DOMAIN/" | grep -qi "^server: cloudflare"; then
-    err "$RELAY_DOMAIN is not proxied through Cloudflare."
-    err "Turn on the proxy (orange cloud) for its DNS record in Cloudflare, then run this again."
-    exit 1
+step "Deploying the worker"
+if ! wrangler deploy --config "$WORKER_CONFIG"; then
+    die "The deploy failed. See the wrangler output above."
 fi
-ok "$RELAY_DOMAIN is proxied through Cloudflare"
 
-step "Deploying the Playcast edge relay to $RELAY_DOMAIN"
-if ! npx --yes wrangler@4 deploy \
-    --config "$PANEL_DIR/cloudflare-workers/playcast-relay/wrangler.toml" \
-    --route "$RELAY_DOMAIN/*"; then
-    err "The deploy failed. See the wrangler output above."
-    exit 1
-fi
+step "Routing $RELAY_DOMAIN through it"
+cf_ensure_routes "$WORKER_NAME" true "$RELAY_DOMAIN/*"
 
 # Only the worker answers /health; the panel's own relay has no such path.
 step "Waiting for it to answer on https://$RELAY_DOMAIN/health"
 for _ in $(seq 1 24); do
-    if curl -fsS --max-time 10 "https://$RELAY_DOMAIN/health" 2>/dev/null | grep -q '"worker":"5stack-playcast-relay"'; then
+    if cf_curl "$RELAY_DOMAIN" -fsS --max-time 10 "https://$RELAY_DOMAIN/health" 2>/dev/null | grep -q "\"worker\":\"$WORKER_NAME\""; then
         ok "The Playcast edge relay is active on $RELAY_DOMAIN"
-        warn "One last step in the Cloudflare dashboard: set this route's request limit"
-        warn "failure mode to \"Fail open\", so broadcasts keep reaching the panel if the"
-        warn "daily Workers limit is ever reached."
+        ok "Settings -> Application -> Streaming shows it as Active:"
+        cf_link "https://$WEB_DOMAIN/settings/application/streaming"
         exit 0
     fi
     sleep 5
 done
 
 err "https://$RELAY_DOMAIN/health is not answering from the worker yet."
-err "Check the worker's route in the Cloudflare dashboard."
+err "Check the route in $CF_ZONE_NAME's Workers Routes, or run this again in a minute."
+cf_link "https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/$CF_ZONE_NAME/workers"
 exit 1

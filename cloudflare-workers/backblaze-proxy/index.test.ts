@@ -96,3 +96,21 @@ describe("backblaze-proxy map assets", () => {
     });
   }
 });
+
+describe("backblaze-proxy upstream failures", () => {
+  it("answers with B2's 403 once every retry is spent", async () => {
+    upstream = mock.fn(
+      async () =>
+        new Response("<Error><Code>AccessDenied</Code></Error>", {
+          status: 403,
+        }),
+    );
+    globalThis.fetch = upstream as unknown as typeof fetch;
+
+    const { response } = await get("clips/missing.mp4");
+
+    assert.equal(upstream.mock.callCount(), 3);
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /AccessDenied/);
+  });
+});

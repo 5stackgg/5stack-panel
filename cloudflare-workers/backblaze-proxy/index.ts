@@ -60,7 +60,12 @@ async function signedFetch(
     if (response.status !== 403 && response.status < 500) {
       return response;
     }
-    await response.body?.cancel();
+    // The last attempt is what the client gets, so its body has to survive:
+    // handing a cancelled body to a new Response throws, and the client sees
+    // Cloudflare's 1101 instead of the 403.
+    if (attempt < UPSTREAM_ATTEMPTS - 1) {
+      await response.body?.cancel();
+    }
   }
   return response!;
 }

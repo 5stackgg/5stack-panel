@@ -112,6 +112,7 @@ cf_sign_in() {
         die "CLOUDFLARE_ACCOUNT_ID ($CLOUDFLARE_ACCOUNT_ID) is not an account this login can use."
     fi
 
+    CF_AUTH_TYPE="$(echo "$whoami" | cf_json 'j.authType')"
     CF_TOKEN="$(wrangler auth token --json 2>/dev/null | cf_json 'j.token')"
     if [ -z "$CF_TOKEN" ]; then
         die "Could not read the Cloudflare token wrangler signed in with."
@@ -351,4 +352,44 @@ cf_ensure_routes() {
     CF_OTHER_ROUTES="$(echo "$routes" | cf_json \
         'j.result.filter((route) => route.script === a[0] && !a.slice(1).includes(route.pattern)).map((route) => route.pattern).join("\n")' \
         "$script" "$@")"
+}
+
+# cf_offer_tiered_cache -- Smart Tiered Cache lets Cloudflare locations fill
+# from each other, so a file is fetched from the origin once instead of once per
+# location. It is a zone setting wrangler's sign-in has no permission for, so
+# it can only be switched on here when signed in with an API token.
+cf_offer_tiered_cache() {
+    local link="https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/$CF_ZONE_NAME/caching/tiered-cache"
+    local answer response errors setting
+
+    step "Smart Tiered Cache"
+    if [ "$(cf_api GET "/zones/$CF_ZONE_ID/cache/tiered_cache_smart_topology_enable" | cf_json 'j.result?.value')" = "on" ]; then
+        ok "Already on for $CF_ZONE_NAME"
+        return
+    fi
+    echo "    Recommended: with it on, each file is fetched from your bucket once rather"
+    echo "    than once per Cloudflare location."
+
+    if [ "$CF_AUTH_TYPE" = "OAuth Token" ]; then
+        echo "    Signing in through wrangler can't change cache settings, so turn it on in the"
+        echo "    dashboard: Tiered Cache, then Smart Tiered Caching."
+        cf_link "$link"
+        return
+    fi
+
+    read -r -p "    Turn it on for $CF_ZONE_NAME? [Y/n] " answer
+    if [[ "$answer" =~ ^[Nn] ]]; then
+        return
+    fi
+    for setting in argo/tiered_caching cache/tiered_cache_smart_topology_enable; do
+        response="$(cf_api PATCH "/zones/$CF_ZONE_ID/$setting" '{"value":"on"}')"
+        errors="$(cf_api_errors "$response")"
+        if [ -n "$errors" ]; then
+            warn "Cloudflare did not let this token change it ($errors). Turn it on in the"
+            warn "dashboard instead: Tiered Cache, then Smart Tiered Caching."
+            cf_link "$link"
+            return
+        fi
+    done
+    ok "Smart Tiered Cache is on for $CF_ZONE_NAME"
 }

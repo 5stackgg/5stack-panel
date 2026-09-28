@@ -5,13 +5,19 @@
 # assets through Cloudflare, so B2 egress is free and popular files come from
 # the edge.
 #
-# Walks through everything it needs: the hostname (default cf.<WEB_DOMAIN>),
-# signing in to Cloudflare, the hostname's DNS record, the deploy, the bucket
-# keys and the routes, then saves the hostname as CLOUDFLARE_WORKER_DOMAIN in
-# overlays/config/api-config.env, which the panel builds its download URLs
-# from. The bucket comes from the panel's config. Safe to run again; it
-# updates the worker in place and keeps any routes it already has on other
-# hostnames, so older links keep working.
+# Walks through everything it needs: the bucket keys, the hostname (default
+# cf.<WEB_DOMAIN>), signing in to Cloudflare, the hostname's DNS record, the
+# deploy and the routes, then saves the hostname as CLOUDFLARE_WORKER_DOMAIN
+# in overlays/config/api-config.env, which the panel builds its download URLs
+# from, and offers Smart Tiered Cache.
+#
+# The bucket comes from the panel's config. The keys come from the cluster on
+# Vault installs and from overlays/local-secrets otherwise, and Backblaze has
+# to accept them before anything is deployed: one worker serves every panel
+# pointed at it, so bad keys would break downloads for all of them.
+#
+# Safe to run again; it updates the worker in place and keeps any routes it
+# already has on other hostnames, so older links keep working.
 #
 #   ./backblaze-proxy.sh [hostname]
 
@@ -30,7 +36,14 @@ DOCS_URL="https://docs.5stack.gg/advanced/s3/backblaze"
 ROUTE_PATHS=("/demo*" "/clips*" "/news*" "/maps*" "/events*")
 
 read_env() {
-    grep -h "^$1=" "$2" 2>/dev/null | cut -d '=' -f2-
+    grep -h "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d '=' -f2-
+}
+
+# With Vault the files in overlays/local-secrets are placeholders; the real
+# values are only in the cluster, synced from Vault under these names.
+read_cluster_secret() {
+    kubectl --kubeconfig="$PANEL_KUBECONFIG" -n 5stack get secret "$1" -o "jsonpath={.data.$2}" 2>/dev/null \
+        | base64 --decode 2>/dev/null
 }
 
 normalize_host() {
@@ -74,15 +87,78 @@ set_live_worker_url() {
         "$variables" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]
 }
 
+# The api copies CLOUDFLARE_WORKER_DOMAIN into its setting when it restarts,
+# which ./update.sh does whenever the config changed.
+offer_update() {
+    local answer
+    if [ ! -f "$PANEL_KUBECONFIG" ]; then
+        warn "Could not apply it to the running panel from here. Run ./update.sh on your"
+        warn "panel's server to apply it."
+        return
+    fi
+    warn "Could not apply it to the running panel directly, so ./update.sh has to apply it."
+    read -r -p "    Run ./update.sh now, against the cluster in $PANEL_KUBECONFIG? [Y/n] " answer
+    if [[ "$answer" =~ ^[Nn] ]]; then
+        warn "Run ./update.sh to apply it."
+        return
+    fi
+    if ! "$PANEL_DIR/update.sh"; then
+        die "./update.sh failed. See the output above."
+    fi
+    ok "The panel now serves demos, clips and media through $WORKER_URL"
+}
+
+# Signs a read of an object that does not exist and prints Backblaze's error
+# code. A missing object and a key without list access both come back as
+# AccessDenied or NoSuchKey; only a bad key ID or secret is rejected outright.
+bucket_key_check() {
+    (cd "$WORKER_DIR" && S3_ACCESS_KEY="$S3_ACCESS_KEY" S3_SECRET="$S3_SECRET" node --input-type=module -e '
+        import { AwsClient } from "aws4fetch";
+        const client = new AwsClient({
+            accessKeyId: process.env.S3_ACCESS_KEY,
+            secretAccessKey: process.env.S3_SECRET,
+            service: "s3",
+        });
+        const url = `https://${process.argv[1]}.${process.argv[2]}/.5stack-key-check-${crypto.randomUUID()}`;
+        try {
+            const signed = await client.sign(url, { method: "GET", headers: new Headers() });
+            const response = await fetch(signed.url, { method: "GET", headers: signed.headers });
+            const body = await response.text();
+            process.stdout.write((body.match(/<Code>([^<]+)</) || [])[1] || `HTTP ${response.status}`);
+        } catch (error) {
+            process.stdout.write(`unreachable (${error.message})`);
+        }
+    ' "$S3_BUCKET" "$S3_ENDPOINT")
+}
+
 load_domains_and_hosts
 
 S3_BUCKET="${S3_BUCKET:-$(read_env S3_BUCKET "$PANEL_DIR/overlays/config/s3-config.env")}"
 S3_ENDPOINT="${S3_ENDPOINT:-$(read_env S3_ENDPOINT "$PANEL_DIR/overlays/config/s3-config.env")}"
 S3_ENDPOINT="${S3_ENDPOINT#*://}"
 S3_ENDPOINT="${S3_ENDPOINT%/}"
-S3_ACCESS_KEY="${S3_ACCESS_KEY:-$(read_env S3_ACCESS_KEY "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")}"
-S3_SECRET="${S3_SECRET:-$(read_env S3_SECRET "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")}"
-HASURA_ADMIN_SECRET="${HASURA_GRAPHQL_ADMIN_SECRET:-$(read_env HASURA_GRAPHQL_ADMIN_SECRET "$PANEL_DIR/overlays/local-secrets/hasura-secrets.env")}"
+PANEL_KUBECONFIG="$(read_env KUBECONFIG "$PANEL_DIR/.5stack-env.config")"
+PANEL_KUBECONFIG="${PANEL_KUBECONFIG:-${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}}"
+VAULT_MANAGER="$(read_env VAULT_MANAGER "$PANEL_DIR/.5stack-env.config")"
+
+if [ -n "$S3_ACCESS_KEY" ] && [ -n "$S3_SECRET" ]; then
+    KEYS_FROM="your environment"
+elif [ "$VAULT_MANAGER" = true ]; then
+    KEYS_FROM="the panel's s3-secrets in the cluster"
+    S3_ACCESS_KEY="$(read_cluster_secret s3-secrets S3_ACCESS_KEY)"
+    S3_SECRET="$(read_cluster_secret s3-secrets S3_SECRET)"
+else
+    KEYS_FROM="overlays/local-secrets/s3-secrets.env"
+    S3_ACCESS_KEY="$(read_env S3_ACCESS_KEY "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")"
+    S3_SECRET="$(read_env S3_SECRET "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")"
+fi
+
+HASURA_ADMIN_SECRET="$HASURA_GRAPHQL_ADMIN_SECRET"
+if [ -z "$HASURA_ADMIN_SECRET" ] && [ "$VAULT_MANAGER" = true ]; then
+    HASURA_ADMIN_SECRET="$(read_cluster_secret hasura-secrets HASURA_GRAPHQL_ADMIN_SECRET)"
+elif [ -z "$HASURA_ADMIN_SECRET" ]; then
+    HASURA_ADMIN_SECRET="$(read_env HASURA_GRAPHQL_ADMIN_SECRET "$PANEL_DIR/overlays/local-secrets/hasura-secrets.env")"
+fi
 
 banner "Backblaze proxy"
 echo "    Puts a Cloudflare Worker in front of your B2 bucket, so demos, clips, news"
@@ -108,18 +184,47 @@ fi
 
 cf_require_node
 
+step "Installing the worker's dependencies"
+if ! npm ci --silent --no-audit --no-fund --prefix "$WORKER_DIR"; then
+    die "npm ci failed. See the output above."
+fi
+
+# The worker signs every read with these keys and checks upload tokens against
+# S3_SECRET, which the api signs them with, so they have to be the api's keys.
+step "Checking the bucket keys with Backblaze"
 if [ -z "$S3_ACCESS_KEY" ] || [ -z "$S3_SECRET" ]; then
-    step "Bucket keys"
-    warn "S3_ACCESS_KEY and S3_SECRET are not in overlays/local-secrets/s3-secrets.env"
-    warn "(with Vault they live there instead). Enter the same keys the panel uses; they"
-    warn "are stored in Cloudflare as worker secrets and nowhere else."
+    warn "Could not read S3_ACCESS_KEY and S3_SECRET from $KEYS_FROM."
+    S3_ACCESS_KEY=""
+    S3_SECRET=""
+fi
+while true; do
+    if [ -n "$S3_ACCESS_KEY" ] && [ -n "$S3_SECRET" ]; then
+        KEY_CHECK="$(bucket_key_check)"
+        case "$KEY_CHECK" in
+            unreachable*)
+                die "Could not reach https://$S3_BUCKET.$S3_ENDPOINT: ${KEY_CHECK#unreachable }"
+                ;;
+            InvalidAccessKeyId|SignatureDoesNotMatch|InvalidSecurity|InvalidToken|InvalidArgument)
+                err "Backblaze rejected the keys from $KEYS_FROM ($KEY_CHECK)."
+                ;;
+            *)
+                ok "Backblaze accepted the keys from $KEYS_FROM"
+                break
+                ;;
+        esac
+    fi
+    warn "Enter the application key the panel's API uses for $S3_BUCKET. It is stored in"
+    warn "Cloudflare as worker secrets and nowhere else."
+    S3_ACCESS_KEY=""
+    S3_SECRET=""
     while [ -z "$S3_ACCESS_KEY" ]; do
-        read -r -p "    S3 access key ID: " S3_ACCESS_KEY
+        read -r -p "    S3 access key ID: " S3_ACCESS_KEY || die "Stopped."
     done
     while [ -z "$S3_SECRET" ]; do
         read_masked "    S3 secret key: " S3_SECRET
     done
-fi
+    KEYS_FROM="what you entered"
+done
 
 step "Hostname"
 echo "    The worker gets a hostname of its own, on a domain you have on Cloudflare."
@@ -178,11 +283,6 @@ if [[ "$CONFIRM" =~ ^[Nn] ]]; then
     exit 0
 fi
 
-step "Installing the worker's dependencies"
-if ! npm ci --silent --no-audit --no-fund --prefix "$WORKER_DIR"; then
-    die "npm ci failed. See the output above."
-fi
-
 step "Deploying the worker"
 if ! wrangler deploy --config "$WORKER_DIR/wrangler.toml" "${VARS[@]}"; then
     die "The deploy failed. See the wrangler output above."
@@ -203,19 +303,26 @@ step "Routing $WORKER_HOST through it"
 cf_ensure_routes "$WORKER_NAME" false "${ROUTES[@]}"
 
 step "Waiting for it to answer on https://$WORKER_HOST"
+# A read of a file that does not exist goes all the way to the bucket and back
+# through the worker, so it fails on a broken deploy where a preflight would not.
+PROBE_URL="https://$WORKER_HOST/maps/.5stack-check-$RANDOM$RANDOM"
 ANSWERING=false
 for _ in $(seq 1 24); do
-    if cf_curl "$WORKER_HOST" -sS -o /dev/null -D - --max-time 10 -X OPTIONS \
-        -H "Origin: https://${WEB_DOMAIN:-example.com}" "https://$WORKER_HOST/clips/" 2>/dev/null \
-        | grep -qi '^access-control-allow-methods: GET, HEAD, PUT, OPTIONS'; then
+    PROBE="$(cf_curl "$WORKER_HOST" -sS -o /dev/null -D - -w 'status=%{http_code}' --max-time 20 \
+        -H "Origin: https://${WEB_DOMAIN:-example.com}" "$PROBE_URL" 2>/dev/null)"
+    PROBE_STATUS="${PROBE##*status=}"
+    if echo "$PROBE" | grep -qi '^access-control-allow-methods: GET, HEAD, PUT, OPTIONS' \
+        && [ "${PROBE_STATUS:-500}" -lt 500 ]; then
         ANSWERING=true
         break
     fi
     sleep 5
 done
 if [ "$ANSWERING" != true ]; then
-    err "https://$WORKER_HOST is not answering from the worker yet."
-    err "Check the routes in $CF_ZONE_NAME's Workers Routes, or run this again in a minute."
+    err "https://$WORKER_HOST is not serving files through the worker (last answer: HTTP ${PROBE_STATUS:-none})."
+    err "Watch its errors with the command below while you open a file on it, or check the"
+    err "routes in $CF_ZONE_NAME's Workers Routes."
+    err "  npx wrangler tail $WORKER_NAME"
     cf_link "https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/$CF_ZONE_NAME/workers"
     exit 1
 fi
@@ -260,10 +367,8 @@ else
     elif [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ] && set_live_worker_url "$WORKER_URL"; then
         ok "The panel now serves demos, clips and media through $WORKER_URL"
     else
-        warn "The panel picks it up the next time you run ./update.sh."
+        offer_update
     fi
 fi
-echo
-echo "    Recommended: turn on Smart Tiered Cache for $CF_ZONE_NAME, so each file is"
-echo "    fetched from B2 once rather than once per Cloudflare location."
-cf_link "https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/$CF_ZONE_NAME/caching/tiered-cache"
+
+cf_offer_tiered_cache

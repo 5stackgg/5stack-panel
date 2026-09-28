@@ -7,9 +7,10 @@
 #
 # Walks through everything it needs: the hostname (default cf.<WEB_DOMAIN>),
 # signing in to Cloudflare, the hostname's DNS record, the deploy, the bucket
-# keys and the routes. The bucket comes from the panel's config. Safe to run
-# again; it updates the worker in place and keeps any routes it already has on
-# other hostnames, so older links keep working.
+# keys and the routes, then points the panel's Cloudflare Worker URL setting
+# at it. The bucket comes from the panel's config. Safe to run again; it
+# updates the worker in place and keeps any routes it already has on other
+# hostnames, so older links keep working.
 #
 #   ./backblaze-proxy.sh [hostname]
 
@@ -51,6 +52,24 @@ panel_host_name() {
     done
 }
 
+# panel_graphql QUERY VARIABLES -- runs QUERY against the panel's Hasura as
+# admin, the same way the web's settings pages write settings.
+panel_graphql() {
+    local body
+    body="$(node -p 'JSON.stringify({ query: process.argv[1], variables: JSON.parse(process.argv[2]) })' "$1" "$2")"
+    printf 'header = "x-hasura-admin-secret: %s"\n' "$HASURA_ADMIN_SECRET" \
+        | curl -sS -K - --max-time 15 -H "Content-Type: application/json" \
+            --data "$body" "https://$API_DOMAIN/v1/graphql"
+}
+
+show_manual_setting_step() {
+    echo "    In Settings -> Application -> Demo settings, set Cloudflare Worker URL to"
+    echo "    $WORKER_URL"
+    if [ -n "$WEB_DOMAIN" ]; then
+        cf_link "https://$WEB_DOMAIN/settings/application/demo-settings"
+    fi
+}
+
 load_domains_and_hosts
 
 S3_BUCKET="${S3_BUCKET:-$(read_env S3_BUCKET "$PANEL_DIR/overlays/config/s3-config.env")}"
@@ -59,6 +78,7 @@ S3_ENDPOINT="${S3_ENDPOINT#*://}"
 S3_ENDPOINT="${S3_ENDPOINT%/}"
 S3_ACCESS_KEY="${S3_ACCESS_KEY:-$(read_env S3_ACCESS_KEY "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")}"
 S3_SECRET="${S3_SECRET:-$(read_env S3_SECRET "$PANEL_DIR/overlays/local-secrets/s3-secrets.env")}"
+HASURA_ADMIN_SECRET="${HASURA_GRAPHQL_ADMIN_SECRET:-$(read_env HASURA_GRAPHQL_ADMIN_SECRET "$PANEL_DIR/overlays/local-secrets/hasura-secrets.env")}"
 
 banner "Backblaze proxy"
 echo "    Puts a Cloudflare Worker in front of your B2 bucket, so demos, clips, news"
@@ -204,11 +224,45 @@ if [ -n "$CF_OTHER_ROUTES" ]; then
     done <<< "$CF_OTHER_ROUTES"
 fi
 
-step "Last step: point the panel at it"
-echo "    In Settings -> Application -> Demo settings, set Cloudflare Worker URL to"
-echo "    https://$WORKER_HOST"
-if [ -n "$WEB_DOMAIN" ]; then
-    cf_link "https://$WEB_DOMAIN/settings/application/demo-settings"
+step "Pointing the panel at it"
+WORKER_URL="https://$WORKER_HOST"
+if [ -z "$API_DOMAIN" ] || [ -z "$HASURA_ADMIN_SECRET" ]; then
+    warn "The panel's Hasura admin secret is not in overlays/local-secrets/hasura-secrets.env"
+    warn "(with Vault it lives there instead), so set the worker's URL in the panel yourself:"
+    show_manual_setting_step
+else
+    RESPONSE="$(panel_graphql 'query { settings_by_pk(name: "cloudflare_worker_url") { value } }' '{}')"
+    if [ -z "$(echo "$RESPONSE" | cf_json 'j.data ? "ok" : undefined')" ]; then
+        warn "Could not read the panel's settings through https://$API_DOMAIN:"
+        warn "  $(echo "$RESPONSE" | cf_json '(j.errors || []).map((e) => e.message).join("; ")')"
+        warn "Set the worker's URL in the panel yourself:"
+        show_manual_setting_step
+    else
+        CURRENT_URL="$(echo "$RESPONSE" | cf_json 'j.data.settings_by_pk?.value ?? ""')"
+        SWITCH=y
+        if [ "$CURRENT_URL" = "$WORKER_URL" ]; then
+            ok "The panel already serves files through $WORKER_URL"
+            SWITCH=n
+        elif [ -n "$CURRENT_URL" ]; then
+            ok "The panel serves files through $CURRENT_URL now."
+            read -r -p "    Switch it to $WORKER_URL? [Y/n] " SWITCH
+            SWITCH="${SWITCH:-y}"
+        fi
+        if [[ "$SWITCH" =~ ^[Yy] ]]; then
+            RESPONSE="$(panel_graphql \
+                'mutation ($value: String!) { insert_settings(objects: [{ name: "cloudflare_worker_url", value: $value }], on_conflict: { constraint: settings_pkey, update_columns: [value] }) { affected_rows } }' \
+                "$(node -p 'JSON.stringify({ value: process.argv[1] })' "$WORKER_URL")")"
+            if [ -n "$(echo "$RESPONSE" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]; then
+                ok "The panel now serves demos, clips and media through $WORKER_URL"
+            else
+                warn "Could not save the setting: $(echo "$RESPONSE" | cf_json '(j.errors || []).map((e) => e.message).join("; ")')"
+                show_manual_setting_step
+            fi
+        elif [ "$CURRENT_URL" != "$WORKER_URL" ]; then
+            warn "Left it on $CURRENT_URL. To switch later:"
+            show_manual_setting_step
+        fi
+    fi
 fi
 echo
 echo "    Recommended: turn on Smart Tiered Cache for $CF_ZONE_NAME, so each file is"

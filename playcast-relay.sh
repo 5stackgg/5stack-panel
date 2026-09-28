@@ -60,7 +60,7 @@ step "Waiting for it to answer on https://$RELAY_DOMAIN/health"
 for _ in $(seq 1 24); do
     if cf_curl "$RELAY_DOMAIN" -fsS --max-time 10 "https://$RELAY_DOMAIN/health" 2>/dev/null | grep -q "\"worker\":\"$WORKER_NAME\""; then
         ok "The Playcast edge relay is active on $RELAY_DOMAIN"
-        ok "Settings -> Application -> Streaming shows it as Active:"
+        ok "Settings -> Application -> Streaming shows it as Online:"
         cf_link "https://$WEB_DOMAIN/settings/application/streaming"
         exit 0
     fi

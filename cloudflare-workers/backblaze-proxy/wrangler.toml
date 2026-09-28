@@ -1,0 +1,31 @@
+# Backblaze proxy worker: fronts the bucket's demos (/demo*), clips (/clips*),
+# news images (/news*), map assets (/maps*) and event media (/events*) through
+# Cloudflare, so B2 egress is free and popular files are served from the edge.
+# Deploy it with ./backblaze-proxy.sh from the panel root, which takes the
+# bucket, endpoint and keys from the panel's config and adds the routes on the
+# hostname you give it.
+#
+# No routes here on purpose: `wrangler deploy` with routes replaces every route
+# the worker already has, dropping hostnames old links still point at. The
+# script adds routes through the Cloudflare API instead.
+#
+# Worker name MUST stay "5stack" -- Cloudflare's existing routes point at it.
+# Renaming spawns a new worker while the old one keeps serving.
+#
+# Secrets (S3_ACCESS_KEY, S3_SECRET) are set with `wrangler secret`. S3_SECRET
+# doubles as the key the worker checks demo upload tokens (PUT) with: the API
+# signs them with the same B2 credential.
+
+name = "5stack"
+main = "index.ts"
+compatibility_date = "2025-04-29"
+workers_dev = false
+
+[observability]
+enabled = true
+
+# Set by ./backblaze-proxy.sh with --var:
+#   BUCKET_NAME  the bucket (S3_BUCKET)
+#   S3_ENDPOINT  the bucket's S3 host, e.g. s3.us-east-005.backblazeb2.com
+#   API_URL      the panel's API; clip playback starts are beaconed to
+#                {API_URL}/clip-views/play. Unset disables view counting.

@@ -1,0 +1,19 @@
+name: Cloudflare workers
+
+on:
+  push:
+    branches: [main]
+    paths: ["cloudflare-workers/**"]
+  pull_request:
+    paths: ["cloudflare-workers/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --prefix cloudflare-workers/backblaze-proxy
+      - run: node --test "cloudflare-workers/**/*.test.mjs" "cloudflare-workers/**/*.test.ts"

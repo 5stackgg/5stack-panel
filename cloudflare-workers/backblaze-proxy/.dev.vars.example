@@ -1,0 +1,13 @@
+# Copy to `.dev.vars` (which is gitignored) and fill in. Used by
+# `wrangler dev` for the local proxy. Production is deployed with
+# ./backblaze-proxy.sh, which sets these as vars and worker secrets.
+
+BUCKET_NAME=5stack
+S3_ENDPOINT=s3.us-east-005.backblazeb2.com
+
+# Base URL of the 5stack API; when set, the worker beacons clip playback
+# starts to {API_URL}/clip-views/play to count views. Leave unset to disable.
+API_URL=""
+
+S3_ACCESS_KEY=""
+S3_SECRET=""

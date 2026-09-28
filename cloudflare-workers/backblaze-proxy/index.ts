@@ -70,6 +70,77 @@ async function signedFetch(
   return response!;
 }
 
+// Under /demo* because that is the one route every deployment of this worker
+// has had; the panel's settings page and ./backblaze-proxy.sh read it.
+const HEALTH_PATH = "/demo/_health";
+
+// What Backblaze answers when the key ID or secret itself is wrong, as opposed
+// to a key that works but may not read or list a particular object.
+const REJECTED_KEY_CODES = new Set([
+  "InvalidAccessKeyId",
+  "SignatureDoesNotMatch",
+  "InvalidSecurity",
+  "InvalidToken",
+]);
+
+async function health(env: {
+  S3_ACCESS_KEY: string;
+  S3_SECRET: string;
+  BUCKET_NAME: string;
+  S3_ENDPOINT: string;
+}): Promise<Response> {
+  let bucket: "ok" | "rejected" | "misconfigured" | "unreachable" = "ok";
+  let code: string | null = null;
+
+  if (
+    !env.BUCKET_NAME ||
+    !env.S3_ENDPOINT ||
+    !env.S3_ACCESS_KEY ||
+    !env.S3_SECRET
+  ) {
+    bucket = "misconfigured";
+  } else {
+    try {
+      const client = new AwsClient({
+        accessKeyId: env.S3_ACCESS_KEY,
+        secretAccessKey: env.S3_SECRET,
+        service: "s3",
+      });
+      const signed = await client.sign(
+        `https://${env.BUCKET_NAME}.${env.S3_ENDPOINT}/.5stack-health`,
+        { method: "GET", headers: new Headers() },
+      );
+      const response = await fetch(signed.url, {
+        method: signed.method,
+        headers: signed.headers,
+      });
+      const body = await response.text();
+      code = /<Code>([^<]+)</.exec(body)?.[1] ?? String(response.status);
+      if (REJECTED_KEY_CODES.has(code)) {
+        bucket = "rejected";
+      }
+    } catch {
+      bucket = "unreachable";
+    }
+  }
+
+  return Response.json(
+    {
+      ok: bucket === "ok",
+      worker: "5stack-backblaze-proxy",
+      version: "1",
+      bucket,
+      code,
+    },
+    {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
 const VIEW_FRACTION = 0.5;
 const BOT_UA =
   /bot|crawl|spider|facebookexternalhit|slack|discord|telegram|whatsapp|preview|unfurl|embed|scrape|metainspector|skype|vkshare|redditbot|pinterest|googlebot|bingbot/i;
@@ -254,6 +325,10 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (url.pathname === HEALTH_PATH) {
+      return health(env);
+    }
+
     const key = resolveKey(url);
     const track = shouldTrackView(request, url, key, env);
     const rangeHeader =

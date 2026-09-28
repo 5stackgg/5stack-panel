@@ -303,27 +303,28 @@ step "Routing $WORKER_HOST through it"
 cf_ensure_routes "$WORKER_NAME" false "${ROUTES[@]}"
 
 step "Waiting for it to answer on https://$WORKER_HOST"
-# A read of a file that does not exist goes all the way to the bucket and back
-# through the worker, so it fails on a broken deploy where a preflight would not.
-PROBE_URL="https://$WORKER_HOST/maps/.5stack-check-$RANDOM$RANDOM"
+# The worker's health check signs a read against the bucket itself, so this
+# fails on keys Backblaze rejects, not only on a route that is missing.
 ANSWERING=false
+BUCKET_STATE=""
 for _ in $(seq 1 24); do
-    PROBE="$(cf_curl "$WORKER_HOST" -sS -o /dev/null -D - -w 'status=%{http_code}' --max-time 20 \
-        -H "Origin: https://${WEB_DOMAIN:-example.com}" "$PROBE_URL" 2>/dev/null)"
-    PROBE_STATUS="${PROBE##*status=}"
-    if echo "$PROBE" | grep -qi '^access-control-allow-methods: GET, HEAD, PUT, OPTIONS' \
-        && [ "${PROBE_STATUS:-500}" -lt 500 ]; then
+    HEALTH="$(cf_curl "$WORKER_HOST" -sS --max-time 20 "https://$WORKER_HOST/demo/_health" 2>/dev/null)"
+    if [ "$(echo "$HEALTH" | cf_json 'j.worker')" = "5stack-backblaze-proxy" ]; then
+        BUCKET_STATE="$(echo "$HEALTH" | cf_json 'j.bucket')"
         ANSWERING=true
         break
     fi
     sleep 5
 done
 if [ "$ANSWERING" != true ]; then
-    err "https://$WORKER_HOST is not serving files through the worker (last answer: HTTP ${PROBE_STATUS:-none})."
-    err "Watch its errors with the command below while you open a file on it, or check the"
-    err "routes in $CF_ZONE_NAME's Workers Routes."
-    err "  npx wrangler tail $WORKER_NAME"
+    err "https://$WORKER_HOST/demo/_health is not answering from the worker yet."
+    err "Check the routes in $CF_ZONE_NAME's Workers Routes, or run this again in a minute."
     cf_link "https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/$CF_ZONE_NAME/workers"
+    exit 1
+fi
+if [ "$BUCKET_STATE" != "ok" ]; then
+    err "The worker is up, but it cannot read $S3_BUCKET ($BUCKET_STATE: $(echo "$HEALTH" | cf_json 'j.code')). Run this"
+    err "again and enter the application key the panel's API uses."
     exit 1
 fi
 ok "The Backblaze proxy is live on https://$WORKER_HOST"

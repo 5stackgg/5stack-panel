@@ -114,3 +114,55 @@ describe("backblaze-proxy upstream failures", () => {
     assert.match(await response.text(), /AccessDenied/);
   });
 });
+
+describe("backblaze-proxy health", () => {
+  async function health(body: string, overrides: Partial<typeof env> = {}) {
+    upstream = mock.fn(async () => new Response(body, { status: 403 }));
+    globalThis.fetch = upstream as unknown as typeof fetch;
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    const response = await worker.fetch(
+      new Request("https://cf.5stack.gg/demo/_health"),
+      { ...env, ...overrides },
+      ctx as any,
+    );
+    return { response, json: await response.json() };
+  }
+
+  it("reports the bucket as reachable when Backblaze accepts the keys", async () => {
+    const { response, json } = await health(
+      "<Error><Code>AccessDenied</Code></Error>",
+    );
+
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.deepEqual(json, {
+      ok: true,
+      worker: "5stack-backblaze-proxy",
+      version: "1",
+      bucket: "ok",
+      code: "AccessDenied",
+    });
+    assert.match(
+      String(upstream.mock.calls[0].arguments[0]),
+      /^https:\/\/5stack\.s3\.example\.test\/\.5stack-health$/,
+    );
+  });
+
+  it("reports keys Backblaze rejects", async () => {
+    const { json } = await health(
+      "<Error><Code>InvalidAccessKeyId</Code></Error>",
+    );
+
+    assert.equal(json.ok, false);
+    assert.equal(json.bucket, "rejected");
+    assert.equal(json.code, "InvalidAccessKeyId");
+  });
+
+  it("reports a worker deployed without its bucket keys", async () => {
+    const { json } = await health("", { S3_SECRET: "" });
+
+    assert.equal(json.bucket, "misconfigured");
+    assert.equal(upstream.mock.callCount(), 0);
+  });
+});
+

@@ -15,4 +15,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node --test "cloudflare-workers/**/*.test.mjs"
+      - run: npm ci --prefix cloudflare-workers/backblaze-proxy
+      - run: node --test "cloudflare-workers/**/*.test.mjs" "cloudflare-workers/**/*.test.ts"

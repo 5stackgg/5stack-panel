@@ -184,6 +184,15 @@ spec:
                   number: 5585
             path: /chat
             pathType: Prefix
+          # The Player Management plugin's sanction sync, which doubles as the
+          # heartbeat the panel reads to show it as active.
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
+            path: /sanctions/server
+            pathType: Prefix
     - host: $(WEB_DOMAIN)
       http:
         paths:

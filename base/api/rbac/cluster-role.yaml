@@ -3,7 +3,8 @@ kind: ClusterRole
 metadata:
   name: server-creator-clusterrole
 rules:
-  # Nodes are cluster-scoped — patch needed for game server node labeling
+  # Nodes are cluster-scoped: patch labels game server nodes, delete removes
+  # the Node of one that was removed from the panel and stayed NotReady
   - apiGroups:
       - ''
     resources:
@@ -12,6 +13,7 @@ rules:
       - get
       - list
       - patch
+      - delete
   # PVs are cluster-scoped — server-creator provisions per-node game server volumes
   - apiGroups:
       - ''

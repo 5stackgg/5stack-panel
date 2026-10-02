@@ -161,6 +161,9 @@ if [ -n "$TURN_DOMAIN" ]; then
     kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-coturn=true --overwrite
 fi
 
+# Before the SSL wait, which can end the script early.
+schedule_image_prune_after_update
+
 SSL_OK=true
 if [ "$REVERSE_PROXY" != true ]; then
     watch_ssl_status || SSL_OK=false

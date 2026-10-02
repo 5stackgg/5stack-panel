@@ -19,10 +19,13 @@
 #
 # An image that a container on this node references (running, exited or
 # created) is kept as well, even after its tag has moved on. CRI's RemoveImage
-# does not refuse an image that is in use (only `crictl rmi --prune` checks),
-# so that is filtered here. A plain `crictl rmi --prune` is not used: it
-# removes every image that no container uses, which would also delete the idle
-# but current game-server / game-streamer images.
+# does not refuse an image that is in use, so that is filtered here.
+#
+# With --after-update (run once by update.sh, shortly after an update) it also
+# removes old versions of non-5stack images: ones that no container uses and
+# that are either untagged, or tagged under a repository whose image a
+# container does use (cert-manager v1.17.1 once v1.17.2 is running). Those
+# keep their tag after a version bump, so the weekly run never catches them.
 #
 # One case looks exactly like a superseded version: an image deployed by
 # digest (name@sha256:...) that no container uses. It is pruned and pulled
@@ -33,66 +36,99 @@
 
 set -o pipefail
 
-# k3s ships crictl; prefer it on PATH, fall back to `k3s crictl`.
-if command -v crictl >/dev/null 2>&1; then
-  CRICTL=(crictl)
-elif command -v k3s >/dev/null 2>&1; then
-  CRICTL=(k3s crictl)
-else
-  echo "[5stack] image-prune: crictl not found, nothing to do"
-  exit 0
+AFTER_UPDATE=false
+if [ "$1" = "--after-update" ]; then
+  AFTER_UPDATE=true
 fi
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "[5stack] image-prune: jq not found, skipping"
-  exit 0
+# k3s's own crictl first: a separate crictl on PATH (cri-tools from a package)
+# is not pointed at the k3s containerd socket, and the k3s installer skips its
+# crictl symlink when one already exists. --timeout because removing a
+# multi-GB image waits for its snapshots to be deleted, which can take longer
+# than crictl's 2s default.
+if command -v k3s >/dev/null 2>&1; then
+  CRICTL=(k3s crictl --timeout 120s)
+elif command -v crictl >/dev/null 2>&1; then
+  CRICTL=(crictl --timeout 120s)
+else
+  echo "[5stack] image-prune: crictl not found"
+  exit 1
+fi
+
+# Images are listed before containers: a container created in between then
+# shows up in the container list, so its image is never removed from under it.
+# `images -v` prints one field per line (ID / RepoTags / RepoDigests / Pinned),
+# which is what lets this run without jq.
+if ! IMAGES="$("${CRICTL[@]}" images -v 2>/dev/null)" || ! grep -q '^ID: ' <<<"$IMAGES"; then
+  echo "[5stack] image-prune: could not list images"
+  exit 1
 fi
 
 # Every image a container on this node still references (running, exited or
-# created).
-# Without that list nothing can be shown to be unused, so the run is skipped.
-if ! IN_USE="$(
-  "${CRICTL[@]}" ps -a -o json 2>/dev/null | jq -c '
-    [.containers[]? | .imageRef?, .imageId?, .image.image? | strings | select(. != "")]
-    | unique
-  '
-)" || [ -z "$IN_USE" ]; then
-  echo "[5stack] image-prune: could not list containers, skipping"
+# created). The refs are plain sha256 ids / digests, so grep is enough.
+if ! CONTAINERS="$("${CRICTL[@]}" ps -a -o json 2>/dev/null)" || ! grep -q '"containers"' <<<"$CONTAINERS"; then
+  echo "[5stack] image-prune: could not list containers"
+  exit 1
+fi
+IN_USE="$(grep -oE '"(imageRef|imageId|image)": *"[^"]+"' <<<"$CONTAINERS" | sed -E 's/^"[^"]+": *"//; s/"$//' | sort -u)"
+
+# Pinned images (e.g. the pause sandbox) are never touched. The in-use list
+# reaches awk as a file, not on the command line, so its size has no argv limit.
+if ! STALE="$(
+  awk -v after_update="$AFTER_UPDATE" '
+    function repo(ref) {
+      sub(/@.*/, "", ref)
+      sub(/:[^:\/]*$/, "", ref)
+      return ref
+    }
+    FILENAME == ARGV[1] { if ($0 != "") used[$0] = 1; next }
+    /^ID: /          { n++; id[n] = substr($0, 5); next }
+    /^RepoTags: /    { t = substr($0, 11); if (t !~ /<none>/) tags[n] = tags[n] " " t; next }
+    /^RepoDigests: / { digests[n] = digests[n] " " substr($0, 14); next }
+    /^Pinned: true/  { pinned[n] = 1; next }
+    END {
+      for (i = 1; i <= n; i++) {
+        in_use[i] = (id[i] in used)
+        k = split(digests[i], d, " ")
+        for (j = 1; j <= k; j++) if (d[j] in used) in_use[i] = 1
+        if (!in_use[i]) continue
+        k = split(tags[i] " " digests[i], r, " ")
+        for (j = 1; j <= k; j++) used_repo[repo(r[j])] = 1
+      }
+      for (i = 1; i <= n; i++) {
+        if (pinned[i] || in_use[i]) continue
+        if (index(tags[i] " " digests[i], "ghcr.io/5stackgg/")) {
+          if (tags[i] == "") print id[i]
+          continue
+        }
+        if (after_update != "true") continue
+        if (tags[i] == "") { print id[i]; continue }
+        k = split(tags[i], r, " ")
+        for (j = 1; j <= k; j++) if (repo(r[j]) in used_repo) { print id[i]; break }
+      }
+    }
+  ' <(printf '%s\n' "$IN_USE") <(printf '%s\n' "$IMAGES")
+)"; then
+  echo "[5stack] image-prune: could not work out which images to remove"
+  exit 1
+fi
+
+if [ -z "$STALE" ]; then
+  echo "[5stack] image-prune: no superseded images"
   exit 0
 fi
 
-# Every image on this node. A failed, empty or unreadable listing is reported as
-# such, not as "no superseded 5stack images".
-if ! IMAGES="$("${CRICTL[@]}" images -o json 2>/dev/null)" || [ -z "$IMAGES" ] ||
-  ! printf '%s\n' "$IMAGES" | jq -e '.images | type == "array"' >/dev/null 2>&1; then
-  echo "[5stack] image-prune: could not list images, skipping"
-  exit 0
-fi
-
-# Superseded = a 5stack image (matched by tag or digest) that holds no tag any
-# more and that no container references. Pinned images (e.g. the pause
-# sandbox) are never touched. The in-use list reaches jq as a file
-# (--slurpfile), not on the command line, so its size has no argv limit.
-mapfile -t STALE < <(
-  printf '%s\n' "$IMAGES" | jq -r --slurpfile inuse <(printf '%s' "$IN_USE") '
-    ($inuse[0] | map({key: ., value: true}) | from_entries) as $used
-    | .images[]
-    | select(.pinned != true)
-    | select([.repoTags[]?, .repoDigests[]?] | any(contains("ghcr.io/5stackgg/")))
-    | select([.repoTags[]? | select(contains("<none>") | not)] | length == 0)
-    | select(any(.id, .repoDigests[]?; $used[.] == true) | not)
-    | .id
-  ' | sort -u
-)
-
-if [ "${#STALE[@]}" -eq 0 ]; then
-  echo "[5stack] image-prune: no superseded 5stack images"
-  exit 0
-fi
+mapfile -t STALE_IDS <<<"$STALE"
 
 removed=0
-for id in "${STALE[@]}"; do
+attempted=0
+for id in "${STALE_IDS[@]}"; do
   [ -n "$id" ] || continue
+  # Space the removals out: containerd deletes the snapshots in its own
+  # process, so pacing is what keeps a large prune from hogging the disk
+  # while match servers are running.
+  [ "$attempted" -eq 0 ] || sleep 5
+  attempted=$((attempted + 1))
   if "${CRICTL[@]}" rmi "$id" >/dev/null 2>&1; then
     echo "[5stack] image-prune: removed $id"
     removed=$((removed + 1))

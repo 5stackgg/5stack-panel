@@ -16,39 +16,38 @@ metadata:
     nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS, PATCH, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Accept, Authorization, If-Match"
+    # The WHEP answer's Location is the session URL trickle ICE PATCHes to.
+    nginx.ingress.kubernetes.io/cors-expose-headers: "Location"
     # Require login to watch: every stream request is authorized by the API,
     # which enforces the public.require_login_for_live_streams setting (logged
-    # in, and not a player/coach of the live match — anti-cheat). The cache key
-    # includes the request URI because the decision depends on the match (path)
-    # AND the viewer (cookie). That only helps repeat requests for the same URI,
-    # like HLS playlist reloads: every HLS segment has its own URI, so each one
-    # is authorized by the API. Players use WHEP (one request per session) and
-    # only fall back to HLS when WebRTC can't connect.
+    # in, and not a player/coach of the live match — anti-cheat). The decision
+    # depends on the viewer (cookie) and the match, which the paths below
+    # capture as $mediamtx_path, so a viewer is authorized once per match
+    # rather than once per HLS segment or trickle ICE PATCH.
     nginx.ingress.kubernetes.io/auth-url: "http://api.5stack.svc.cluster.local:5585/streams/authorize"
-    nginx.ingress.kubernetes.io/auth-cache-key: "$http_cookie$request_uri"
+    nginx.ingress.kubernetes.io/auth-cache-key: "$http_cookie$mediamtx_path"
     nginx.ingress.kubernetes.io/auth-cache-duration: "200 30s"
 spec:
   ingressClassName: nginx
   rules:
     - host: ${GAME_STREAM_DOMAIN}
       http:
+        # The two paths never match the same URL, and neither matches the
+        # snapshot ingress's /snapshot/<id> on this host. ingress-nginx orders
+        # regex locations by length, so overlapping paths would route by which
+        # pattern happens to be longer.
         paths:
-          - path: /.*/whep$
+          # WHEP/WHIP, and the session URL trickle ICE PATCHes to.
+          - path: '/(?<mediamtx_path>[^/]+)/(whep|whip)(/[^/]+)?$'
             pathType: ImplementationSpecific
             backend:
               service:
                 name: mediamtx
                 port:
                   number: 8889
-          - path: /.*/whip$
+          # HLS: the player page (/<stream>/) and its files.
+          - path: '/(?<mediamtx_path>[^/]+)/([^/]+\.[^/]+)?$'
             pathType: ImplementationSpecific
-            backend:
-              service:
-                name: mediamtx
-                port:
-                  number: 8889
-          - path: /
-            pathType: Prefix
             backend:
               service:
                 name: mediamtx

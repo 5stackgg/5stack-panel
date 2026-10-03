@@ -20,7 +20,10 @@ metadata:
     # which enforces the public.require_login_for_live_streams setting (logged
     # in, and not a player/coach of the live match — anti-cheat). The cache key
     # includes the request URI because the decision depends on the match (path)
-    # AND the viewer (cookie); caching 200s briefly keeps per-segment HLS cheap.
+    # AND the viewer (cookie). That only helps repeat requests for the same URI,
+    # like HLS playlist reloads: every HLS segment has its own URI, so each one
+    # is authorized by the API. Players use WHEP (one request per session) and
+    # only fall back to HLS when WebRTC can't connect.
     nginx.ingress.kubernetes.io/auth-url: "http://api.5stack.svc.cluster.local:5585/streams/authorize"
     nginx.ingress.kubernetes.io/auth-cache-key: "$http_cookie$request_uri"
     nginx.ingress.kubernetes.io/auth-cache-duration: "200 30s"

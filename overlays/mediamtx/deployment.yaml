@@ -19,6 +19,12 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      # GAME_STREAM_DOMAIN and the STUN host are resolved on every WebRTC
+      # session. With the cluster default of ndots:5 each lookup walks the
+      # search domains first; ndots:1 sends public names straight upstream.
+      dnsConfig:
+        options:
+          - { name: ndots, value: "1" }
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -30,7 +36,7 @@ spec:
                   - "true"
       containers:
         - name: mediamtx
-          image: bluenviron/mediamtx:latest
+          image: bluenviron/mediamtx:1.21.1
           env:
             # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
             # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR
@@ -56,15 +62,16 @@ spec:
             # for outside-LAN browsers; host IP for on-LAN/on-tailnet.
             - name: MTX_WEBRTCADDITIONALHOSTS
               value: "$(GAME_STREAM_DOMAIN),$(HOST_IP)"
-            # Public STUN for server-reflexive candidates (helps NAT'd
-            # viewers find a path without us hosting TURN).
+            # STUN gives MediaMTX its public address as a server-reflexive
+            # candidate. Without a TURN relay, that candidate is how viewers
+            # still connect (by hole punching) when UDP/8189 is not forwarded
+            # to this node. Do not remove it.
             - name: MTX_WEBRTCICESERVERS2_0_URL
               value: "stun:stun.l.google.com:19302"
           ports:
             - { name: hls,      containerPort: 8888, protocol: TCP }
             - { name: whip,     containerPort: 8889, protocol: TCP }
             - { name: srt,      containerPort: 8890, protocol: UDP }
-            - { name: rtmp,     containerPort: 1935, protocol: TCP }
             - { name: api,      containerPort: 9997, protocol: TCP }
             - { name: metrics,  containerPort: 9998, protocol: TCP }
             - { name: webrtc,   containerPort: 8189, protocol: UDP }
@@ -72,8 +79,11 @@ spec:
             - name: config
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
+          # Every WebRTC packet for streams, voice and cameras goes through
+          # this one process, on the node that also runs Postgres and the API.
+          # No CPU limit: throttling a media relay shows up as jitter.
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
+            requests: { cpu: 500m, memory: 256Mi }
       volumes:
         - name: config
           configMap:

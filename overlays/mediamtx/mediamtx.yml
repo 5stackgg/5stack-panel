@@ -38,8 +38,12 @@ webrtcAllowOrigins: ["*"]
 srt: yes
 srtAddress: :8890
 
-rtmp: yes
-rtmpAddress: :1935
+# Nothing publishes or reads over RTSP, RTMP or MoQ: the streamer pushes SRT
+# and browsers use WHIP/WHEP. RTSP and MoQ are on by default, and with
+# hostNetwork every listener here is a port taken on the node.
+rtsp: no
+rtmp: no
+moq: no
 
 pathDefaults:
   source: publisher

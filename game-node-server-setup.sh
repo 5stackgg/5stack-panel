@@ -208,6 +208,22 @@ cat <<-'DROPIN' >/etc/systemd/system/k3s.service.d/tailscale-state-check.conf
 	ExecStartPre=/usr/local/bin/5stack-tailscale-state-check.sh
 DROPIN
 
+# Pre-warm the Tailscale path to the k3s server on (re)start so a one-way path
+# after a reboot cannot leave the node unable to reach the control plane. Lands
+# in whichever k3s unit dir this node uses; harmless no-op on server nodes.
+PREWARM_DIR=/etc/systemd/system/k3s.service.d
+[ -f /etc/systemd/system/k3s-agent.service.env ] && PREWARM_DIR=/etc/systemd/system/k3s-agent.service.d
+mkdir -p "$PREWARM_DIR"
+rm -f "$PREWARM_DIR/tailscale-prewarm.conf"
+cat <<-'DROPIN' >"$PREWARM_DIR/tailscale-prewarm.conf"
+	[Unit]
+	After=tailscaled.service
+	Wants=tailscaled.service
+
+	[Service]
+	ExecStartPre=-/bin/bash -c '. /etc/systemd/system/k3s-agent.service.env 2>/dev/null || true; H=$(echo "${K3S_URL#*://}" | cut -d: -f1 | cut -d/ -f1); [ -n "$H" ] && echo "[5stack] pre-warming tailscale path to $H" && timeout 15 tailscale ping -c 3 "$H" >/dev/null 2>&1 || true'
+DROPIN
+
 cat <<-'UNIT' >/etc/systemd/system/5stack-tailscale-state-check.service
 	[Unit]
 	Description=5stack tailscale state check

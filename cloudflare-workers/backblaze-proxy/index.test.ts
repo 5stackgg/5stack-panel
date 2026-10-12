@@ -264,54 +264,23 @@ describe("backblaze-proxy clip views", () => {
     assert.notDeepEqual(download, cacheKeys);
   });
 
-  it("counts a POST to a clip as the player saying it was watched", async () => {
+  it("refuses a POST to a clip without counting or fetching it", async () => {
     const response = await send("POST", `${CLIP}?name=ace.mp4&v=1`, {
       Origin: ORIGIN,
     });
 
-    assert.equal(response.status, 204);
-    assert.equal(response.headers.get("Access-Control-Allow-Origin"), ORIGIN);
-    const [call] = viewCalls();
-    assert.ok(call);
-    const init = call.arguments[1] as RequestInit;
-    assert.equal(
-      (init.headers as Record<string, string>).authorization,
-      "Bearer secret",
-    );
-    const body = JSON.parse(String(init.body));
-    assert.equal(body.file, CLIP);
-    assert.match(body.clientKey, /^[a-f0-9]{32}$/);
-  });
-
-  it("gives a POST and a GET from the same viewer one dedupe key", async () => {
-    await send("POST", CLIP);
-    await send("GET", CLIP);
-
-    const keys = viewCalls().map(
-      (call) => JSON.parse(String((call.arguments[1] as RequestInit).body)).clientKey,
-    );
-    assert.equal(keys.length, 2);
-    assert.equal(keys[0], keys[1]);
-  });
-
-  it("never fetches the clip itself for a POST", async () => {
-    await send("POST", CLIP);
-
-    assert.equal(upstream.mock.callCount(), viewCalls().length);
+    assert.equal(response.status, 405);
+    assert.equal(viewCalls().length, 0);
+    assert.equal(upstream.mock.callCount(), 0);
     assert.deepEqual(cacheKeys, []);
   });
 
-  it("does not count a POST from a bot", async () => {
-    const response = await send("POST", CLIP, { "user-agent": "Discordbot/2.0" });
+  it("does not offer POST to a browser", async () => {
+    const response = await send("OPTIONS", CLIP, { Origin: ORIGIN });
 
-    assert.equal(response.status, 204);
-    assert.equal(viewCalls().length, 0);
-  });
-
-  it("refuses a POST to anything that isn't a clip", async () => {
-    const response = await send("POST", "maps/latest.json");
-
-    assert.equal(response.status, 405);
-    assert.equal(viewCalls().length, 0);
+    assert.doesNotMatch(
+      response.headers.get("Access-Control-Allow-Methods") ?? "",
+      /POST/,
+    );
   });
 });

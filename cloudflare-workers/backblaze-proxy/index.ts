@@ -235,6 +235,23 @@ function registerView(
   );
 }
 
+// `noview` only decides whether the request is counted, so it stays out of
+// the cache key: the clip player's marked warm-up of the next clip and the
+// unmarked play share the single copy fetched from B2. Filtered on the raw
+// query so the other parameters keep the exact encoding existing cache
+// entries were stored under.
+function cacheableUrl(url: URL): string {
+  if (!url.searchParams.has("noview")) {
+    return url.toString();
+  }
+  const query = url.search
+    .slice(1)
+    .split("&")
+    .filter((part) => part.split("=")[0] !== "noview")
+    .join("&");
+  return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+}
+
 // Decorates a response on its way to the client: mp4 Content-Type fix and the
 // view beacon. The body is never read or rewritten here.
 function clientResponse(
@@ -344,7 +361,7 @@ export default {
     // Origin is in the cache key so each caller gets its own
     // Access-Control-Allow-Origin (credentialed fetches can't take `*`).
     const cache = caches.default;
-    const cacheUrl = `${request.url}#origin=${reqOrigin ?? ""}`;
+    const cacheUrl = `${cacheableUrl(url)}#origin=${reqOrigin ?? ""}`;
     const cacheKey = new Request(cacheUrl, { method: "GET" });
     const isHead = request.method === "HEAD";
     const lookupKey = rangeHeader

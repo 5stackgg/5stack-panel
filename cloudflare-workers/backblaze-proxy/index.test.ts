@@ -166,3 +166,152 @@ describe("backblaze-proxy health", () => {
   });
 });
 
+
+describe("backblaze-proxy clip views", () => {
+  const API_URL = "https://api.5stack.gg";
+  const CLIP = "clips/76561198000000001/0b7c.mp4";
+  const UA = "Mozilla/5.0 (Macintosh) Chrome/141";
+
+  let waited: Promise<unknown>[];
+  let cacheKeys: string[];
+
+  function ctx() {
+    return {
+      waitUntil: (promise: Promise<unknown>) => waited.push(promise),
+      passThroughOnException: () => {},
+    } as any;
+  }
+
+  function viewCalls() {
+    return upstream.mock.calls.filter((call) =>
+      String(call.arguments[0]).startsWith(`${API_URL}/clip-views/play`),
+    );
+  }
+
+  async function send(
+    method: string,
+    path: string,
+    headers: Record<string, string> = {},
+  ) {
+    const response = await worker.fetch(
+      new Request(`https://cf.5stack.gg/${path}`, {
+        method,
+        headers: { "user-agent": UA, "cf-connecting-ip": "203.0.113.9", ...headers },
+      }),
+      { ...env, API_URL },
+      ctx(),
+    );
+    await Promise.all(waited);
+    return response;
+  }
+
+  beforeEach(() => {
+    waited = [];
+    cacheKeys = [];
+    (globalThis as any).caches = {
+      default: {
+        match: async (request: Request) => {
+          cacheKeys.push(request.url);
+          return undefined;
+        },
+        put: async (request: Request) => {
+          cacheKeys.push(request.url);
+        },
+      },
+    };
+  });
+
+  it("counts a played clip", async () => {
+    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+
+    assert.equal(viewCalls().length, 1);
+  });
+
+  it("does not count a request marked noview", async () => {
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1`);
+
+    assert.equal(viewCalls().length, 0);
+  });
+
+  it("keeps one edge copy of a clip whether or not the request is marked noview", async () => {
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1`);
+    const marked = [...cacheKeys];
+    cacheKeys = [];
+    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+
+    assert.deepEqual(marked, cacheKeys);
+    assert.ok(cacheKeys.every((key) => !key.includes("noview")));
+  });
+
+  it("drops noview from the cache key without re-encoding the rest", async () => {
+    await send("GET", `${CLIP}?name=ace%20on%20B.mp4&noview=1&v=1`);
+
+    assert.ok(
+      cacheKeys.every(
+        (key) =>
+          key ===
+          `https://cf.5stack.gg/${CLIP}?name=ace%20on%20B.mp4&v=1#origin=`,
+      ),
+    );
+  });
+
+  it("still keeps a named download apart from the inline copy", async () => {
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&dl=1`);
+    const download = [...cacheKeys];
+    cacheKeys = [];
+    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+
+    assert.notDeepEqual(download, cacheKeys);
+  });
+
+  it("counts a POST to a clip as the player saying it was watched", async () => {
+    const response = await send("POST", `${CLIP}?name=ace.mp4&v=1`, {
+      Origin: ORIGIN,
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), ORIGIN);
+    const [call] = viewCalls();
+    assert.ok(call);
+    const init = call.arguments[1] as RequestInit;
+    assert.equal(
+      (init.headers as Record<string, string>).authorization,
+      "Bearer secret",
+    );
+    const body = JSON.parse(String(init.body));
+    assert.equal(body.file, CLIP);
+    assert.match(body.clientKey, /^[a-f0-9]{32}$/);
+  });
+
+  it("gives a POST and a GET from the same viewer one dedupe key", async () => {
+    await send("POST", CLIP);
+    await send("GET", CLIP);
+
+    const keys = viewCalls().map(
+      (call) => JSON.parse(String((call.arguments[1] as RequestInit).body)).clientKey,
+    );
+    assert.equal(keys.length, 2);
+    assert.equal(keys[0], keys[1]);
+  });
+
+  it("never fetches the clip itself for a POST", async () => {
+    await send("POST", CLIP);
+
+    assert.equal(upstream.mock.callCount(), viewCalls().length);
+    assert.deepEqual(cacheKeys, []);
+  });
+
+  it("does not count a POST from a bot", async () => {
+    const response = await send("POST", CLIP, { "user-agent": "Discordbot/2.0" });
+
+    assert.equal(response.status, 204);
+    assert.equal(viewCalls().length, 0);
+  });
+
+  it("refuses a POST to anything that isn't a clip", async () => {
+    const response = await send("POST", "maps/latest.json");
+
+    assert.equal(response.status, 405);
+    assert.equal(viewCalls().length, 0);
+  });
+});

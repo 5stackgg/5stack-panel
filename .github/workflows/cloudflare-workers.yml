@@ -3,9 +3,15 @@ name: Cloudflare workers
 on:
   push:
     branches: [main]
-    paths: ["cloudflare-workers/**"]
+    paths:
+      - "cloudflare-workers/**"
+      - "backblaze-proxy.sh"
+      - "utils/signed_clip_links.sh"
   pull_request:
-    paths: ["cloudflare-workers/**"]
+    paths:
+      - "cloudflare-workers/**"
+      - "backblaze-proxy.sh"
+      - "utils/signed_clip_links.sh"
 
 jobs:
   test:

@@ -260,6 +260,10 @@ function cacheableUrl(url: URL): string {
 // sign a link, for rows the viewer may read, with a key derived from
 // S3_SECRET (api FileUrlSigningService, file_url_signature.sql), so a file
 // under clips/ is served only on a signed link that has not run out.
+//
+// Only with REQUIRE_SIGNED_CLIPS=1, which ./backblaze-proxy.sh sets once it has
+// seen the panel's api sign with this S3_SECRET: in front of an api that does
+// not, every clip would be refused.
 const SIGNED_PREFIX = "clips/";
 const FILE_URL_KEY_LABEL = "5stack-file-url-v1";
 
@@ -408,6 +412,7 @@ export default {
       BUCKET_NAME: string;
       S3_ENDPOINT: string;
       API_URL?: string;
+      REQUIRE_SIGNED_CLIPS?: string;
     },
     ctx: ExecutionContext,
   ) {
@@ -439,6 +444,7 @@ export default {
     const key = resolveKey(url);
     // Before the cache: a copy of the file is there for every signed link.
     if (
+      env.REQUIRE_SIGNED_CLIPS === "1" &&
       key &&
       requiresSignature(key) &&
       !(await signatureValid(url, key, env.S3_SECRET))

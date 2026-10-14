@@ -19,6 +19,12 @@
 # Safe to run again; it updates the worker in place and keeps any routes it
 # already has on other hostnames, so older links keep working.
 #
+# The worker refuses a clip or lineup file without a signed link only when the
+# panel's database shows its API signing them with the S3_SECRET the worker
+# gets (utils/signed_clip_links.sh); otherwise it serves them as before. Run it
+# again after updating the panel to a release that signs them, after changing
+# S3_SECRET, and after rolling the panel back.
+#
 #   ./backblaze-proxy.sh [hostname]
 
 PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,6 +33,7 @@ source "$PANEL_DIR/utils/interactive_select.sh"
 source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
 source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/cloudflare_workers.sh"
+source "$PANEL_DIR/utils/signed_clip_links.sh"
 
 # Existing Cloudflare routes point at this name; renaming spawns a second
 # worker while the old one keeps serving.
@@ -270,12 +277,23 @@ if [ -n "$API_DOMAIN" ]; then
     VARS+=(--var "API_URL:https://$API_DOMAIN")
 fi
 
+step "Checking that the panel signs clip links"
+SIGNED_CLIPS="$(signed_clip_links_state "$S3_SECRET")"
+if require_signed_clip_links "$SIGNED_CLIPS"; then
+    VARS+=(--var "REQUIRE_SIGNED_CLIPS:1")
+fi
+
 step "Ready to deploy"
 ok "Worker:   $WORKER_NAME"
 ok "Hostname: https://$WORKER_HOST (${ROUTE_PATHS[*]})"
 ok "Bucket:   $S3_BUCKET at $S3_ENDPOINT"
 if [ -n "$API_DOMAIN" ]; then
     ok "API:      https://$API_DOMAIN (clip views are counted there)"
+fi
+if [ "$SIGNED_CLIPS" = signing ]; then
+    ok "Clips:    signed links required"
+else
+    warn "Clips:    signed links not required"
 fi
 read -r -p "    Deploy it? [Y/n] " CONFIRM
 if [[ "$CONFIRM" =~ ^[Nn] ]]; then

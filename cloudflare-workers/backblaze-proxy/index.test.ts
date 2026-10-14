@@ -308,10 +308,12 @@ describe("backblaze-proxy signed clip links", () => {
 
   let cacheKeys: string[];
   let cached: Response | undefined;
+  let requireSigned: boolean;
 
   beforeEach(() => {
     cacheKeys = [];
     cached = undefined;
+    requireSigned = true;
     (globalThis as any).caches = {
       default: {
         match: async (request: Request) => {
@@ -335,7 +337,7 @@ describe("backblaze-proxy signed clip links", () => {
         method: init.method ?? "GET",
         headers: { Origin: ORIGIN, ...init.headers },
       }),
-      env,
+      requireSigned ? { ...env, REQUIRE_SIGNED_CLIPS: "1" } : env,
       ctx as any,
     );
   }
@@ -484,4 +486,36 @@ describe("backblaze-proxy signed clip links", () => {
       assert.equal(upstream.mock.callCount(), 1);
     });
   }
+
+  // Deployed this way until ./backblaze-proxy.sh has seen the panel's api sign
+  // with this S3_SECRET: enforcing in front of an api that does not would
+  // refuse every clip.
+  describe("without REQUIRE_SIGNED_CLIPS", () => {
+    beforeEach(() => {
+      requireSigned = false;
+    });
+
+    for (const [label, path] of [
+      ["a clip without a signature", `${CLIP}?name=ace.mp4&v=1`],
+      ["a lineup file without a signature", `${LINEUP_STILL}?v=1`],
+      ["an expired link", `${CLIP}?${signed(CLIP, now() - 1)}`],
+      ["a forged link", `${CLIP}?exp=${now() + 600}&sig=${"A".repeat(43)}`],
+    ]) {
+      it(`serves ${label}, as before signed links`, async () => {
+        const response = await send(path);
+
+        assert.equal(response.status, 200);
+        assert.equal(upstream.mock.callCount(), 1);
+      });
+    }
+
+    it("keeps one edge copy of a clip for its signed and unsigned links", async () => {
+      await send(`${CLIP}?name=ace.mp4&v=1`);
+      const unsigned = [...cacheKeys];
+      cacheKeys = [];
+      await send(`${CLIP}?name=ace.mp4&v=1&${signed(CLIP)}`);
+
+      assert.deepEqual(unsigned, cacheKeys);
+    });
+  });
 });

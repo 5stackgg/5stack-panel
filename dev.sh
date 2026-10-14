@@ -75,4 +75,10 @@ setup_fixtures "overlays/dev/config/api-config.env"
 
 docker exec -it k3d-5stack-dev-server-0 sh -c "mkdir -p mkdir -p /opt/5stack/dev /opt/5stack/demos /opt/5stack/steamcmd /opt/5stack/serverfiles /opt/5stack/serverfiles-csgo /opt/5stack/timescaledb /opt/5stack/typesense /opt/5stack/minio /opt/5stack/custom-plugins /var/lib/rancher/k3s/agent/pod-manifests && echo Directories created successfully"
 
+# Tilt applies base/timescaledb as it stands, and a new PostgreSQL major only
+# crash-loops on a dev volume written by the previous one.
+if ! plan_timescaledb_major_upgrade || ! upgrade_timescaledb_major; then
+    exit 1
+fi
+
 tilt up

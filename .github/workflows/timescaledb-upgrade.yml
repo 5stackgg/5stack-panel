@@ -1,0 +1,40 @@
+name: TimescaleDB upgrade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - update.sh
+      - "utils/*timescaledb*"
+      - "base/timescaledb/**"
+      - "tests/timescaledb/**"
+      - .github/workflows/timescaledb-upgrade.yml
+  pull_request:
+    paths:
+      - update.sh
+      - "utils/*timescaledb*"
+      - "base/timescaledb/**"
+      - "tests/timescaledb/**"
+      - .github/workflows/timescaledb-upgrade.yml
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: >-
+          shellcheck -x
+          utils/upgrade_timescaledb_major.sh
+          utils/timescaledb_major_upgrade_job.sh
+          tests/timescaledb/*.sh
+          tests/timescaledb/stub/kubectl
+          tests/timescaledb/docker-stub/kubectl
+          tests/timescaledb/fixtures/pg_upgrade
+      - run: bash tests/timescaledb/extension_test.sh
+      - run: bash tests/timescaledb/major_upgrade_test.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/timescaledb/docker_test.sh

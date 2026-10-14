@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Put ahead of the real pg_upgrade on PATH by the SIGTERM test: --copy builds
+# the new cluster, then holds the step open the way a long copy would.
+if [[ " $* " == *" --copy "* ]]; then
+    /usr/local/bin/pg_upgrade "$@" || exit
+    echo "copy still running"
+    exec sleep 300
+fi
+exec /usr/local/bin/pg_upgrade "$@"

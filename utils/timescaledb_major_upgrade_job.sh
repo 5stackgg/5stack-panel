@@ -13,7 +13,9 @@ STAGE="$PV/timescaledb-pg$NEW_MAJOR-upgrade"
 OLD=/old
 RUN=/tmp/pg-upgrade
 ROLLBACK=""
+STAGED=""
 SWAPPED=""
+CHILD=""
 
 fail() {
     echo "ERROR: $*" >&2
@@ -40,6 +42,20 @@ private_socket() {
 
 old_psql() {
     as_postgres psql -X -v ON_ERROR_STOP=1 -At -h "$RUN" -U "$POSTGRES_USER" "$@"
+}
+
+# The kubelet's SIGTERM (Job deadline, deleted pod, eviction) has to end the
+# script through its EXIT trap, so that a half-built copy is cleaned up while the
+# grace period lasts instead of being left on the volume.
+trap 'exit 143' TERM INT
+
+# Long steps run in the background: bash only acts on a trapped signal once its
+# foreground command returns, and pg_upgrade --copy can take an hour.
+interruptible() {
+    "$@" &
+    CHILD=$!
+    wait "$CHILD"
+    CHILD=""
 }
 
 stop_old_server() {
@@ -128,12 +144,18 @@ prepare() {
 }
 
 discard_stage() {
-    local status=$?
-    if [ "$status" -eq 0 ] || [ -n "$SWAPPED" ]; then
+    if [ -z "$STAGED" ] || [ -n "$SWAPPED" ]; then
         return
+    fi
+    if [ -n "$CHILD" ]; then
+        kill "$CHILD" 2>/dev/null || true
+        wait "$CHILD" 2>/dev/null || true
     fi
     if [ -f "$STAGE/postmaster.pid" ]; then
         as_postgres pg_ctl -D "$STAGE" -m immediate -w stop >/dev/null 2>&1 || true
+    fi
+    if [ -f "$DATA/postmaster.pid" ]; then
+        as_postgres "$OLD/bin/pg_ctl" -D "$DATA" -m fast -w -t 20 stop >/dev/null 2>&1 || true
     fi
     if [ -d "$STAGE/pg_upgrade_output.d" ]; then
         find "$STAGE/pg_upgrade_output.d" -name '*.txt' -exec tail -n +1 -v {} + >&2 || true
@@ -167,6 +189,7 @@ upgrade() {
     fi
 
     trap discard_stage EXIT
+    STAGED=1
     mkdir "$STAGE"
     chown postgres:postgres "$STAGE"
     chmod 700 "$STAGE"
@@ -214,8 +237,8 @@ upgrade() {
         --old-options="-c hba_file=$RUN/pg_hba.conf -c shared_preload_libraries=timescaledb -c jit=off -c max_locks_per_transaction=1024"
         --new-options="-c hba_file=$RUN/pg_hba.conf -c shared_preload_libraries=timescaledb -c max_locks_per_transaction=1024"
     )
-    as_postgres pg_upgrade "${upgrade_args[@]}" --check
-    as_postgres pg_upgrade "${upgrade_args[@]}" --copy
+    interruptible gosu postgres pg_upgrade "${upgrade_args[@]}" --check
+    interruptible gosu postgres pg_upgrade "${upgrade_args[@]}" --copy
 
     # pg_upgrade leaves every extension at the version it was on and writes the
     # updates the new major ships into this file; applied now, while nothing
@@ -233,8 +256,8 @@ upgrade() {
     if [ -e "$PV/timescaledb-pg$OLD_MAJOR" ]; then
         fail "$PV/timescaledb-pg$OLD_MAJOR appeared during the upgrade"
     fi
-    # Between these two renames there is no database at $DATA: a Job deadline
-    # or a deleted pod must not stop the script halfway.
+    # Nothing sits at $DATA between these two renames, so a SIGTERM is ignored
+    # for them; the SIGKILL that ends the grace period comes long after both.
     trap '' TERM INT
     ROLLBACK="$PV/timescaledb-pg$OLD_MAJOR"
     mv -T "$DATA" "$ROLLBACK"

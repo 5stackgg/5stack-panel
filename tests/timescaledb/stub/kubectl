@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Stands in for kubectl in the unit tests. Every call is appended to
+# $STUB_DIR/calls (an applied manifest adds its kind), and each answer comes
+# from a file the test wrote into $STUB_DIR: the file's content is printed and
+# a matching <name>.rc file, if there is one, is the exit status.
+
+answer() {
+    local rc=0
+    if [ -f "$STUB_DIR/$1.rc" ]; then
+        rc="$(cat "$STUB_DIR/$1.rc")"
+    fi
+    if [ -f "$STUB_DIR/$1" ]; then
+        cat "$STUB_DIR/$1"
+    fi
+    exit "$rc"
+}
+
+next_pod_state() {
+    local queue="$STUB_DIR/pod-states"
+    if [ ! -s "$queue" ]; then
+        printf '%s' 'Succeeded| |{"terminated":{"exitCode":0}}| | '
+        exit 0
+    fi
+    local line
+    line="$(head -n 1 "$queue")"
+    if [ "$(wc -l <"$queue")" -gt 1 ]; then
+        tail -n +2 "$queue" >"$queue.next"
+        mv "$queue.next" "$queue"
+    fi
+    case "$line" in
+        API-ERROR)
+            echo "The connection to the server was refused" >&2
+            exit 1
+            ;;
+        GONE)
+            exit 0
+            ;;
+    esac
+    printf '%s' "$line"
+    exit 0
+}
+
+kind=""
+case " $* " in
+    *" -f - "*)
+        cat >"$STUB_DIR/stdin"
+        kind="$(sed -n 's/^kind: *//p' "$STUB_DIR/stdin" | head -n 1)"
+        cp "$STUB_DIR/stdin" "$STUB_DIR/applied-$kind"
+        ;;
+esac
+printf '%s%s\n' "$*" "${kind:+ <$kind>}" >>"$STUB_DIR/calls"
+
+for last; do :; done
+
+case " $* " in
+    *" config current-context "*)
+        echo stub-context
+        ;;
+    *" config view "*)
+        echo https://stub.example:6443
+        ;;
+    *" get pvc "*)
+        answer pvc
+        ;;
+    *" get job "*)
+        answer job
+        ;;
+    *" get statefulset timescaledb -o "*)
+        answer sts-image
+        ;;
+    *" get statefulset timescaledb "*)
+        answer sts
+        ;;
+    *" get pv "*)
+        echo /opt/5stack/timescaledb
+        ;;
+    *" get configmap "*)
+        answer marker
+        ;;
+    *" exec timescaledb-0 "*"/PG_VERSION "*)
+        answer pg-version
+        ;;
+    *" exec timescaledb-0 "*vacuumdb*)
+        answer vacuumdb
+        ;;
+    *" exec timescaledb-0 "*)
+        case "$last" in
+            "ALTER EXTENSION timescaledb UPDATE")
+                cp "$STUB_DIR/default-version" "$STUB_DIR/extversion"
+                answer alter
+                ;;
+            *default_version*)
+                answer default-version
+                ;;
+            *extversion*)
+                answer extversion
+                ;;
+        esac
+        ;;
+    *" rollout status "*)
+        answer rollout
+        ;;
+    *" get pods -l job-name="*)
+        answer job-pod
+        ;;
+    *" get pods "*)
+        answer pvc-users
+        ;;
+    *" get pod "*"{.spec.nodeName}"*)
+        echo node-a
+        ;;
+    *" get pod "*"exitCode"*)
+        container="$(sed -n 's/.*@.name=="\([^"]*\)".*/\1/p' <<<"$*")"
+        if [ -f "$STUB_DIR/exit-code-$container" ]; then
+            answer "exit-code-$container"
+        fi
+        answer exit-code
+        ;;
+    *" get pod "*)
+        next_pod_state
+        ;;
+    *" logs timescaledb-volume-probe -c probe "*)
+        answer probe
+        ;;
+    *" logs "*)
+        answer logs
+        ;;
+    *" create configmap "*)
+        printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: %s\n' "$(sed -n 's/.* create configmap \([^ ]*\).*/\1/p' <<<" $* ")"
+        ;;
+esac
+exit 0

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# kubectl for the Docker test of update_timescaledb_extension: timescaledb-0 is
+# the container named in $TIMESCALEDB_CONTAINER, and every call is appended to
+# $STUB_DIR/calls.
+printf '%s\n' "$*" >>"$STUB_DIR/calls"
+case " $* " in
+    *" exec timescaledb-0 "*)
+        while [ "$1" != -- ]; do
+            shift
+        done
+        shift
+        exec docker exec -i "$TIMESCALEDB_CONTAINER" "$@"
+        ;;
+esac
+exit 0

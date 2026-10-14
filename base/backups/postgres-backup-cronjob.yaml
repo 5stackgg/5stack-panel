@@ -10,6 +10,9 @@ spec:
   jobTemplate:
     spec:
       template:
+        metadata:
+          labels:
+            app: postgres-backup
         spec:
           restartPolicy: Never
           containers:

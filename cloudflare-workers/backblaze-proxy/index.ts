@@ -235,21 +235,111 @@ function registerView(
   );
 }
 
-// `noview` only decides whether the request is counted, so it stays out of
-// the cache key: the clip player's marked warm-up of the next clip and the
-// unmarked play share the single copy fetched from B2. Filtered on the raw
-// query so the other parameters keep the exact encoding existing cache
-// entries were stored under.
+// `noview` only decides whether the request is counted, and `exp`/`sig` only
+// whether it is allowed, so they stay out of the cache key: the clip player's
+// marked warm-up of the next clip, the unmarked play and every signed link to
+// a file share the single copy fetched from B2. Filtered on the raw query so
+// the other parameters keep the exact encoding existing cache entries were
+// stored under.
+const UNCACHED_PARAMS = new Set(["noview", "exp", "sig"]);
+
 function cacheableUrl(url: URL): string {
-  if (!url.searchParams.has("noview")) {
+  if (![...UNCACHED_PARAMS].some((param) => url.searchParams.has(param))) {
     return url.toString();
   }
   const query = url.search
     .slice(1)
     .split("&")
-    .filter((part) => part.split("=")[0] !== "noview")
+    .filter((part) => !UNCACHED_PARAMS.has(part.split("=")[0]))
     .join("&");
   return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+}
+
+// Clips and utility lineup files are private to who may see them, and the
+// worker cannot tell from a key whose they are. The api's computed fields
+// sign a link, for rows the viewer may read, with a key derived from
+// S3_SECRET (api FileUrlSigningService, file_url_signature.sql), so a file
+// under clips/ is served only on a signed link that has not run out.
+const SIGNED_PREFIX = "clips/";
+const FILE_URL_KEY_LABEL = "5stack-file-url-v1";
+
+const fileUrlKeys = new Map<string, Promise<CryptoKey>>();
+
+function fileUrlKey(secret: string): Promise<CryptoKey> {
+  let key = fileUrlKeys.get(secret);
+  if (!key) {
+    key = (async () => {
+      const encoder = new TextEncoder();
+      const bucketKey = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const derived = await crypto.subtle.sign(
+        "HMAC",
+        bucketKey,
+        encoder.encode(FILE_URL_KEY_LABEL),
+      );
+      return crypto.subtle.importKey(
+        "raw",
+        derived,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+    })();
+    fileUrlKeys.set(secret, key);
+  }
+  return key;
+}
+
+// B2 is asked for whatever the upstream URL resolves to, so a key that would
+// resolve to something else (dot segments, escapes, a smuggled ?, empty
+// segments) could reach clips/ while not starting with it. Such a key is never
+// one the api signs, so it is held to the signature like a clip.
+function requiresSignature(key: string): boolean {
+  if (key.startsWith(SIGNED_PREFIX)) {
+    return true;
+  }
+  if (
+    key.split("/").some((part) => part === "" || part === "." || part === "..")
+  ) {
+    return true;
+  }
+  try {
+    return (
+      decodeURIComponent(new URL(`https://bucket.invalid/${key}`).pathname) !==
+      `/${key}`
+    );
+  } catch {
+    return true;
+  }
+}
+
+async function signatureValid(
+  url: URL,
+  key: string,
+  secret: string,
+): Promise<boolean> {
+  const exp = url.searchParams.get("exp") ?? "";
+  const sig = url.searchParams.get("sig") ?? "";
+  if (
+    !secret ||
+    !/^\d{1,12}$/.test(exp) ||
+    Number(exp) * 1000 < Date.now() ||
+    !/^[A-Za-z0-9_-]{43}$/.test(sig)
+  ) {
+    return false;
+  }
+  // crypto.subtle.verify compares in constant time.
+  return crypto.subtle.verify(
+    "HMAC",
+    await fileUrlKey(secret),
+    base64urlToBytes(sig),
+    new TextEncoder().encode(`${key}\n${exp}`),
+  );
 }
 
 // Decorates a response on its way to the client: mp4 Content-Type fix and the
@@ -347,6 +437,18 @@ export default {
     }
 
     const key = resolveKey(url);
+    // Before the cache: a copy of the file is there for every signed link.
+    if (
+      key &&
+      requiresSignature(key) &&
+      !(await signatureValid(url, key, env.S3_SECRET))
+    ) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { ...corsHeaders(reqOrigin), "Cache-Control": "no-store" },
+      });
+    }
+
     const track = shouldTrackView(request, url, key, env);
     const rangeHeader =
       request.method === "GET" ? request.headers.get("range") : null;

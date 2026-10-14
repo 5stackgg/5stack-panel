@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import worker from "./index.ts";
 
 const env = {
@@ -9,6 +10,18 @@ const env = {
   S3_ENDPOINT: "s3.example.test",
 };
 const ORIGIN = "https://5stack.gg";
+
+// The query string the api's computed fields put on a clip link
+// (file_url_signature.sql), worked out the way the api does it.
+function signed(key: string, exp = Math.floor(Date.now() / 1000) + 21600) {
+  const signingKey = createHmac("sha256", env.S3_SECRET)
+    .update("5stack-file-url-v1")
+    .digest();
+  const sig = createHmac("sha256", signingKey)
+    .update(`${key}\n${exp}`)
+    .digest("base64url");
+  return `exp=${exp}&sig=${sig}`;
+}
 
 const realFetch = globalThis.fetch;
 let upstream: ReturnType<typeof mock.fn>;
@@ -107,7 +120,9 @@ describe("backblaze-proxy upstream failures", () => {
     );
     globalThis.fetch = upstream as unknown as typeof fetch;
 
-    const { response } = await get("clips/missing.mp4");
+    const { response } = await get(
+      `clips/missing.mp4?${signed("clips/missing.mp4")}`,
+    );
 
     assert.equal(upstream.mock.callCount(), 3);
     assert.equal(response.status, 403);
@@ -170,6 +185,7 @@ describe("backblaze-proxy health", () => {
 describe("backblaze-proxy clip views", () => {
   const API_URL = "https://api.5stack.gg";
   const CLIP = "clips/76561198000000001/0b7c.mp4";
+  const SIGNED = signed(CLIP);
   const UA = "Mozilla/5.0 (Macintosh) Chrome/141";
 
   let waited: Promise<unknown>[];
@@ -222,29 +238,29 @@ describe("backblaze-proxy clip views", () => {
   });
 
   it("counts a played clip", async () => {
-    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&${SIGNED}`);
 
     assert.equal(viewCalls().length, 1);
   });
 
   it("does not count a request marked noview", async () => {
-    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1&${SIGNED}`);
 
     assert.equal(viewCalls().length, 0);
   });
 
   it("keeps one edge copy of a clip whether or not the request is marked noview", async () => {
-    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&noview=1&${SIGNED}`);
     const marked = [...cacheKeys];
     cacheKeys = [];
-    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&${SIGNED}`);
 
     assert.deepEqual(marked, cacheKeys);
     assert.ok(cacheKeys.every((key) => !key.includes("noview")));
   });
 
   it("drops noview from the cache key without re-encoding the rest", async () => {
-    await send("GET", `${CLIP}?name=ace%20on%20B.mp4&noview=1&v=1`);
+    await send("GET", `${CLIP}?name=ace%20on%20B.mp4&noview=1&v=1&${SIGNED}`);
 
     assert.ok(
       cacheKeys.every(
@@ -256,10 +272,10 @@ describe("backblaze-proxy clip views", () => {
   });
 
   it("still keeps a named download apart from the inline copy", async () => {
-    await send("GET", `${CLIP}?name=ace.mp4&v=1&dl=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&dl=1&${SIGNED}`);
     const download = [...cacheKeys];
     cacheKeys = [];
-    await send("GET", `${CLIP}?name=ace.mp4&v=1`);
+    await send("GET", `${CLIP}?name=ace.mp4&v=1&${SIGNED}`);
 
     assert.notDeepEqual(download, cacheKeys);
   });
@@ -283,4 +299,189 @@ describe("backblaze-proxy clip views", () => {
       /POST/,
     );
   });
+});
+
+describe("backblaze-proxy signed clip links", () => {
+  const CLIP = "clips/76561198000000001/0b7c.mp4";
+  const LINEUP_STILL =
+    "clips/utility/ffe58c95-4581-4320-a14e-f2efb95ccebe/aim.jpg";
+
+  let cacheKeys: string[];
+  let cached: Response | undefined;
+
+  beforeEach(() => {
+    cacheKeys = [];
+    cached = undefined;
+    (globalThis as any).caches = {
+      default: {
+        match: async (request: Request) => {
+          cacheKeys.push(request.url);
+          return cached;
+        },
+        put: async (request: Request) => {
+          cacheKeys.push(request.url);
+        },
+      },
+    };
+  });
+
+  async function send(
+    path: string,
+    init: { method?: string; headers?: Record<string, string> } = {},
+  ) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://cf.5stack.gg/${path}`, {
+        method: init.method ?? "GET",
+        headers: { Origin: ORIGIN, ...init.headers },
+      }),
+      env,
+      ctx as any,
+    );
+  }
+
+  async function refused(path: string, method = "GET") {
+    const response = await send(path, { method });
+
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), ORIGIN);
+    assert.equal(upstream.mock.callCount(), 0);
+    assert.deepEqual(cacheKeys, []);
+  }
+
+  const now = () => Math.floor(Date.now() / 1000);
+
+  it("refuses a clip without a signature, before the cache or B2", async () => {
+    await refused(`${CLIP}?name=ace.mp4&v=1`);
+  });
+
+  it("refuses the HEAD a player sends first, too", async () => {
+    await refused(CLIP, "HEAD");
+  });
+
+  it("refuses a utility lineup file without a signature", async () => {
+    await refused(`${LINEUP_STILL}?v=1`);
+  });
+
+  it("refuses a clip named by ?file= on another route", async () => {
+    await refused(`demo?file=${encodeURIComponent(CLIP)}`);
+  });
+
+  it("refuses an expired link", async () => {
+    await refused(`${CLIP}?${signed(CLIP, now() - 1)}`);
+  });
+
+  it("refuses a link signed for another file", async () => {
+    await refused(`${CLIP}?${signed(LINEUP_STILL)}`);
+  });
+
+  it("refuses a link whose expiry was pushed out", async () => {
+    const sig = new URLSearchParams(signed(CLIP)).get("sig");
+    await refused(`${CLIP}?exp=${now() + 365 * 86400}&sig=${sig}`);
+  });
+
+  it("refuses a forged signature", async () => {
+    await refused(`${CLIP}?exp=${now() + 600}&sig=${"A".repeat(43)}`);
+  });
+
+  it("refuses a link signed with another bucket's secret", async () => {
+    const exp = now() + 600;
+    const otherKey = createHmac("sha256", "another-secret")
+      .update("5stack-file-url-v1")
+      .digest();
+    const sig = createHmac("sha256", otherKey)
+      .update(`${CLIP}\n${exp}`)
+      .digest("base64url");
+    await refused(`${CLIP}?exp=${exp}&sig=${sig}`);
+  });
+
+  for (const path of [
+    `maps/%252e%252e/${CLIP}`,
+    `maps//${CLIP}`,
+    `maps/%5C..%5C${CLIP}`,
+    `demo?file=${encodeURIComponent(`/${CLIP}`)}`,
+  ]) {
+    it(`refuses ${path}, which B2 could resolve into clips/`, async () => {
+      await refused(path);
+    });
+  }
+
+  it("does not hand a cached copy of a clip to a request without a signature", async () => {
+    cached = new Response("cached clip", { status: 200 });
+
+    const response = await send(CLIP);
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(cacheKeys, []);
+  });
+
+  it("serves a clip on a link the api signed, by the key B2 holds it under", async () => {
+    const response = await send(`${CLIP}?name=ace.mp4&v=1&${signed(CLIP)}`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "video/mp4");
+    assert.equal(
+      response.headers.get("Content-Disposition"),
+      'inline; filename="ace.mp4"',
+    );
+    assert.equal(
+      String(upstream.mock.calls[0].arguments[0]),
+      `https://5stack.s3.example.test/${CLIP}`,
+    );
+  });
+
+  it("serves a signed link as a named download when asked", async () => {
+    const response = await send(`${CLIP}?${signed(CLIP)}&dl=1&name=ace.mp4`);
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.headers.get("Content-Disposition"),
+      'attachment; filename="ace.mp4"',
+    );
+  });
+
+  it("answers a range on a signed link out of the cached copy", async () => {
+    cached = new Response("ace", {
+      status: 206,
+      headers: { "Content-Range": "bytes 0-2/100" },
+    });
+
+    const response = await send(`${CLIP}?v=1&${signed(CLIP)}`, {
+      headers: { Range: "bytes=0-2" },
+    });
+
+    assert.equal(response.status, 206);
+    assert.equal(upstream.mock.callCount(), 0);
+  });
+
+  it("keeps one edge copy of a file for every link signed for it", async () => {
+    await send(`${CLIP}?name=ace.mp4&v=1&${signed(CLIP, now() + 21600)}`);
+    const first = [...cacheKeys];
+    cacheKeys = [];
+    await send(`${CLIP}?name=ace.mp4&v=1&${signed(CLIP, now() + 43200)}`);
+
+    assert.deepEqual(first, cacheKeys);
+    assert.ok(
+      cacheKeys.every(
+        (key) =>
+          key ===
+          `https://cf.5stack.gg/${CLIP}?name=ace.mp4&v=1#origin=${ORIGIN}`,
+      ),
+    );
+  });
+
+  for (const path of [
+    "maps/25537370/manifest.json",
+    "news/9a3c.webp",
+    "events/4f1e/banner.jpg",
+    "demo/0b7c.dem",
+  ]) {
+    it(`serves ${path} without a signature`, async () => {
+      const response = await send(path);
+
+      assert.equal(response.status, 200);
+      assert.equal(upstream.mock.callCount(), 1);
+    });
+  }
 });

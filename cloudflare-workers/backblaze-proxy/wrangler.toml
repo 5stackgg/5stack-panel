@@ -13,8 +13,8 @@
 # Renaming spawns a new worker while the old one keeps serving.
 #
 # Secrets (S3_ACCESS_KEY, S3_SECRET) are set with `wrangler secret`. S3_SECRET
-# doubles as the key the worker checks demo upload tokens (PUT) with: the API
-# signs them with the same B2 credential.
+# doubles as the key the worker checks demo upload tokens (PUT) and signed clip
+# links with: the API signs both with the same B2 credential.
 
 name = "5stack"
 main = "index.ts"

@@ -14,7 +14,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: backup
-              image: postgres:17-alpine
+              image: postgres:18-alpine
               command:
                 - /bin/sh
                 - -c

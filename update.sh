@@ -144,6 +144,9 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 
+step "Updating the TimescaleDB extension"
+update_timescaledb_extension
+
 GIT_SHA=$(git rev-parse HEAD)
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite

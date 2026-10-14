@@ -28,7 +28,7 @@ spec:
                       - 'true'
       containers:
         - name: timescaledb
-          image: timescale/timescaledb:2.26.1-pg17@sha256:87901ae7d81e3dc6d999ae002cc41ea4b31b34fa0e16ab466ee36ca251bd09e6
+          image: timescale/timescaledb:2.30.2-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2
           resources:
             requests:
               memory: "512Mi"

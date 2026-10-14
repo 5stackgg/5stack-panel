@@ -93,7 +93,10 @@ run_test() {
     STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/timescaledb-test.XXXXXX")"
     export STUB_DIR
     : >"$STUB_DIR/calls"
-    ("$name") >"$STUB_DIR/test-output" 2>&1
+    (
+        export TMPDIR="$STUB_DIR"
+        "$name"
+    ) >"$STUB_DIR/test-output" 2>&1
     status=$?
     if [ "$status" -eq 0 ]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))

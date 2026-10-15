@@ -36,7 +36,7 @@ spec:
                   - "true"
       containers:
         - name: mediamtx
-          image: bluenviron/mediamtx:1.21.1
+          image: bluenviron/mediamtx:1.21.2@sha256:c7540465f868a02652118bea5a0daab12a29ac0f6cb8485abd535939ecddf886
           env:
             # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
             # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR

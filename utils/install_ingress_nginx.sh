@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INGRESS_NGINX_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.2/deploy/static/provider/baremetal/deploy.yaml"
+INGRESS_NGINX_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.9/deploy/static/provider/baremetal/deploy.yaml"
 
 # Exit codes are load bearing: install.sh treats a failed install (1) as fatal
 # and a webhook that is merely slow (2) as a warning, because the first means

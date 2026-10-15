@@ -37,6 +37,14 @@ case "$sql" in
 esac
 `;
 
+// Stands in for curl under cf_api: records the request and the config it was
+// handed on stdin, and answers with STUB_SETTINGS.
+const CURL = `#!/bin/sh
+printf '%s\\n' "$*" >> "$STUB_DIR/curl-calls"
+cat >> "$STUB_DIR/curl-config"
+printf '%s' "$STUB_SETTINGS"
+`;
+
 // backblaze-proxy.sh turns on REQUIRE_SIGNED_CLIPS only when this says
 // "signing": a worker refusing unsigned clip links in front of an API that does
 // not sign them, or signs with another S3_SECRET, refuses every clip.
@@ -45,8 +53,13 @@ describe("backblaze-proxy.sh signed clip links check", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "signed-clip-links-"));
-    writeFileSync(join(dir, "kubectl"), KUBECTL);
-    chmodSync(join(dir, "kubectl"), 0o755);
+    for (const [name, body] of [
+      ["kubectl", KUBECTL],
+      ["curl", CURL],
+    ]) {
+      writeFileSync(join(dir, name), body);
+      chmodSync(join(dir, name), 0o755);
+    }
   });
 
   afterEach(() => {
@@ -62,16 +75,19 @@ describe("backblaze-proxy.sh signed clip links check", () => {
       "bash",
       [
         "-c",
-        `source "${UTILS}/colors.sh"; source "${UTILS}/signed_clip_links.sh"; ${script}`,
+        `source "${UTILS}/colors.sh"; source "${UTILS}/cloudflare_workers.sh"; source "${UTILS}/signed_clip_links.sh"; ${script}`,
         "bash",
         ...args,
       ],
       {
         encoding: "utf8",
+        input: stub.STDIN ?? "",
         env: {
           ...process.env,
           PATH: `${dir}:${process.env.PATH}`,
           PANEL_KUBECONFIG: KUBECONFIG,
+          CLOUDFLARE_ACCOUNT_ID: "acc123",
+          CF_TOKEN: "cf-token",
           STUB_DIR: dir,
           ...stub,
         },
@@ -131,24 +147,219 @@ describe("backblaze-proxy.sh signed clip links check", () => {
     assert.equal(state({ STUB_FAIL: "1" }), "unreachable");
   });
 
-  for (const [current, required] of [
-    ["signing", true],
-    ["mismatch", false],
-    ["unsigned", false],
-    ["unreachable", false],
-  ] as const) {
-    it(`${required ? "requires" : "does not require"} signed links when the panel is ${current}`, () => {
-      const { status, output } = run(
-        'require_signed_clip_links "$1"',
-        {},
-        current,
+  describe("whether the deployed worker requires signed links now", () => {
+    const worker = (settings: unknown) =>
+      run(
+        'worker_signed_clip_links "$1"',
+        {
+          STUB_SETTINGS: JSON.stringify(settings),
+        },
+        "5stack",
+      ).output;
+
+    const settings = (bindings: Array<Record<string, string>>) => ({
+      success: true,
+      errors: [],
+      result: { bindings },
+    });
+
+    it("is on when the worker has REQUIRE_SIGNED_CLIPS=1, asked of its settings", () => {
+      assert.equal(
+        worker(
+          settings([
+            { type: "plain_text", name: "API_URL", text: "https://api.test" },
+            { type: "plain_text", name: "REQUIRE_SIGNED_CLIPS", text: "1" },
+            { type: "secret_text", name: "S3_SECRET" },
+          ]),
+        ),
+        "on",
+      );
+      assert.match(
+        readFileSync(join(dir, "curl-calls"), "utf8"),
+        /-X GET .*https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acc123\/workers\/scripts\/5stack\/settings$/m,
+      );
+      assert.doesNotMatch(
+        readFileSync(join(dir, "curl-calls"), "utf8"),
+        /cf-token/,
+      );
+      assert.match(readFileSync(join(dir, "curl-config"), "utf8"), /cf-token/);
+    });
+
+    it("is off when the worker has no REQUIRE_SIGNED_CLIPS", () => {
+      assert.equal(
+        worker(
+          settings([
+            { type: "plain_text", name: "API_URL", text: "https://api.test" },
+          ]),
+        ),
+        "off",
+      );
+    });
+
+    it("is off when REQUIRE_SIGNED_CLIPS is anything but 1", () => {
+      assert.equal(
+        worker(
+          settings([
+            { type: "plain_text", name: "REQUIRE_SIGNED_CLIPS", text: "0" },
+          ]),
+        ),
+        "off",
+      );
+    });
+
+    it("is off when the worker has never been deployed", () => {
+      assert.equal(
+        worker({
+          success: false,
+          errors: [
+            {
+              code: 10007,
+              message: "This Worker does not exist on your account.",
+            },
+          ],
+        }),
+        "off",
+      );
+    });
+
+    it("is unknown when Cloudflare will not say", () => {
+      assert.equal(
+        worker({
+          success: false,
+          errors: [{ code: 10000, message: "Authentication error" }],
+        }),
+        "unknown",
+      );
+      assert.equal(worker("<html>bad gateway</html>"), "unknown");
+    });
+  });
+
+  // 0 requires signed links on this deploy, 1 deploys without, 2 deploys
+  // nothing. STDIN is the operator's answer when they are asked; "" is a run
+  // with nobody there to answer.
+  describe("what a deploy does about them", () => {
+    const decide = (worker: string, state: string, answer = "") =>
+      run(
+        'require_signed_clip_links "$1" "$2"',
+        { STDIN: answer },
+        worker,
+        state,
       );
 
-      assert.equal(status === 0, required);
-      if (!required) {
-        assert.match(output, /can be downloaded by anyone who has its link/);
-        assert.match(output, /run this\s+again/i);
+    const TABLE: Array<[string, string, string, number]> = [
+      ["on", "signing", "", 0],
+      ["on", "unreachable", "", 0],
+      ["on", "unsigned", "", 2],
+      ["on", "unsigned", "n\n", 2],
+      ["on", "unsigned", "y\n", 1],
+      ["on", "mismatch", "", 2],
+      ["on", "mismatch", "n\n", 2],
+      ["on", "mismatch", "y\n", 1],
+      ["off", "signing", "", 0],
+      ["off", "unreachable", "", 1],
+      ["off", "unsigned", "", 1],
+      ["off", "mismatch", "", 1],
+      ["unknown", "signing", "", 0],
+      ["unknown", "unreachable", "", 2],
+      ["unknown", "unreachable", "y\n", 1],
+      ["unknown", "unsigned", "", 2],
+      ["unknown", "unsigned", "y\n", 1],
+      ["unknown", "mismatch", "", 2],
+      ["unknown", "mismatch", "y\n", 1],
+    ];
+
+    for (const [worker, state, answer, status] of TABLE) {
+      const asked = answer ? ` and answered ${answer.trim()}` : "";
+      it(`${["requires them", "deploys without them", "deploys nothing"][status]} when the worker is ${worker}, the panel ${state}${asked}`, () => {
+        assert.equal(decide(worker, state, answer).status, status);
+      });
+    }
+
+    it("keeps requiring them when the panel cannot be asked, and says why", () => {
+      const { status, output } = decide("on", "unreachable");
+
+      assert.equal(status, 0);
+      assert.match(output, /keeps\s+requiring them/);
+      assert.match(output, new RegExp(KUBECONFIG));
+    });
+
+    it("says turning them off reaches every panel on the worker before asking", () => {
+      const { output } = decide("on", "unsigned");
+
+      assert.match(
+        output,
+        /turns\s+that off for every panel using this worker/,
+      );
+    });
+
+    it("warns that every panel on the worker must already sign them when it turns them on", () => {
+      for (const worker of ["off", "unknown"]) {
+        assert.match(
+          decide(worker, "signing").output,
+          /Every panel using this worker\s+must\s+already sign them/,
+        );
       }
     });
-  }
+
+    it("says a private clip stays downloadable while they are off", () => {
+      for (const state of ["unreachable", "unsigned", "mismatch"]) {
+        assert.match(
+          decide("off", state).output,
+          /can be downloaded by anyone who has its link/,
+        );
+      }
+    });
+  });
+
+  // The block of backblaze-proxy.sh that acts on the decision, run as written
+  // with the decision stubbed: only it puts REQUIRE_SIGNED_CLIPS on the deploy.
+  describe("the deploy script", () => {
+    const script = readFileSync(
+      join(import.meta.dirname, "..", "..", "backblaze-proxy.sh"),
+      "utf8",
+    );
+    const block = script.slice(
+      script.indexOf('step "Checking that the panel signs clip links"'),
+      script.indexOf('step "Ready to deploy"'),
+    );
+
+    const deploy = (decision: number) => {
+      const result = spawnSync(
+        "bash",
+        [
+          "-c",
+          `step() { :; }; warn() { :; }; die() { exit 1; }
+worker_signed_clip_links() { echo on; }
+signed_clip_links_state() { echo unsigned; }
+require_signed_clip_links() { return ${decision}; }
+VARS=(--var "BUCKET_NAME:5stack")
+${block}
+printf '%s\\n' "$SIGNED_CLIPS_REQUIRED" "\${VARS[*]}"`,
+        ],
+        { encoding: "utf8" },
+      );
+      return {
+        status: result.status,
+        lines: result.stdout.trim().split("\n"),
+      };
+    };
+
+    it("deploys with REQUIRE_SIGNED_CLIPS=1 only when the decision requires it", () => {
+      assert.deepEqual(deploy(0), {
+        status: 0,
+        lines: [
+          "true",
+          "--var BUCKET_NAME:5stack --var REQUIRE_SIGNED_CLIPS:1",
+        ],
+      });
+      assert.deepEqual(deploy(1), {
+        status: 0,
+        lines: ["false", "--var BUCKET_NAME:5stack"],
+      });
+    });
+
+    it("stops before deploying when the operator does not agree to turn them off", () => {
+      assert.equal(deploy(2).status, 1);
+    });
+  });
 });

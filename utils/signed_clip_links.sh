@@ -52,34 +52,94 @@ signed_clip_links_state() {
     fi
 }
 
-# require_signed_clip_links STATE -- says what STATE means for the worker, and
-# succeeds only when it may refuse unsigned clip links.
+# worker_signed_clip_links WORKER -- whether the deployed worker refuses
+# unsigned clip links now: on, off (also when it was never deployed) or
+# unknown. Asked of Cloudflare because a deploy replaces every var the worker
+# has, so leaving REQUIRE_SIGNED_CLIPS out of one turns it off.
+worker_signed_clip_links() {
+    local response
+
+    response="$(cf_api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$1/settings")"
+    if [ "$(echo "$response" | cf_json 'j.success')" = "true" ]; then
+        if [ "$(echo "$response" | cf_json '(j.result?.bindings || []).some((b) => b.type === "plain_text" && b.name === "REQUIRE_SIGNED_CLIPS" && b.text === "1")')" = "true" ]; then
+            echo on
+        else
+            echo off
+        fi
+    elif [ "$(echo "$response" | cf_json '(j.errors || []).some((e) => e.code === 10007)')" = "true" ]; then
+        echo off
+    else
+        echo unknown
+    fi
+}
+
+# require_signed_clip_links WORKER STATE -- decides REQUIRE_SIGNED_CLIPS for
+# this deploy from whether the worker requires signed links now (WORKER, from
+# worker_signed_clip_links) and what signed_clip_links_state found (STATE), and
+# says why. One worker can serve several panels, so this only ever turns it
+# off on an explicit yes.
+#
+# Returns 0 to require them, 1 to deploy without, 2 to deploy nothing.
 require_signed_clip_links() {
-    case "$1" in
-        signing)
+    local worker="$1" state="$2" answer
+
+    if [ "$state" = signing ]; then
+        if [ "$worker" = on ]; then
+            ok "The panel's API signs clip links with these keys, and the worker keeps"
+            ok "refusing a clip or lineup file without one."
+        else
             ok "The panel's API signs clip links with these keys, so the worker will refuse"
-            ok "a clip or lineup file without one. Every panel this worker serves has to"
-            ok "sign them too, or its clips stop loading."
-            return 0
-            ;;
+            ok "a clip or lineup file without one. Every panel using this worker must"
+            ok "already sign them, or its clips stop loading."
+        fi
+        return 0
+    fi
+
+    if [ "$worker" = on ] && [ "$state" = unreachable ]; then
+        warn "Could not ask the panel's database (kubeconfig $PANEL_KUBECONFIG) whether"
+        warn "its API signs clip links. The worker requires them now, so it keeps"
+        warn "requiring them; a panel's clips only stop being checked on a run that can"
+        warn "see it does not sign them."
+        return 0
+    fi
+
+    case "$state" in
         mismatch)
             warn "The panel's API signs clip links with a different S3_SECRET than the one"
-            warn "going to the worker, so the worker will not require them. Give the worker"
-            warn "the keys the API runs with (after changing them, ./update.sh restarts the"
-            warn "API), then run this again."
+            warn "going to the worker. Give the worker the keys the API runs with (after"
+            warn "changing them, ./update.sh restarts the API), then run this again."
             ;;
         unsigned)
-            warn "The panel's API does not sign clip links yet, so the worker will not"
-            warn "require them. Update the panel (./update.sh), then run this again."
+            warn "The panel's API does not sign clip links yet. Update the panel"
+            warn "(./update.sh), then run this again."
             ;;
         *)
             warn "Could not ask the panel's database (kubeconfig $PANEL_KUBECONFIG) whether"
-            warn "its API signs clip links, so the worker will not require them. Run this"
-            warn "again where kubectl reaches the panel."
+            warn "its API signs clip links. Run this again where kubectl reaches the panel"
+            warn "(on k3s, as root)."
             ;;
     esac
-    warn "Until then a private clip can be downloaded by anyone who has its link."
-    return 1
+
+    if [ "$worker" = off ]; then
+        warn "The worker does not require signed clip links, and will not until then: a"
+        warn "private clip can be downloaded by anyone who has its link."
+        return 1
+    fi
+
+    if [ "$worker" = on ]; then
+        warn "The worker requires signed clip links now. Deploying without them turns"
+        warn "that off for every panel using this worker, and their private clips can"
+        warn "be downloaded by anyone who has the link."
+    else
+        warn "Could not read from Cloudflare whether the worker requires signed clip"
+        warn "links now. If it does, deploying without them turns that off for every"
+        warn "panel using this worker."
+    fi
+    read -r -p "    Deploy without requiring signed clip links? [y/N] " answer
+    if [[ "$answer" =~ ^[Yy] ]]; then
+        return 1
+    fi
+    return 2
 }
 
 signed_clip_links_psql() {

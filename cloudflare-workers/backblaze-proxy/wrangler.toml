@@ -32,6 +32,7 @@ enabled = true
 #   API_URL      the panel's API; clip playback starts are beaconed to
 #                {API_URL}/clip-views/play. Unset disables view counting.
 #   REQUIRE_SIGNED_CLIPS
-#                1 refuses a file under clips/ without a signed link. Set only
-#                once the panel's API signs them with this S3_SECRET
+#                1 refuses a file under clips/ without a signed link. Set once
+#                the panel's API signs them with this S3_SECRET, then kept by
+#                every run unless the operator turns it off
 #                (utils/signed_clip_links.sh); unset serves them as before.

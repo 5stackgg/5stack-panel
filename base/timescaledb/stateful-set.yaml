@@ -28,7 +28,7 @@ spec:
                       - 'true'
       containers:
         - name: timescaledb
-          image: timescale/timescaledb:2.30.2-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2
+          image: timescale/timescaledb:2.30.2-pg18@sha256:e72689191e1c977892c53d6f2c344dbc4a9657a867dc8cc1899229f9d3672b2e
           resources:
             requests:
               memory: "512Mi"
@@ -70,6 +70,10 @@ spec:
             - secretRef:
                 name: timescaledb-secrets
           env:
+            # The images moved their default PGDATA to /var/lib/postgresql/<major>/docker
+            # with PostgreSQL 18, which is off the volume mounted below.
+            - name: PGDATA
+              value: /var/lib/postgresql/data
             - name: POSTGRES_DB
               value: hasura
             - name: POSTGRES_USER

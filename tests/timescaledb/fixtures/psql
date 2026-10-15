@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Ahead of the real psql on PATH in the SIGTERM tests: HOLD=extensions stays at
+# the extension updates, with the new cluster's server up, touching
+# /tmp/pg-upgrade/held-extensions.
+if [ "${HOLD:-}" = extensions ] && [[ " $* " == *update_extensions.sql* ]]; then
+    touch /tmp/pg-upgrade/held-extensions
+    exec sleep 300
+fi
+exec /usr/local/bin/psql "$@"

@@ -7,6 +7,7 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
 
 DEBUG=false
+: "${ASSUME_YES:=false}"
 FIVE_STACK_ENV_SETUP=true
 REVERSE_PROXY=""
 CLOUDFLARE=""
@@ -55,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug)
             DEBUG=true
+            shift
+            ;;
+        -y|--yes)
+            ASSUME_YES=true
             shift
             ;;
         --reverse-proxy=*)

@@ -3,6 +3,12 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# First, while the cluster is untouched: a PostgreSQL major upgrade that cannot
+# go ahead (no disk, no answer) has to stop update.sh before anything changes.
+if ! plan_timescaledb_major_upgrade; then
+    exit 1
+fi
+
 # Nothing terminates TLS in the cluster in this mode, so any Certificate left
 # over from a previous https install keeps retrying HTTP-01 against a server
 # that no longer answers the challenge -- silently accumulating failed orders
@@ -121,6 +127,10 @@ if kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2
     ok "minio stopped; its volume is now served by rustfs"
 fi
 
+if ! upgrade_timescaledb_major; then
+    exit 1
+fi
+
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
@@ -146,6 +156,7 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 
 step "Updating the TimescaleDB extension"
 update_timescaledb_extension
+finish_timescaledb_major_upgrade
 
 GIT_SHA=$(git rev-parse HEAD)
 

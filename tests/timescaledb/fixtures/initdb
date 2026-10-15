@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Ahead of the real initdb on PATH in the SIGTERM tests: HOLD=initdb builds the
+# new cluster and stays, touching /tmp/pg-upgrade/held-initdb.
+if [ "${HOLD:-}" = initdb ]; then
+    /usr/local/bin/initdb "$@" || exit
+    touch /tmp/pg-upgrade/held-initdb
+    exec sleep 300
+fi
+exec /usr/local/bin/initdb "$@"

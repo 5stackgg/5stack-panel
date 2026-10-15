@@ -164,6 +164,8 @@ sigterm_while_held_at() {
     assert_eq "$(on_volume "sigterm-$hold" 'test -e /pv/timescaledb/postmaster.pid && echo running || echo stopped')" stopped
     assert_eq "$(on_volume "sigterm-$hold" 'LC_ALL=C pg_controldata /pv/timescaledb | sed -n "s/^Database cluster state: *//p"')" "shut down"
     assert_eq "$status" 143
+    docker logs "$name" 2>&1 | grep -q "the PostgreSQL 17 data in /pv/timescaledb was left in place" \
+        || fail "the pod log does not say the old data was left in place: $(docker logs "$name" 2>&1 | tail -n 3)"
 }
 
 test_sigterm_during_initdb_leaves_the_old_data_alone() {

@@ -494,14 +494,45 @@ test_finish_waits_when_the_data_cannot_be_read() {
     timescaledb_manifest_image
     stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
     stub_rc pg-version 1
+    stub exit-code-probe 1
     finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
     output="$(cat "$STUB_DIR/out")"
-    assert_contains "$output" "does not read as PostgreSQL 18 yet"
+    assert_contains "$output" "could not read the volume; check /opt/5stack/timescaledb/timescaledb-pg17 on node-a"
+    assert_not_contains "$output" "next ./update.sh finishes"
     assert_not_contains "$output" "To roll back"
-    assert_not_contains "$output" "rm -rf"
     assert_not_called "rollout restart"
     assert_not_called "vacuumdb"
     assert_not_called "delete configmap timescaledb-major-upgraded"
+}
+
+test_finish_while_timescaledb_crash_loops_still_offers_the_rollback() {
+    setup_upgrade
+    timescaledb_manifest_image
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    stub_rc pg-version 1
+    probe_output 18 "" "" "" "" "timescaledb timescaledb-pg17 "
+    finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    output="$(cat "$STUB_DIR/out")"
+    assert_contains "$output" "PostgreSQL is not answering in timescaledb-0, so the statistics were not refreshed and hasura and the api were not restarted."
+    assert_contains "$output" "The volume reads PostgreSQL 18, and the PostgreSQL 17 data is kept on node-a in /opt/5stack/timescaledb/timescaledb-pg17."
+    assert_contains "$output" "kubectl $KUBECONFIG_FLAG -n 5stack scale statefulset timescaledb --replicas=0"
+    assert_contains "$output" "set the image in base/timescaledb/stateful-set.yaml to $OLD_PINNED"
+    assert_not_contains "$output" "next ./update.sh finishes"
+    kubectl_lines_carry_the_kubeconfig "$output"
+    assert_not_called "rollout restart"
+    assert_not_called "vacuumdb"
+    assert_not_called "delete configmap timescaledb-major-upgraded"
+}
+
+test_finish_stays_quiet_while_down_when_the_upgrade_never_happened() {
+    setup_upgrade
+    timescaledb_manifest_image
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    stub_rc pg-version 1
+    probe_output 17
+    finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    assert_eq "$(cat "$STUB_DIR/out")" ""
+    assert_not_called "rollout restart"
 }
 
 test_finish_prints_no_rollback_without_the_kept_copy() {

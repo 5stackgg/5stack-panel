@@ -662,43 +662,57 @@ finish_timescaledb_major_upgrade() {
         fi
         return 0
     fi
-    if [ "$major" != "$to" ]; then
-        warn "timescaledb's data does not read as PostgreSQL $to yet ('${major:-nothing}'); the next ./update.sh finishes the upgrade"
+    if [ -n "$major" ] && [ "$major" != "$to" ]; then
+        warn "timescaledb reads PostgreSQL $major, neither $from nor $to; nothing was refreshed or restarted"
         return 0
     fi
 
-    step "Refreshing planner statistics"
-    # pg_upgrade from 18 on carries most statistics over, so only what is
-    # missing needs analysing.
-    # shellcheck disable=SC2016
-    if output_redirect timescaledb_kubectl exec timescaledb-0 -c timescaledb -- sh -c '
-        set -- --all --analyze-in-stages
-        if vacuumdb --help | grep -q -- --missing-stats-only; then
-            set -- "$@" --missing-stats-only
+    if [ -n "$major" ]; then
+        step "Refreshing planner statistics"
+        # pg_upgrade from 18 on carries most statistics over, so only what is
+        # missing needs analysing.
+        # shellcheck disable=SC2016
+        if output_redirect timescaledb_kubectl exec timescaledb-0 -c timescaledb -- sh -c '
+            set -- --all --analyze-in-stages
+            if vacuumdb --help | grep -q -- --missing-stats-only; then
+                set -- "$@" --missing-stats-only
+            fi
+            vacuumdb -U "$POSTGRES_USER" "$@"'; then
+            ok "statistics refreshed"
+            timescaledb_kubectl delete configmap "$TIMESCALEDB_UPGRADE_MARKER" "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found >/dev/null 2>&1
+            timescaledb_kubectl delete job "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found --wait=false >/dev/null 2>&1
+        else
+            warn "the planner statistics could not be refreshed yet; the next ./update.sh tries again"
         fi
-        vacuumdb -U "$POSTGRES_USER" "$@"'; then
-        ok "statistics refreshed"
-        timescaledb_kubectl delete configmap "$TIMESCALEDB_UPGRADE_MARKER" "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found >/dev/null 2>&1
-        timescaledb_kubectl delete job "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found --wait=false >/dev/null 2>&1
-    else
-        warn "the planner statistics could not be refreshed yet; the next ./update.sh tries again"
+
+        timescaledb_kubectl rollout restart deployment/hasura deployment/api >/dev/null 2>&1
+        ok "hasura and the api restarted"
     fi
 
-    timescaledb_kubectl rollout restart deployment/hasura deployment/api >/dev/null 2>&1
-    ok "hasura and the api restarted"
-
     # The rollback recipe moves directories around on the node, so it is only
-    # printed once the volume shows both where the recipe expects them.
+    # printed once the volume shows both where the recipe expects them. The
+    # probe reads the volume itself, so this still answers while timescaledb-0
+    # crash-loops, which is when the recipe matters most.
     if ! timescaledb_probe_volume; then
         warn "could not read the volume; check $path/timescaledb-pg$from on $node before relying on it for a rollback"
+        return 0
+    fi
+    if [ -z "$major" ] && [ "$TIMESCALEDB_PROBE_MAJOR" = "$from" ]; then
         return 0
     fi
     if [ "$TIMESCALEDB_PROBE_MAJOR" != "$to" ] || [[ "$TIMESCALEDB_PV_ENTRIES" != *" timescaledb-pg$from "* ]]; then
         warn "$path on $node has no PostgreSQL $from copy next to a PostgreSQL $to database; there is nothing to roll back to"
         return 0
     fi
-    warn "The PostgreSQL $from data is kept on $node in $path/timescaledb-pg$from."
-    echo "    The commands below are for $(timescaledb_cluster_name)."
+    if [ -z "$major" ]; then
+        step "Checking the PostgreSQL $to upgrade"
+        warn "PostgreSQL is not answering in timescaledb-0, so the statistics were not refreshed and hasura and the api were not restarted."
+        warn "The volume reads PostgreSQL $to, and the PostgreSQL $from data is kept on $node in $path/timescaledb-pg$from."
+        echo "    If timescaledb does not come up, roll back to it with the commands below ($(timescaledb_cluster_name))."
+    else
+        warn "The PostgreSQL $from data is kept on $node in $path/timescaledb-pg$from."
+        echo "    The commands below are for $(timescaledb_cluster_name)."
+    fi
     echo "    To roll back to it (losing everything written since the upgrade):"
     echo "      $(timescaledb_kubectl_hint) scale statefulset timescaledb --replicas=0"
     echo "      on $node: mv -T $path/timescaledb $path/timescaledb-pg$to-discarded && mv -T $path/timescaledb-pg$from $path/timescaledb"

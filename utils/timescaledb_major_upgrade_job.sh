@@ -44,6 +44,10 @@ old_psql() {
     as_postgres psql -X -v ON_ERROR_STOP=1 -At -h "$RUN" -U "$POSTGRES_USER" "$@"
 }
 
+# The pod log, kept on 3 and 4 for discard_stage: a signal can end the script
+# while a step's output is still redirected into a file.
+exec 3>&1 4>&2
+
 # The kubelet's SIGTERM (Job deadline, deleted pod, eviction) has to end the
 # script through its EXIT trap, so that a half-built copy is cleaned up while the
 # grace period lasts instead of being left on the volume.
@@ -146,6 +150,7 @@ prepare() {
 }
 
 discard_stage() {
+    exec 1>&3 2>&4
     if [ -z "$STAGED" ] || [ -n "$SWAPPED" ]; then
         return
     fi

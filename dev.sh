@@ -80,5 +80,6 @@ docker exec -it k3d-5stack-dev-server-0 sh -c "mkdir -p mkdir -p /opt/5stack/dev
 if ! plan_timescaledb_major_upgrade || ! upgrade_timescaledb_major; then
     exit 1
 fi
+forget_timescaledb_major_upgrade
 
 tilt up

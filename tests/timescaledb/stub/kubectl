@@ -3,7 +3,8 @@
 # Stands in for kubectl in the unit tests. Every call is appended to
 # $STUB_DIR/calls (an applied manifest adds its kind), and each answer comes
 # from a file the test wrote into $STUB_DIR: the file's content is printed and
-# a matching <name>.rc file, if there is one, is the exit status.
+# a matching <name>.rc file, if there is one, is the exit status. A
+# $STUB_DIR/stderr file is written to stderr on every call.
 
 answer() {
     local rc=0
@@ -40,6 +41,10 @@ next_pod_state() {
     printf '%s' "$line"
     exit 0
 }
+
+if [ -f "$STUB_DIR/stderr" ]; then
+    cat "$STUB_DIR/stderr" >&2
+fi
 
 kind=""
 case " $* " in

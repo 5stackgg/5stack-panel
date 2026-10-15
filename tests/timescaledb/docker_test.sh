@@ -136,29 +136,50 @@ test_upgrade_keeps_the_data_and_the_old_cluster_boots() {
     stop_postgres kept
 }
 
-test_sigterm_during_the_copy_leaves_the_old_data_alone() {
-    local status
-    fresh_volume_from_seed sigterm
-    job_phase prepare "$OLD_IMAGE" sigterm
-    docker run -d --name "$PREFIX-sigterm-job" -v "$PREFIX-sigterm:/pv" -v "$PREFIX-sigterm-old:/old" \
-        -v "$PREFIX-sigterm-job-image:$(image_volume "$NEW_IMAGE")" \
+# Holds the upgrade phase at $1 (see the shims in fixtures/), sends the SIGTERM
+# a Job deadline or a deleted pod would, and checks what is left on the volume.
+sigterm_while_held_at() {
+    local hold="$1" name="$PREFIX-sigterm-$1" status
+    fresh_volume_from_seed "sigterm-$hold"
+    job_phase prepare "$OLD_IMAGE" "sigterm-$hold"
+    docker run -d --name "$name" -v "$PREFIX-sigterm-$hold:/pv" -v "$PREFIX-sigterm-$hold-old:/old" \
+        -v "$PREFIX-sigterm-$hold-image:$(image_volume "$NEW_IMAGE")" \
         -v "$TEST_ROOT/utils/timescaledb_major_upgrade_job.sh:/scripts/upgrade.sh:ro" \
         -v "$HERE/fixtures:/fixtures:ro" \
-        -e PATH=/fixtures:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+        -e PATH=/fixtures:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin -e HOLD="$hold" \
         -e NEW_MAJOR="$NEW_MAJOR" -e TIMESCALEDB_VERSION="$VERSION" -e POSTGRES_USER=hasura \
         --entrypoint bash "$NEW_IMAGE" /scripts/upgrade.sh upgrade >/dev/null
     for _ in $(seq 1 120); do
-        if docker logs "$PREFIX-sigterm-job" 2>&1 | grep -q "copy still running"; then
+        if docker exec "$name" test -e "/tmp/pg-upgrade/held-$hold" 2>/dev/null; then
             break
         fi
         sleep 1
     done
-    on_volume sigterm 'test -d /pv/timescaledb-pg18-upgrade' || fail "the copy never started"
-    docker stop -t 30 "$PREFIX-sigterm-job" >/dev/null
-    status="$(docker inspect -f '{{.State.ExitCode}}' "$PREFIX-sigterm-job")"
-    assert_eq "$(on_volume sigterm 'ls -A /pv | tr "\n" " "')" "timescaledb "
-    assert_eq "$(on_volume sigterm 'cat /pv/timescaledb/PG_VERSION')" 17
+    docker exec "$name" test -e "/tmp/pg-upgrade/held-$hold" || fail "never held at $hold: $(docker logs "$name" 2>&1 | tail -n 5)"
+    on_volume "sigterm-$hold" 'test -d /pv/timescaledb-pg18-upgrade' || fail "no new cluster was being built"
+    docker stop -t 30 "$name" >/dev/null
+    status="$(docker inspect -f '{{.State.ExitCode}}' "$name")"
+    assert_eq "$(on_volume "sigterm-$hold" 'ls -A /pv | tr "\n" " "')" "timescaledb "
+    assert_eq "$(on_volume "sigterm-$hold" 'cat /pv/timescaledb/PG_VERSION')" 17
+    assert_eq "$(on_volume "sigterm-$hold" 'test -e /pv/timescaledb/postmaster.pid && echo running || echo stopped')" stopped
+    assert_eq "$(on_volume "sigterm-$hold" 'LC_ALL=C pg_controldata /pv/timescaledb | sed -n "s/^Database cluster state: *//p"')" "shut down"
     assert_eq "$status" 143
+}
+
+test_sigterm_during_initdb_leaves_the_old_data_alone() {
+    sigterm_while_held_at initdb
+}
+
+test_sigterm_during_the_check_stops_both_servers() {
+    sigterm_while_held_at check
+}
+
+test_sigterm_during_the_copy_leaves_the_old_data_alone() {
+    sigterm_while_held_at copy
+}
+
+test_sigterm_during_the_extension_updates_stops_the_new_server() {
+    sigterm_while_held_at extensions
 }
 
 test_extension_step_moves_the_extension_once() {

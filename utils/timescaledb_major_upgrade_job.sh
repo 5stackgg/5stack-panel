@@ -49,13 +49,15 @@ old_psql() {
 # grace period lasts instead of being left on the volume.
 trap 'exit 143' TERM INT
 
-# Long steps run in the background: bash only acts on a trapped signal once its
+# Steps run in the background: bash only acts on a trapped signal once its
 # foreground command returns, and pg_upgrade --copy can take an hour.
 interruptible() {
+    local status=0
     "$@" &
     CHILD=$!
-    wait "$CHILD"
+    wait "$CHILD" || status=$?
     CHILD=""
+    return "$status"
 }
 
 stop_old_server() {
@@ -209,7 +211,7 @@ upgrade() {
     else
         initdb_args+=(--data-checksums)
     fi
-    if ! as_postgres initdb "${initdb_args[@]}" >"$RUN/initdb.log" 2>&1; then
+    if ! interruptible gosu postgres initdb "${initdb_args[@]}" >"$RUN/initdb.log" 2>&1; then
         cat "$RUN/initdb.log" >&2
         fail "initdb failed"
     fi
@@ -247,7 +249,7 @@ upgrade() {
         as_postgres pg_ctl -D "$STAGE" -w -t 3600 -l "$RUN/server.log" \
             -o "-c listen_addresses='' -c unix_socket_directories=$RUN -c hba_file=$RUN/pg_hba.conf -c shared_preload_libraries=timescaledb" \
             start >/dev/null
-        as_postgres psql -X -v ON_ERROR_STOP=1 -q -h "$RUN" -U "$INSTALL_USER" -d template1 -f "$RUN/update_extensions.sql"
+        interruptible gosu postgres psql -X -v ON_ERROR_STOP=1 -q -h "$RUN" -U "$INSTALL_USER" -d template1 -f "$RUN/update_extensions.sql"
         as_postgres pg_ctl -D "$STAGE" -m fast -w -t 3600 stop >/dev/null
         sed -n 's/^ALTER EXTENSION/applied: &/p' "$RUN/update_extensions.sql"
     fi

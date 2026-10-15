@@ -1,10 +1,33 @@
 #!/bin/bash
 
-# Put ahead of the real pg_upgrade on PATH by the SIGTERM test: --copy builds
-# the new cluster, then holds the step open the way a long copy would.
-if [[ " $* " == *" --copy "* ]]; then
-    /usr/local/bin/pg_upgrade "$@" || exit
-    echo "copy still running"
-    exec sleep 300
-fi
+# Ahead of the real pg_upgrade on PATH in the SIGTERM tests. HOLD=check brings
+# both servers up the way pg_upgrade does and stays there; HOLD=copy finishes
+# the copy and stays. Either touches /tmp/pg-upgrade/held-$HOLD once it holds.
+for arg; do
+    case "$arg" in
+        --old-datadir=*) old_data="${arg#*=}" ;;
+        --new-datadir=*) new_data="${arg#*=}" ;;
+        --old-bindir=*) old_bin="${arg#*=}" ;;
+        --new-bindir=*) new_bin="${arg#*=}" ;;
+        --socketdir=*) socket="${arg#*=}" ;;
+        --old-options=*) old_options="${arg#*=}" ;;
+        --new-options=*) new_options="${arg#*=}" ;;
+    esac
+done
+
+case "${HOLD:-} $*" in
+    "check "*--check*)
+        "$old_bin/pg_ctl" -D "$old_data" -w -l "$socket/held-old.log" \
+            -o "-p 50432 -c listen_addresses='' -c unix_socket_directories=$socket $old_options" start || exit
+        "$new_bin/pg_ctl" -D "$new_data" -w -l "$socket/held-new.log" \
+            -o "-p 50433 -c listen_addresses='' -c unix_socket_directories=$socket $new_options" start || exit
+        touch "$socket/held-check"
+        exec sleep 300
+        ;;
+    "copy "*--copy*)
+        /usr/local/bin/pg_upgrade "$@" || exit
+        touch /tmp/pg-upgrade/held-copy
+        exec sleep 300
+        ;;
+esac
 exec /usr/local/bin/pg_upgrade "$@"

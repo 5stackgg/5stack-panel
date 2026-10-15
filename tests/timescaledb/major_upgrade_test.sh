@@ -6,12 +6,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 TARGET=timescale/timescaledb:2.30.2-pg18@sha256:e72689191e1c977892c53d6f2c344dbc4a9657a867dc8cc1899229f9d3672b2e
 OLD_PINNED=timescale/timescaledb:2.30.2-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2
 KUBECONFIG_FLAG=--kubeconfig=/home/ops/.kube/prod.yaml
+METRICS_WARNING='E1014 18:50:17.402803   77293 memcache.go:287] "Unhandled Error" err="couldn'"'"'t get resource list for metrics.k8s.io/v1beta1: the server is currently unable to handle the request"'
 
 setup_upgrade() {
     load_scripts upgrade_timescaledb_major.sh
     export TIMESCALEDB_UPGRADE_TTY=/nonexistent/tty
     PANEL_DIR="$STUB_DIR/panel"
     manifest "$TARGET"
+    stub exit-code 0
 }
 
 manifest() {
@@ -88,12 +90,13 @@ test_fresh_install_without_a_volume_is_a_no_op() {
 
 test_unreachable_cluster_refuses() {
     setup_upgrade
-    stub pvc "The connection to the server prod:6443 was refused"
+    stub stderr "The connection to the server prod:6443 was refused - did you specify the right host or port?"
     stub_rc pvc 1
     if plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1; then
         fail "went ahead without seeing the cluster"
     fi
-    assert_contains "$(cat "$STUB_DIR/out")" "could not look for timescaledb's volume: The connection to the server prod:6443 was refused"
+    assert_contains "$(cat "$STUB_DIR/out")" "The connection to the server prod:6443 was refused"
+    assert_contains "$(cat "$STUB_DIR/out")" "could not look for timescaledb's volume"
 }
 
 test_matching_majors_are_a_no_op() {
@@ -287,6 +290,7 @@ test_running_job_is_waited_for_instead_of_restarted() {
     setup_upgrade
     volume_on_17
     stub job "1|7200"
+    stub pvc-users "timescaledb-major-upgrade-x7k2p Running timescaledb-pvc"
     stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
     plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "plan returned $?: $(cat "$STUB_DIR/out")"
     assert_eq "$TIMESCALEDB_UPGRADE_FROM" 17
@@ -344,6 +348,7 @@ test_finish_runs_from_the_marker_in_a_later_run() {
     timescaledb_manifest_image
     stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
     stub pg-version 18
+    probe_output 18 "" "" "" "" "timescaledb timescaledb-pg17 "
     finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
     output="$(cat "$STUB_DIR/out")"
     assert_called "--all --analyze-in-stages"
@@ -416,6 +421,109 @@ test_api_errors_are_retried_and_a_gone_pod_is_reported() {
     fi
     assert_contains "$(cat "$STUB_DIR/out")" "pod timescaledb-volume-probe is gone"
     assert_eq "$(grep -c ' get pod timescaledb-volume-probe ' "$STUB_DIR/calls")" 3
+}
+
+test_stderr_warnings_do_not_look_like_a_running_job() {
+    setup_upgrade
+    volume_on_17
+    stub stderr "$METRICS_WARNING"
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    if plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1; then
+        fail "went ahead without consent"
+    fi
+    assert_eq "$TIMESCALEDB_UPGRADE_ATTACH" ""
+    assert_not_contains "$(cat "$STUB_DIR/out")" "still running"
+    assert_contains "$(cat "$STUB_DIR/out")" "there is no terminal to ask on"
+    assert_not_called "scale "
+    assert_not_called "set image"
+}
+
+test_stderr_warnings_do_not_stop_a_fresh_install() {
+    setup_upgrade
+    stub stderr "$METRICS_WARNING"
+    plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
+    assert_eq "$TIMESCALEDB_UPGRADE_FROM" ""
+    assert_not_contains "$(cat "$STUB_DIR/out")" "Job"
+}
+
+test_stderr_warnings_do_not_stop_an_upgrade() {
+    setup_upgrade
+    volume_on_17
+    stub stderr "$METRICS_WARNING"
+    ASSUME_YES=true plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
+    assert_eq "$TIMESCALEDB_UPGRADE_FROM" 17
+    assert_eq "$TIMESCALEDB_UPGRADE_ATTACH" ""
+}
+
+test_unexpected_answer_about_the_job_refuses() {
+    setup_upgrade
+    volume_on_17
+    stub job "error: the server doesn't have a resource type \"job\""
+    if ASSUME_YES=true plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1; then
+        fail "went ahead"
+    fi
+    assert_contains "$(cat "$STUB_DIR/out")" "looking for a running upgrade gave an unexpected answer"
+    assert_not_called "scale "
+}
+
+test_running_job_for_another_major_refuses() {
+    setup_upgrade
+    manifest "$OLD_PINNED"
+    volume_on_17
+    stub job "1|7200"
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    if plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1; then
+        fail "waited for a Job that upgrades to another major"
+    fi
+    assert_contains "$(cat "$STUB_DIR/out")" "the running timescaledb-major-upgrade Job upgrades to PostgreSQL 18, but this checkout's base/timescaledb/stateful-set.yaml runs PostgreSQL 17"
+    assert_not_called "scale "
+}
+
+test_old_job_pod_on_the_volume_stops_a_new_job() {
+    planned_upgrade
+    stub pvc-users "timescaledb-major-upgrade-old12 Running timescaledb-pvc"
+    if upgrade_timescaledb_major >"$STUB_DIR/out" 2>&1; then
+        fail "started a Job next to the old Job's pod"
+    fi
+    assert_contains "$(cat "$STUB_DIR/out")" "timescaledb-pvc is still in use: timescaledb-major-upgrade-old12"
+    assert_not_called "<Job>"
+}
+
+test_finish_waits_when_the_data_cannot_be_read() {
+    setup_upgrade
+    timescaledb_manifest_image
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    stub_rc pg-version 1
+    finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    output="$(cat "$STUB_DIR/out")"
+    assert_contains "$output" "does not read as PostgreSQL 18 yet"
+    assert_not_contains "$output" "To roll back"
+    assert_not_contains "$output" "rm -rf"
+    assert_not_called "rollout restart"
+    assert_not_called "vacuumdb"
+    assert_not_called "delete configmap timescaledb-major-upgraded"
+}
+
+test_finish_prints_no_rollback_without_the_kept_copy() {
+    setup_upgrade
+    timescaledb_manifest_image
+    stub marker "17|18|node-a|/opt/5stack/timescaledb|$OLD_PINNED"
+    stub pg-version 18
+    probe_output 18 "" "" "" "" "timescaledb "
+    finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    output="$(cat "$STUB_DIR/out")"
+    assert_contains "$output" "has no PostgreSQL 17 copy next to a PostgreSQL 18 database; there is nothing to roll back to"
+    assert_not_contains "$output" "To roll back"
+    assert_not_contains "$output" "rm -rf"
+}
+
+test_dev_upgrade_clears_the_marker_it_cannot_finish() {
+    planned_upgrade
+    upgrade_timescaledb_major >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
+    forget_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    assert_called "delete configmap timescaledb-major-upgraded timescaledb-major-upgrade --ignore-not-found"
+    assert_contains "$(cat "$STUB_DIR/out")" "The PostgreSQL 17 copy stays on node-a in /opt/5stack/timescaledb/timescaledb-pg17"
+    grep -q '^forget_timescaledb_major_upgrade$' "$TEST_ROOT/dev.sh" || fail "dev.sh does not call forget_timescaledb_major_upgrade"
 }
 
 run_tests

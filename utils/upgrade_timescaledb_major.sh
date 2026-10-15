@@ -34,6 +34,21 @@ timescaledb_kubectl_hint() {
     printf 'kubectl --kubeconfig=%q -n 5stack\n' "$config"
 }
 
+# kubectl's stdout, never its stderr: a cluster can warn there on calls that
+# still succeed (with metrics-server down, every call prints "couldn't get
+# resource list for metrics.k8s.io"). The stderr is shown when the call fails.
+timescaledb_kubectl_stdout() {
+    local errors status
+    errors="$(mktemp "${TMPDIR:-/tmp}/timescaledb-kubectl.XXXXXX")"
+    timescaledb_kubectl "$@" 2>"$errors"
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        sed 's/^/    /' "$errors" | tail -n 3 >&2
+    fi
+    rm -f "$errors"
+    return "$status"
+}
+
 timescaledb_cluster_name() {
     local context server
     context="$(kubectl --kubeconfig="$KUBECONFIG" config current-context 2>/dev/null)"
@@ -169,6 +184,7 @@ timescaledb_read_marker() {
         return 1
     fi
     IFS='|' read -r TIMESCALEDB_MARKER_FROM TIMESCALEDB_MARKER_TO TIMESCALEDB_MARKER_NODE TIMESCALEDB_MARKER_PATH TIMESCALEDB_MARKER_IMAGE <<<"$marker"
+    [[ "$TIMESCALEDB_MARKER_FROM" =~ ^[0-9]+$ ]] && [[ "$TIMESCALEDB_MARKER_TO" =~ ^[0-9]+$ ]]
 }
 
 # Reads the volume rather than asking postgres, so it answers while postgres is
@@ -288,24 +304,37 @@ plan_timescaledb_major_upgrade() {
 
     timescaledb_manifest_image || return 1
 
-    if ! pvc="$(timescaledb_kubectl get pvc timescaledb-pvc --ignore-not-found -o name 2>&1)"; then
-        err "could not look for timescaledb's volume: ${pvc##*$'\n'}"
+    if ! pvc="$(timescaledb_kubectl_stdout get pvc timescaledb-pvc --ignore-not-found -o name)"; then
+        err "could not look for timescaledb's volume"
         return 1
     fi
     if [ -z "$pvc" ]; then
         return 0
     fi
+    if [ "$pvc" != persistentvolumeclaim/timescaledb-pvc ]; then
+        err "looking for timescaledb's volume gave an unexpected answer: $pvc"
+        return 1
+    fi
 
     # Deleting a Job that is still copying throws away its progress and adds
     # downtime, so a run that finds one waits for it instead.
-    if ! job="$(timescaledb_kubectl get job "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found -o jsonpath='{.status.active}|{.spec.activeDeadlineSeconds}' 2>&1)"; then
-        err "could not look for a running upgrade: ${job##*$'\n'}"
+    if ! job="$(timescaledb_kubectl_stdout get job "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found -o jsonpath='{.status.active}|{.spec.activeDeadlineSeconds}')"; then
+        err "could not look for a running upgrade"
+        return 1
+    fi
+    if [ -n "$job" ] && [[ ! "$job" =~ ^[0-9]*\|[0-9]*$ ]]; then
+        err "looking for a running upgrade gave an unexpected answer: $job"
         return 1
     fi
     active="${job%%|*}"
     if [ -n "$active" ] && [ "$active" != 0 ]; then
         if ! timescaledb_read_marker; then
-            err "a $TIMESCALEDB_UPGRADE_JOB Job is running without its $TIMESCALEDB_UPGRADE_MARKER ConfigMap; wait for it to finish, then re-run"
+            err "a $TIMESCALEDB_UPGRADE_JOB Job is running without a readable $TIMESCALEDB_UPGRADE_MARKER ConfigMap; wait for it to finish, then re-run"
+            return 1
+        fi
+        if [ "$TIMESCALEDB_MARKER_TO" != "$TIMESCALEDB_MAJOR" ]; then
+            err "the running $TIMESCALEDB_UPGRADE_JOB Job upgrades to PostgreSQL $TIMESCALEDB_MARKER_TO, but this checkout's base/timescaledb/stateful-set.yaml runs PostgreSQL $TIMESCALEDB_MAJOR"
+            err "re-run from a checkout on PostgreSQL $TIMESCALEDB_MARKER_TO, or wait for the Job to finish"
             return 1
         fi
         step "Waiting for the TimescaleDB upgrade that is already running"
@@ -567,7 +596,11 @@ upgrade_timescaledb_major() {
         timescaledb_kubectl delete job "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found --cascade=foreground --wait=true --timeout=300s >/dev/null 2>&1
     fi
     timescaledb_kubectl wait --for=delete pod/timescaledb-0 --timeout=300s >/dev/null 2>&1
+    # Only a run that waits for the Job may find the Job's own pod on the volume:
+    # one that starts a new Job could otherwise put a second server on the data
+    # next to the pod of the Job it just deleted.
     if ! users="$(timescaledb_pvc_users)" \
+        || { [ -n "$users" ] && [ -z "$TIMESCALEDB_UPGRADE_ATTACH" ]; } \
         || { [ -n "$users" ] && grep -qv "^$TIMESCALEDB_UPGRADE_JOB-" <<<"$users"; }; then
         err "timescaledb is scaled to 0, but timescaledb-pvc is still in use: $(echo "${users:-could not list pods}" | tr '\n' ' ')"
         err "once that is gone, re-run ./update.sh, or bring timescaledb back on PostgreSQL $from with ($(timescaledb_cluster_name)):"
@@ -590,9 +623,10 @@ upgrade_timescaledb_major() {
 
     for _ in $(seq 1 60); do
         pod="$(timescaledb_kubectl get pods -l job-name="$TIMESCALEDB_UPGRADE_JOB" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
-        if [ -n "$pod" ]; then
+        if [[ "$pod" == "$TIMESCALEDB_UPGRADE_JOB-"* ]]; then
             break
         fi
+        pod=""
         sleep 2
     done
 
@@ -628,12 +662,16 @@ finish_timescaledb_major_upgrade() {
         fi
         return 0
     fi
+    if [ "$major" != "$to" ]; then
+        warn "timescaledb's data does not read as PostgreSQL $to yet ('${major:-nothing}'); the next ./update.sh finishes the upgrade"
+        return 0
+    fi
 
     step "Refreshing planner statistics"
     # pg_upgrade from 18 on carries most statistics over, so only what is
     # missing needs analysing.
     # shellcheck disable=SC2016
-    if [ "$major" = "$to" ] && output_redirect timescaledb_kubectl exec timescaledb-0 -c timescaledb -- sh -c '
+    if output_redirect timescaledb_kubectl exec timescaledb-0 -c timescaledb -- sh -c '
         set -- --all --analyze-in-stages
         if vacuumdb --help | grep -q -- --missing-stats-only; then
             set -- "$@" --missing-stats-only
@@ -649,6 +687,16 @@ finish_timescaledb_major_upgrade() {
     timescaledb_kubectl rollout restart deployment/hasura deployment/api >/dev/null 2>&1
     ok "hasura and the api restarted"
 
+    # The rollback recipe moves directories around on the node, so it is only
+    # printed once the volume shows both where the recipe expects them.
+    if ! timescaledb_probe_volume; then
+        warn "could not read the volume; check $path/timescaledb-pg$from on $node before relying on it for a rollback"
+        return 0
+    fi
+    if [ "$TIMESCALEDB_PROBE_MAJOR" != "$to" ] || [[ "$TIMESCALEDB_PV_ENTRIES" != *" timescaledb-pg$from "* ]]; then
+        warn "$path on $node has no PostgreSQL $from copy next to a PostgreSQL $to database; there is nothing to roll back to"
+        return 0
+    fi
     warn "The PostgreSQL $from data is kept on $node in $path/timescaledb-pg$from."
     echo "    The commands below are for $(timescaledb_cluster_name)."
     echo "    To roll back to it (losing everything written since the upgrade):"
@@ -657,4 +705,15 @@ finish_timescaledb_major_upgrade() {
     echo "      set the image in base/timescaledb/stateful-set.yaml to $image, then run ./update.sh"
     echo "    Once PostgreSQL $to has proven itself, free the space:"
     echo "      on $node: rm -rf $path/timescaledb-pg$from"
+}
+
+# For dev.sh, where Tilt brings timescaledb back up and holds the terminal until
+# the dev stack stops, so nothing runs afterwards to finish the upgrade. Dev
+# data is small enough to go without the statistics refresh.
+forget_timescaledb_major_upgrade() {
+    if [ -z "$TIMESCALEDB_UPGRADE_FROM" ]; then
+        return 0
+    fi
+    timescaledb_kubectl delete configmap "$TIMESCALEDB_UPGRADE_MARKER" "$TIMESCALEDB_UPGRADE_JOB" --ignore-not-found >/dev/null 2>&1
+    warn "The PostgreSQL $TIMESCALEDB_UPGRADE_FROM copy stays on $TIMESCALEDB_NODE in $TIMESCALEDB_PV_PATH/timescaledb-pg$TIMESCALEDB_UPGRADE_FROM; delete it once the dev stack runs on PostgreSQL $TIMESCALEDB_MAJOR."
 }

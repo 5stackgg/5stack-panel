@@ -30,6 +30,8 @@ jobs:
           tests/timescaledb/stub/kubectl
           tests/timescaledb/docker-stub/kubectl
           tests/timescaledb/fixtures/pg_upgrade
+          tests/timescaledb/fixtures/initdb
+          tests/timescaledb/fixtures/psql
       - run: bash tests/timescaledb/extension_test.sh
       - run: bash tests/timescaledb/major_upgrade_test.sh
 

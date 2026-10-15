@@ -13,8 +13,10 @@
 # Renaming spawns a new worker while the old one keeps serving.
 #
 # Secrets (S3_ACCESS_KEY, S3_SECRET) are set with `wrangler secret`. S3_SECRET
-# doubles as the key the worker checks demo upload tokens (PUT) with: the API
-# signs them with the same B2 credential.
+# doubles as the key the worker checks demo upload tokens (PUT) and signed clip
+# links with: the API signs both with the same B2 credential. Changing it on the
+# panel means running ./backblaze-proxy.sh again, or the worker refuses every
+# clip the API signs with the new one.
 
 name = "5stack"
 main = "index.ts"
@@ -29,3 +31,8 @@ enabled = true
 #   S3_ENDPOINT  the bucket's S3 host, e.g. s3.us-east-005.backblazeb2.com
 #   API_URL      the panel's API; clip playback starts are beaconed to
 #                {API_URL}/clip-views/play. Unset disables view counting.
+#   REQUIRE_SIGNED_CLIPS
+#                1 refuses a file under clips/ without a signed link. Set once
+#                the panel's API signs them with this S3_SECRET, then kept by
+#                every run unless the operator turns it off
+#                (utils/signed_clip_links.sh); unset serves them as before.

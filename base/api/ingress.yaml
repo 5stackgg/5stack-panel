@@ -215,6 +215,13 @@ spec:
                 name: api
                 port:
                   number: 5585
+            path: /extension
+            pathType: Prefix
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
             path: /telemetry
             pathType: Exact
           - backend:

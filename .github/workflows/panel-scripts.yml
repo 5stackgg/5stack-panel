@@ -7,6 +7,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - update.sh
       - "utils/**"
       - "overlays/**/*.env.example"
       - base/api/deployment.yaml
@@ -18,6 +19,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - update.sh
       - "utils/**"
       - "overlays/**/*.env.example"
       - base/api/deployment.yaml
@@ -30,8 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh tests/scripts/*.sh tests/scripts/stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh
       - run: bash tests/scripts/plugin_test.sh
+      - run: bash tests/scripts/node_ip_test.sh

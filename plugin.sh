@@ -158,6 +158,7 @@ kubectl version -o json >/dev/null 2>&1 || die "kubectl can't reach the cluster 
 
 WEB_DOMAIN="$(grep -h '^WEB_DOMAIN=' overlays/config/api-config.env 2>/dev/null | cut -d '=' -f2- || true)"
 AUTH_COOKIE_DOMAIN="$(grep -h '^AUTH_COOKIE_DOMAIN=' overlays/config/api-config.env 2>/dev/null | tail -n 1 | cut -d '=' -f2- || true)"
+COOKIE_DOMAIN="$(cookie_host "${AUTH_COOKIE_DOMAIN:-$WEB_DOMAIN}")"
 
 # ---------------------------------------------------------------------------
 # list / remove
@@ -436,7 +437,8 @@ if [ -n "$DOMAIN_VAR" ] && [ -n "$DOMAIN_FILE" ]; then
 
     CURRENT="$(grep -h "^$DOMAIN_VAR=" "$TARGET/$DOMAIN_FILE" 2>/dev/null | cut -d '=' -f2- || true)"
     if [ -z "$DOMAIN" ]; then
-        if [ -n "$CURRENT" ] && [ -n "$WEB_DOMAIN" ] && [[ "$CURRENT" == *"$WEB_DOMAIN" ]]; then
+        if [ -n "$CURRENT" ] && [ -n "$WEB_DOMAIN" ] \
+            && { [[ "$CURRENT" == *"$WEB_DOMAIN" ]] || cookie_domain_covers "$COOKIE_DOMAIN" "$CURRENT"; }; then
             default_domain="$CURRENT"
         elif [ -n "$WEB_DOMAIN" ]; then
             default_domain="$DOMAIN_PREFIX.$WEB_DOMAIN"
@@ -447,7 +449,6 @@ if [ -n "$DOMAIN_VAR" ] && [ -n "$DOMAIN_FILE" ]; then
     fi
 
     [ -n "$DOMAIN" ] && [[ "$DOMAIN" != *" "* ]] || die "invalid domain: '$DOMAIN'"
-    COOKIE_DOMAIN="$(cookie_host "${AUTH_COOKIE_DOMAIN:-$WEB_DOMAIN}")"
     if [ -n "$COOKIE_DOMAIN" ] && ! cookie_domain_covers "$COOKIE_DOMAIN" "$DOMAIN"; then
         warn "$DOMAIN is outside the session cookie's domain (.$COOKIE_DOMAIN), so the"
         warn "browser never sends it the cookie and anything in $NAME that needs a"

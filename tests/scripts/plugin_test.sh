@@ -24,7 +24,7 @@ make_plugin() {
     mkdir -p "$PLUGIN/public" "$PLUGIN/k8s/base" "$PLUGIN/k8s/overlays/http"
     local panel=""
     if [ "${1:-}" = "asks-for-panel" ]; then
-        panel=', "panel": { "file": "k8s/base/hello.env" }'
+        panel=', "panel": { "file": "k8s/base/panel.env" }'
     fi
     cat >"$PLUGIN/public/5stack-plugin.json" <<EOF
 {
@@ -46,33 +46,34 @@ run_plugin() {
 }
 
 plugin_env() {
-    grep "^$1=" "$PANEL/custom/hello/k8s/base/hello.env" || true
+    grep "^$1=" "$PANEL/custom/hello/k8s/base/${2:-hello}.env" 2>/dev/null || true
 }
 
 test_a_plugin_that_asks_is_given_the_panels_domains() {
     make_panel cs-panel.example.com .example.com
     make_plugin asks-for-panel
     run_plugin --domain hello-cs-panel.example.com
-    assert_eq "$(plugin_env WEB_DOMAIN)" "WEB_DOMAIN=cs-panel.example.com"
-    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+    assert_eq "$(plugin_env WEB_DOMAIN panel)" "WEB_DOMAIN=cs-panel.example.com"
+    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN panel)" "AUTH_COOKIE_DOMAIN=.example.com"
+    assert_eq "$(plugin_env WEB_DOMAIN)" ""
 }
 
 test_a_rerun_follows_a_cookie_domain_the_panel_widened() {
     make_panel cs-panel.example.com
     make_plugin asks-for-panel
     run_plugin
-    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN="
+    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN panel)" "AUTH_COOKIE_DOMAIN="
     printf 'AUTH_COOKIE_DOMAIN=.example.com\n' >>"$PANEL/overlays/config/api-config.env"
     run_plugin
-    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN panel)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
 test_a_plugin_that_does_not_ask_is_given_nothing() {
     make_panel cs-panel.example.com .example.com
     make_plugin
     run_plugin
-    assert_eq "$(plugin_env WEB_DOMAIN)" ""
-    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN)" ""
+    assert_eq "$(plugin_env WEB_DOMAIN panel)" ""
+    assert_eq "$(plugin_env AUTH_COOKIE_DOMAIN panel)" ""
 }
 
 test_a_host_beside_the_panel_outside_the_cookie_domain_is_warned() {
@@ -87,6 +88,14 @@ test_a_host_beside_the_panel_inside_a_wider_cookie_domain_is_not_warned() {
     make_plugin
     run_plugin --domain hello-cs-panel.example.com
     assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "outside the session cookie's domain"
+}
+
+test_a_rerun_keeps_a_host_inside_the_cookie_domain() {
+    make_panel cs.example.com .example.com
+    make_plugin
+    run_plugin --domain skins.example.com
+    run_plugin
+    assert_eq "$(plugin_env HELLO_DOMAIN)" "HELLO_DOMAIN=skins.example.com"
 }
 
 test_a_host_under_the_panel_is_not_warned() {

@@ -19,6 +19,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$args" in
+    *" get nodes "*) if [ -f "$WORK_DIR/nodes" ]; then cat "$WORK_DIR/nodes"; fi ;;
     *" get pods "*) cat "$WORK_DIR/pods" ;;
     *" get pod "*) cat "$WORK_DIR/containers-$pod" ;;
     *" logs "*)

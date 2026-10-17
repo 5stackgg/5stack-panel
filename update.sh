@@ -9,6 +9,10 @@ if ! plan_timescaledb_major_upgrade; then
     exit 1
 fi
 
+# Also how a panel that game-node-server-setup.sh already moved to Tailscale gets
+# repaired: see utils/ensure_node_ip.sh.
+ensure_node_ip
+
 # Nothing terminates TLS in the cluster in this mode, so any Certificate left
 # over from a previous https install keeps retrying HTTP-01 against a server
 # that no longer answers the challenge -- silently accumulating failed orders

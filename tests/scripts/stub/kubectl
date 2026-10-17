@@ -2,17 +2,37 @@
 
 echo "$*" >>"$WORK_DIR/calls"
 
+args=" $* "
 pod=""
-for arg; do
-    case "$arg" in
-        hasura-* | redis-*) pod="$arg" ;;
+container=""
+previous=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        api-* | hasura-* | redis-*) pod="$1" ;;
+        -c)
+            container="$2"
+            shift
+            ;;
+        --previous) previous=true ;;
     esac
+    shift
 done
 
-case " $* " in
+case "$args" in
     *" get pods "*) cat "$WORK_DIR/pods" ;;
-    *" get pod "*) echo Error ;;
-    *" logs "*" --previous "*) echo "previous logs of $pod" ;;
-    *" logs "*) echo "current logs of $pod" ;;
-    *" get events "*) echo "Normal Killing pod/hasura-1 Container hasura failed startup probe, will be restarted" ;;
+    *" get pod "*) cat "$WORK_DIR/containers-$pod" ;;
+    *" logs "*)
+        if [ "$previous" = true ]; then
+            echo "previous logs of $pod/$container"
+        else
+            echo "current logs of $pod/$container"
+        fi
+        ;;
+    *" get events "*)
+        if [ -f "$WORK_DIR/events-error" ]; then
+            echo "The connection to the server was refused" >&2
+            exit 1
+        fi
+        echo "Normal Killing pod/hasura-1 Container hasura failed startup probe, will be restarted"
+        ;;
 esac

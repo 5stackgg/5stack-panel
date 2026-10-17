@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - debug.sh
-      - utils/generate_vapid_keys.sh
+      - dev.sh
+      - "utils/**"
+      - "overlays/**/*.env.example"
       - base/api/deployment.yaml
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
@@ -13,7 +15,9 @@ on:
   pull_request:
     paths:
       - debug.sh
-      - utils/generate_vapid_keys.sh
+      - dev.sh
+      - "utils/**"
+      - "overlays/**/*.env.example"
       - base/api/deployment.yaml
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
@@ -24,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x utils/generate_vapid_keys.sh tests/scripts/*.sh tests/scripts/stub/kubectl
-      - run: bash tests/scripts/vapid_keys_test.sh
+      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh

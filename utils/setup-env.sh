@@ -234,14 +234,13 @@ copy_config_or_secrets "overlays/coturn" "overlays/coturn"
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"
 
-# Web Push (VAPID) keys. Added here rather than via the .env.example because
-# copy_config_or_secrets only creates env files that don't already exist, so an
-# existing install would never pick a new key up. Only fills in what's missing,
-# so an update never rotates a working keypair out from under its subscribers.
-ensure_vapid_keys_in_env_file "overlays/local-secrets/push-secrets.env"
-
-# Same reasoning as the VAPID keys above: an existing install never picks up a
-# newly added key, and coturn refuses to start without this one.
+# Added here rather than via the .env.example because copy_config_or_secrets
+# only creates env files that don't already exist, so an existing install would
+# never pick a new key up -- and coturn refuses to start without this one.
+#
+# Web Push (VAPID) keys are deliberately not generated here: the api generates
+# its own pair into `settings` on first boot, and env keys override those, so
+# writing a pair on an update would orphan every existing push subscription.
 ensure_turn_secret_in_env_file "overlays/local-secrets/coturn-secrets.env"
 
 # Same reasoning again: these two only matter for a remote bucket, and an
@@ -326,6 +325,8 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
         update_env_var "overlays/config/typesense-config.env" "TYPESENSE_HOST" "$TYPESENSE_HOST"
     fi
 fi
+
+ensure_auth_cookie_domain_in_env_file "overlays/config/api-config.env"
 
 # mirror api-config -> mediamtx.env (kustomize replacement source)
 if [ -n "$GAME_STREAM_DOMAIN" ] && [ -f overlays/mediamtx/mediamtx.env ]; then

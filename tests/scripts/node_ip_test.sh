@@ -101,8 +101,12 @@ test_update_repairs_the_node_before_the_timescaledb_check_can_stop_it() {
     local repair check
     repair="$(grep -n '^ensure_node_ip$' "$TEST_ROOT/update.sh" | cut -d: -f1)"
     check="$(grep -n 'plan_timescaledb_major_upgrade' "$TEST_ROOT/update.sh" | head -n 1 | cut -d: -f1)"
-    [ -n "$repair" ] && [ -n "$check" ] || fail "update.sh no longer calls both"
-    [ "$repair" -lt "$check" ] || fail "ensure_node_ip (line $repair) runs after the timescaledb check (line $check)"
+    if [ -z "$repair" ] || [ -z "$check" ]; then
+        fail "update.sh no longer calls both"
+    fi
+    if [ "$repair" -ge "$check" ]; then
+        fail "ensure_node_ip (line $repair) runs after the timescaledb check (line $check)"
+    fi
 }
 
 run_tests

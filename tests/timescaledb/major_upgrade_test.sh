@@ -142,6 +142,7 @@ test_probe_output_that_cannot_be_read_refuses() {
         fail "went ahead without reading the volume"
     fi
     assert_contains "$(cat "$STUB_DIR/out")" "could not read what is on timescaledb-pvc"
+    assert_contains "$(cat "$STUB_DIR/out")" "re-run ./update.sh"
 }
 
 test_missing_data_dir_next_to_a_kept_cluster_refuses() {

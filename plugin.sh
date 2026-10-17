@@ -19,7 +19,8 @@
 #   .5stack-env.config       -> KUBECONFIG, REVERSE_PROXY, VAULT_MANAGER
 #   REVERSE_PROXY            -> which of the plugin's two installs to apply
 #   overlays/config/*.env    -> WEB_DOMAIN, so the plugin defaults to
-#                               <prefix>.<your domain>
+#                               <prefix>.<your domain>, and AUTH_COOKIE_DOMAIN,
+#                               for a plugin that asks for the panel's origins
 #   the cluster              -> the Postgres connection string
 #   the node label           -> where a node-bound plugin already lives
 #
@@ -36,6 +37,7 @@ source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/interactive_select.sh"
 source "$PANEL_DIR/utils/setup_kustomize.sh"
 source "$PANEL_DIR/utils/apply_overlay.sh"
+source "$PANEL_DIR/utils/ensure_auth_cookie_domain.sh"
 
 # Deliberately NOT utils/utils.sh: that sources setup-env.sh, which re-runs the
 # whole panel setup (cloudflare/reverse-proxy questions, secret generation,
@@ -155,6 +157,7 @@ command -v kubectl >/dev/null || die "kubectl is required."
 kubectl version -o json >/dev/null 2>&1 || die "kubectl can't reach the cluster ($KUBECONFIG)."
 
 WEB_DOMAIN="$(grep -h '^WEB_DOMAIN=' overlays/config/api-config.env 2>/dev/null | cut -d '=' -f2- || true)"
+AUTH_COOKIE_DOMAIN="$(grep -h '^AUTH_COOKIE_DOMAIN=' overlays/config/api-config.env 2>/dev/null | tail -n 1 | cut -d '=' -f2- || true)"
 
 # ---------------------------------------------------------------------------
 # list / remove
@@ -350,6 +353,7 @@ CERT_NAME="$(json_read "$MANIFEST" install.certificate)"
 NODE_LABEL="$(json_read "$MANIFEST" install.node.label)"
 DB_VAR="$(json_read "$MANIFEST" install.database.var)"
 DB_FILE="$(json_read "$MANIFEST" install.database.file)"
+PANEL_FILE="$(json_read "$MANIFEST" install.panel.file)"
 DEPLOYMENTS="$(json_read "$MANIFEST" deployments)"
 
 ok "$NAME ($SLUG)"
@@ -443,14 +447,32 @@ if [ -n "$DOMAIN_VAR" ] && [ -n "$DOMAIN_FILE" ]; then
     fi
 
     [ -n "$DOMAIN" ] && [[ "$DOMAIN" != *" "* ]] || die "invalid domain: '$DOMAIN'"
-    if [ -n "$WEB_DOMAIN" ] && [[ "$DOMAIN" != *"$WEB_DOMAIN" ]]; then
-        warn "$DOMAIN isn't a subdomain of $WEB_DOMAIN."
-        warn "The 5stack session cookie is SameSite=Lax, so it won't be sent there"
-        warn "and anything in the plugin that needs a signed-in user will fail."
+    COOKIE_DOMAIN="$(cookie_host "${AUTH_COOKIE_DOMAIN:-$WEB_DOMAIN}")"
+    if [ -n "$COOKIE_DOMAIN" ] && ! cookie_domain_covers "$COOKIE_DOMAIN" "$DOMAIN"; then
+        warn "$DOMAIN is outside the session cookie's domain (.$COOKIE_DOMAIN), so the"
+        warn "browser never sends it the cookie and anything in $NAME that needs a"
+        warn "signed-in player fails. Use a host under .$COOKIE_DOMAIN."
     fi
 
     update_env_var "$TARGET/$DOMAIN_FILE" "$DOMAIN_VAR" "$DOMAIN"
     ok "$DOMAIN"
+fi
+
+# ---------------------------------------------------------------------------
+# Panel — the api's own WEB_DOMAIN and AUTH_COOKIE_DOMAIN, so a backend can
+# trust the same browser origins the api does. A panel beside the plugin's host
+# (panel.example.com next to inventory-panel.example.com) is not a parent of it,
+# and nothing else tells the plugin it is the panel.
+# ---------------------------------------------------------------------------
+
+if [ -n "$PANEL_FILE" ]; then
+    step "Panel"
+
+    # Rewritten on every run, never kept: ./update.sh widens AUTH_COOKIE_DOMAIN
+    # when it has to, and the plugin must follow it.
+    update_env_var "$TARGET/$PANEL_FILE" WEB_DOMAIN "$WEB_DOMAIN"
+    update_env_var "$TARGET/$PANEL_FILE" AUTH_COOKIE_DOMAIN "$AUTH_COOKIE_DOMAIN"
+    ok "WEB_DOMAIN=$WEB_DOMAIN${AUTH_COOKIE_DOMAIN:+  AUTH_COOKIE_DOMAIN=$AUTH_COOKIE_DOMAIN}"
 fi
 
 # ---------------------------------------------------------------------------

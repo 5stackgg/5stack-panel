@@ -19,6 +19,8 @@ export KUBECONFIG
 load_domains_and_hosts
 
 namespace="5stack"
+container_fields='{.name}{"|"}{.restartCount}{"|"}{.lastState.terminated.reason}{"|"}{.lastState.terminated.exitCode}{"|"}{.state.running.startedAt}{"\n"}'
+containers_jsonpath="{range .status.initContainerStatuses[*]}$container_fields{end}{range .status.containerStatuses[*]}$container_fields{end}"
 # Absolute, and anchored to the directory the operator ran this from: the path
 # printed at the end has to be one they can actually open.
 debug_file="$PWD/debug_output_$(date +%Y%m%d_%H%M%S).txt"
@@ -40,17 +42,19 @@ kubectl --kubeconfig=$KUBECONFIG get pods -n "$namespace" --no-headers | while r
     
     echo "Pod: $pod_name" | tee -a "$debug_file"
     echo "Total restarts: $restarts" | tee -a "$debug_file"
-    
-    echo "Last restart reason:" | tee -a "$debug_file"
-    kubectl --kubeconfig=$KUBECONFIG get pod "$pod_name" -n "$namespace" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' | tee -a "$debug_file"
-    echo -e "\n" | tee -a "$debug_file"
-    
-    kubectl --kubeconfig=$KUBECONFIG logs "$pod_name" -n "$namespace" --tail=100 | tee -a "$debug_file"
-    
-    if [ "$restarts" != "0" ]; then
-        echo "Logs from before the last restart:" | tee -a "$debug_file"
-        kubectl --kubeconfig="$KUBECONFIG" logs "$pod_name" -n "$namespace" --previous --tail=100 2>&1 | tee -a "$debug_file"
-    fi
+
+    # Init containers too: a failed migration crash-loops hasura inside its
+    # `migrations` init container, and only that container's logs say why.
+    kubectl --kubeconfig="$KUBECONFIG" get pod "$pod_name" -n "$namespace" -o jsonpath="$containers_jsonpath" | while IFS='|' read -r container container_restarts reason exit_code running_since; do
+        echo "Container: $container (restarts: $container_restarts${reason:+, last exit: $reason $exit_code})" | tee -a "$debug_file"
+        kubectl --kubeconfig="$KUBECONFIG" logs "$pod_name" -n "$namespace" -c "$container" --tail=100 2>&1 | tee -a "$debug_file"
+
+        # A container waiting to restart already printed its last run above.
+        if [ "$container_restarts" != "0" ] && [ -n "$running_since" ]; then
+            echo "Logs from before the last restart:" | tee -a "$debug_file"
+            kubectl --kubeconfig="$KUBECONFIG" logs "$pod_name" -n "$namespace" -c "$container" --previous --tail=100 2>&1 | tee -a "$debug_file"
+        fi
+    done
 
     echo "---------------------------------------" | tee -a "$debug_file"
 done
@@ -59,7 +63,7 @@ done
 # events say so.
 echo "Recent events in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"
-kubectl --kubeconfig="$KUBECONFIG" get events -n "$namespace" --sort-by=.lastTimestamp | tee -a "$debug_file"
+kubectl --kubeconfig="$KUBECONFIG" get events -n "$namespace" --sort-by=.lastTimestamp 2>&1 | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"
 
 echo "Checking certificates in namespace $namespace..." | tee -a "$debug_file"

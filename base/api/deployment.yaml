@@ -50,7 +50,7 @@ spec:
               path: /system/healthz
               port: 5585
             periodSeconds: 5
-            failureThreshold: 72
+            failureThreshold: 96
           readinessProbe:
             httpGet:
               path: /system/healthz

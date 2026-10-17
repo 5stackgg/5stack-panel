@@ -22,10 +22,12 @@ test_hasura_startup_outlasts_a_slow_metadata_apply() {
     [ "$budget" -ge 300 ] || fail "hasura startup probe gives up after ${budget}s"
 }
 
-test_api_startup_outlasts_hasura_startup() {
+# The api's clock starts with its pod, hasura's only once its migrations init
+# container has finished.
+test_api_startup_outlasts_hasura_migrations_and_startup() {
     hasura="$(startup_probe_seconds "$TEST_ROOT/base/hasura/deployment.yaml")"
     api="$(startup_probe_seconds "$TEST_ROOT/base/api/deployment.yaml")"
-    [ "$api" -gt "$hasura" ] || fail "api startup probe (${api}s) gives up before hasura's (${hasura}s)"
+    [ "$api" -ge $((hasura + 120)) ] || fail "api startup probe (${api}s) leaves under 2 minutes for hasura's migrations beyond its ${hasura}s"
 }
 
 run_tests

@@ -121,13 +121,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# PLUGIN_TTY: the tests answer from a file. Opened, not tested with -r:
+# /dev/tty is mode 0666 even where there is no terminal to open (cron, ssh
+# without -t), and a read that fails there takes every default.
+unattended() {
+    [ "$ASSUME_YES" = true ] || ! { : <"${PLUGIN_TTY:-/dev/tty}"; } 2>/dev/null
+}
+
 ask() {
     local prompt="$1" default="$2" answer
-    if [ "$ASSUME_YES" = true ] || [ ! -r /dev/tty ]; then
+    if unattended; then
         echo "$default"; return
     fi
-    printf "    %s [%s]: " "$prompt" "$default" > /dev/tty
-    read -r answer < /dev/tty || answer=""
+    read -r -p "    $prompt [$default]: " answer < "${PLUGIN_TTY:-/dev/tty}" || answer=""
     echo "${answer:-$default}"
 }
 
@@ -436,14 +442,24 @@ if [ -n "$DOMAIN_VAR" ] && [ -n "$DOMAIN_FILE" ]; then
     step "Domain"
 
     CURRENT="$(grep -h "^$DOMAIN_VAR=" "$TARGET/$DOMAIN_FILE" 2>/dev/null | cut -d '=' -f2- || true)"
+    SHIPPED="$(grep -h "^$DOMAIN_VAR=" "$TARGET/$DOMAIN_FILE.example" 2>/dev/null | cut -d '=' -f2- || true)"
     if [ -z "$DOMAIN" ]; then
-        if [ -n "$CURRENT" ] && [ -n "$WEB_DOMAIN" ] \
-            && { [[ "$CURRENT" == *"$WEB_DOMAIN" ]] || cookie_domain_covers "$COOKIE_DOMAIN" "$CURRENT"; }; then
+        if [ -n "$CURRENT" ] && [ -n "$COOKIE_DOMAIN" ] && cookie_domain_covers "$COOKIE_DOMAIN" "$CURRENT"; then
+            default_domain="$CURRENT"
+        elif [ -n "$CURRENT" ] && [ "$CURRENT" != "$SHIPPED" ] && unattended; then
+            # An earlier install chose it, and its DNS and the panel's
+            # registration point at it: only a person moves it. The warning
+            # below still says the cookie never reaches it.
             default_domain="$CURRENT"
         elif [ -n "$WEB_DOMAIN" ]; then
             default_domain="$DOMAIN_PREFIX.$WEB_DOMAIN"
         else
             default_domain="$CURRENT"
+        fi
+        if [ -n "$CURRENT" ] && [ "$CURRENT" != "$SHIPPED" ] && [ "$default_domain" != "$CURRENT" ]; then
+            warn "$CURRENT, the current host, is outside the session cookie's domain"
+            warn "(.$COOKIE_DOMAIN), so signed-in calls from the panel fail there. Moving it"
+            warn "also means DNS for the new host and pressing Detect on it under Panel Plugins."
         fi
         DOMAIN="$(ask "Host for $NAME" "$default_domain")"
     fi
@@ -594,10 +610,12 @@ if [ -n "$DOMAIN" ]; then
         echo "      2. The certificate issues once that DNS is live:"
         echo "         kubectl -n 5stack get certificate $CERT_NAME -w"
     fi
-    echo "      3. Register it: Settings → Application → Panel Plugins → Add,"
+    echo "      3. Register it in Settings → Application → Panel Plugins:"
+    echo "         Turn on the Panel Plugins switch, then Add Panel Plugin,"
     echo "         paste https://$DOMAIN and press Detect."
 else
-    echo "      Register it: Settings → Application → Panel Plugins → Add, then Detect."
+    echo "      Register it in Settings → Application → Panel Plugins:"
+    echo "      Turn on the Panel Plugins switch, then Add Panel Plugin and press Detect."
 fi
 echo
 echo "    ${C_DIM}Re-run ./plugin.sh with the same repo to upgrade; your answers are kept.${C_RESET}"

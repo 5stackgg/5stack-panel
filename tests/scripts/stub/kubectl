@@ -1,0 +1,18 @@
+#!/bin/bash
+
+echo "$*" >>"$WORK_DIR/calls"
+
+pod=""
+for arg; do
+    case "$arg" in
+        hasura-* | redis-*) pod="$arg" ;;
+    esac
+done
+
+case " $* " in
+    *" get pods "*) cat "$WORK_DIR/pods" ;;
+    *" get pod "*) echo Error ;;
+    *" logs "*" --previous "*) echo "previous logs of $pod" ;;
+    *" logs "*) echo "current logs of $pod" ;;
+    *" get events "*) echo "Normal Killing pod/hasura-1 Container hasura failed startup probe, will be restarted" ;;
+esac

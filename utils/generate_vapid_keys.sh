@@ -33,9 +33,19 @@ generate_vapid_keypair() {
         return 1
     fi
 
-    # base64url, unpadded -- the encoding the Web Push spec uses.
-    VAPID_PRIVATE_KEY=$(printf '%s' "$priv_hex" | xxd -r -p | openssl base64 -A | tr '+/' '-_' | tr -d '=')
-    VAPID_PUBLIC_KEY=$(printf '%s' "$pub_hex" | xxd -r -p | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+    VAPID_PRIVATE_KEY=$(vapid_hex_to_base64url "$priv_hex")
+    VAPID_PUBLIC_KEY=$(vapid_hex_to_base64url "$pub_hex")
+
+    if [ ${#VAPID_PRIVATE_KEY} -ne 43 ] || [ ${#VAPID_PUBLIC_KEY} -ne 87 ]; then
+        echo "Warning: unable to encode the generated VAPID keys, skipping" >&2
+        return 1
+    fi
+}
+
+# base64url, unpadded -- the encoding the Web Push spec uses. Not xxd: it ships
+# with vim, which minimal images such as DietPi don't install.
+vapid_hex_to_base64url() {
+    printf '%b' "$(printf '%s' "$1" | sed 's/../\\x&/g')" | openssl base64 -A | tr '+/' '-_' | tr -d '='
 }
 
 # Fills in the web push keys only when they are missing.

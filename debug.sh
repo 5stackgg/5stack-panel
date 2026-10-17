@@ -47,8 +47,20 @@ kubectl --kubeconfig=$KUBECONFIG get pods -n "$namespace" --no-headers | while r
     
     kubectl --kubeconfig=$KUBECONFIG logs "$pod_name" -n "$namespace" --tail=100 | tee -a "$debug_file"
     
+    if [ "$restarts" != "0" ]; then
+        echo "Logs from before the last restart:" | tee -a "$debug_file"
+        kubectl --kubeconfig="$KUBECONFIG" logs "$pod_name" -n "$namespace" --previous --tail=100 2>&1 | tee -a "$debug_file"
+    fi
+
     echo "---------------------------------------" | tee -a "$debug_file"
 done
+
+# A container killed by a failed probe exits without logging why; only the
+# events say so.
+echo "Recent events in namespace $namespace..." | tee -a "$debug_file"
+echo "---------------------------------------" | tee -a "$debug_file"
+kubectl --kubeconfig="$KUBECONFIG" get events -n "$namespace" --sort-by=.lastTimestamp | tee -a "$debug_file"
+echo "---------------------------------------" | tee -a "$debug_file"
 
 echo "Checking certificates in namespace $namespace..." | tee -a "$debug_file"
 echo "---------------------------------------" | tee -a "$debug_file"

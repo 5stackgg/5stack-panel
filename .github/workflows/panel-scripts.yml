@@ -6,6 +6,7 @@ on:
     paths:
       - debug.sh
       - dev.sh
+      - plugin.sh
       - "utils/**"
       - "overlays/**/*.env.example"
       - base/api/deployment.yaml
@@ -16,6 +17,7 @@ on:
     paths:
       - debug.sh
       - dev.sh
+      - plugin.sh
       - "utils/**"
       - "overlays/**/*.env.example"
       - base/api/deployment.yaml
@@ -32,3 +34,4 @@ jobs:
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh
+      - run: bash tests/scripts/plugin_test.sh

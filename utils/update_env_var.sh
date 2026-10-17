@@ -18,6 +18,11 @@ update_env_var() {
         grep -v "^$key=" "$file" > "$file.tmp" 2>/dev/null || true
         mv "$file.tmp" "$file"
     fi
+    # A hand-edited file without a final newline would otherwise have the key
+    # appended onto its last line, silently corrupting both.
+    if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then
+        printf '\n' >> "$file"
+    fi
     printf '%s=%s\n' "$key" "$value" >> "$file"
 }
 

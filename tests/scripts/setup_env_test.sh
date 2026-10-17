@@ -14,7 +14,7 @@ make_panel() {
     done
     printf '#!/bin/sh\n' >"$PANEL/kustomize"
     chmod +x "$PANEL/kustomize"
-    printf 'REVERSE_PROXY=false\nCLOUDFLARE=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
+    printf 'REVERSE_PROXY=false\nCLOUDFLARE=false\nVAULT_MANAGER=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
     set_env overlays/local-secrets/steam-secrets.env STEAM_WEB_API_KEY test
 }
 
@@ -87,12 +87,30 @@ test_hosts_under_the_web_domain_leave_the_cookie_domain_alone() {
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
 }
 
-test_an_operator_cookie_domain_is_kept() {
+test_an_operator_cookie_domain_that_covers_the_hosts_is_kept() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    set_env overlays/config/api-config.env AUTH_COOKIE_DOMAIN .example.com
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+}
+
+test_a_cookie_domain_left_from_old_hosts_is_replaced() {
     make_panel
     set_sibling_domains
-    set_env overlays/config/api-config.env AUTH_COOKIE_DOMAIN .cs-panel.example.com
+    set_env overlays/config/api-config.env AUTH_COOKIE_DOMAIN .ccentral.xyz
     run_setup_env
-    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.cs-panel.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "(was .ccentral.xyz)"
+}
+
+test_only_a_stream_host_beside_the_web_domain_is_warned_about() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    set_env overlays/config/api-config.env GAME_STREAM_DOMAIN hls-panel.example.com
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "hls-panel.example.com is not under .panel.example.com"
 }
 
 test_hosts_on_another_domain_are_warned_about_instead() {
@@ -101,7 +119,28 @@ test_hosts_on_another_domain_are_warned_about_instead() {
     set_env overlays/config/api-config.env API_DOMAIN api.example.net
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
-    assert_contains "$(cat "$WORK_DIR/setup-output")" "api.example.net is not under panel.example.com"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "api.example.net shares no parent domain with panel.example.com"
+}
+
+test_domain_case_and_trailing_dots_are_ignored() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN Panel.Example.com.
+    set_env overlays/config/api-config.env API_DOMAIN api.panel.example.com
+    set_env overlays/config/api-config.env WS_DOMAIN WS.Panel.Example.com
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "is not under"
+}
+
+test_a_config_without_a_final_newline_keeps_its_last_line() {
+    make_panel
+    set_sibling_domains
+    config="$PANEL/overlays/config/api-config.env"
+    printf '%s' "$(cat "$config")" >"$config.tmp"
+    mv "$config.tmp" "$config"
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env GAME_STREAM_DOMAIN)" "GAME_STREAM_DOMAIN=hls-cs-panel.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
 run_tests

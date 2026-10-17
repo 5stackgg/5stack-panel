@@ -134,6 +134,26 @@ test_a_first_install_does_not_keep_the_example_host() {
     assert_eq "$(plugin_env HELLO_DOMAIN)" "HELLO_DOMAIN=hello.cs-panel.example.com"
 }
 
+# cron, Ansible, ssh without -t: /dev/tty passes -r there but cannot be opened.
+test_a_run_without_a_terminal_counts_as_unattended() {
+    make_panel cs-panel.example.com
+    make_plugin
+    run_plugin --domain hello-cs-panel.example.com
+    # A socket passes -r and cannot be opened, as /dev/tty does with no terminal.
+    python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$WORK_DIR/no-tty"
+    (cd "$WORK_DIR" && PATH="$STUB_BIN:$PATH" PLUGIN_TTY="$WORK_DIR/no-tty" bash "$PANEL/plugin.sh" "$PLUGIN" --dry-run) \
+        >"$WORK_DIR/plugin-output" 2>&1 || fail "plugin.sh exited $?: $(tail -n 20 "$WORK_DIR/plugin-output")"
+    assert_eq "$(plugin_env HELLO_DOMAIN)" "HELLO_DOMAIN=hello-cs-panel.example.com"
+}
+
+test_an_interactive_rerun_says_why_it_offers_another_host() {
+    make_panel cs-panel.example.com
+    make_plugin
+    run_plugin --domain hello-cs-panel.example.com
+    run_plugin_interactively
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "hello-cs-panel.example.com, the current host, is outside"
+}
+
 # A fresh panel has the switch off, and the Add button only appears once it is on.
 test_the_finish_says_to_turn_panel_plugins_on() {
     make_panel cs-panel.example.com

@@ -121,9 +121,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# PLUGIN_TTY: the tests answer from a file.
+# PLUGIN_TTY: the tests answer from a file. Opened, not tested with -r:
+# /dev/tty is mode 0666 even where there is no terminal to open (cron, ssh
+# without -t), and a read that fails there takes every default.
 unattended() {
-    [ "$ASSUME_YES" = true ] || [ ! -r "${PLUGIN_TTY:-/dev/tty}" ]
+    [ "$ASSUME_YES" = true ] || ! { : <"${PLUGIN_TTY:-/dev/tty}"; } 2>/dev/null
 }
 
 ask() {
@@ -453,6 +455,11 @@ if [ -n "$DOMAIN_VAR" ] && [ -n "$DOMAIN_FILE" ]; then
             default_domain="$DOMAIN_PREFIX.$WEB_DOMAIN"
         else
             default_domain="$CURRENT"
+        fi
+        if [ -n "$CURRENT" ] && [ "$CURRENT" != "$SHIPPED" ] && [ "$default_domain" != "$CURRENT" ]; then
+            warn "$CURRENT, the current host, is outside the session cookie's domain"
+            warn "(.$COOKIE_DOMAIN), so signed-in calls from the panel fail there. Moving it"
+            warn "also means DNS for the new host and pressing Detect on it under Panel Plugins."
         fi
         DOMAIN="$(ask "Host for $NAME" "$default_domain")"
     fi

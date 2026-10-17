@@ -5,11 +5,12 @@
 # (api-panel.example.com next to panel.example.com) never receive the cookie,
 # so every login looks like it failed.
 #
-# Only a broken login (the api or ws host outside the cookie domain) is fixed
-# automatically: widening the cookie leaves the old, narrower one shadowing it
-# for anyone already signed in, which is only worth it when login does not work
-# anyway. A demos or hls host outside it is warned about instead. The relay is
-# left out: only game clients fetch it, never with the session.
+# Only a broken login is fixed automatically: the web host (Steam's callback
+# sets the cookie there) or the api or ws host outside the cookie domain.
+# Widening the cookie leaves the old, narrower one shadowing it for anyone
+# already signed in, which is only worth it when login does not work anyway. A
+# demos or hls host outside it is warned about instead. The relay is left out:
+# only game clients fetch it, never with the session.
 ensure_auth_cookie_domain_in_env_file() {
     local env_file=$1
     local web current shared host
@@ -49,9 +50,10 @@ ensure_auth_cookie_domain_in_env_file() {
     done
 }
 
+# kustomize reads env files line by line and drops a trailing \r.
 cookie_host() {
-    local host
-    host=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    local host=${1%$'\r'}
+    host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
     host=${host#.}
     printf '%s' "${host%.}"
 }

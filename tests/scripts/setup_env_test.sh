@@ -95,6 +95,14 @@ test_an_operator_cookie_domain_that_covers_the_hosts_is_kept() {
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
+test_a_cookie_domain_on_a_crlf_line_is_kept() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    printf 'AUTH_COOKIE_DOMAIN=.example.com\r\n' >>"$PANEL/overlays/config/api-config.env"
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" $'AUTH_COOKIE_DOMAIN=.example.com\r'
+}
+
 test_a_cookie_domain_left_from_old_hosts_is_replaced() {
     make_panel
     set_sibling_domains
@@ -139,7 +147,7 @@ test_a_config_without_a_final_newline_keeps_its_last_line() {
     printf '%s' "$(cat "$config")" >"$config.tmp"
     mv "$config.tmp" "$config"
     run_setup_env
-    assert_eq "$(env_lines overlays/config/api-config.env GAME_STREAM_DOMAIN)" "GAME_STREAM_DOMAIN=hls-cs-panel.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env MAIL_FROM)" "MAIL_FROM=hello@cs-panel.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 

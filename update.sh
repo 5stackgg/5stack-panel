@@ -3,15 +3,16 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Ahead of the timescaledb check: on a node left on its old IP (see
+# utils/ensure_node_ip.sh) that check cannot read the volume and stops
+# update.sh, and this is the repair. It only annotates the Node.
+ensure_node_ip
+
 # First, while the cluster is untouched: a PostgreSQL major upgrade that cannot
 # go ahead (no disk, no answer) has to stop update.sh before anything changes.
 if ! plan_timescaledb_major_upgrade; then
     exit 1
 fi
-
-# Also how a panel that game-node-server-setup.sh already moved to Tailscale gets
-# repaired: see utils/ensure_node_ip.sh.
-ensure_node_ip
 
 # Nothing terminates TLS in the cluster in this mode, so any Certificate left
 # over from a previous https install keeps retrying HTTP-01 against a server

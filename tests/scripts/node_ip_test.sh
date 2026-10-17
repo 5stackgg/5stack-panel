@@ -95,4 +95,18 @@ test_a_refused_annotate_is_reported_not_fatal() {
     assert_contains "$(cat "$WORK_DIR/output")" "Could not move node dietpi"
 }
 
+# The timescaledb check cannot read its volume on a node left on its old IP, and
+# stops update.sh; run after it, the repair never ran.
+test_update_repairs_the_node_before_the_timescaledb_check_can_stop_it() {
+    local repair check
+    repair="$(grep -n '^ensure_node_ip$' "$TEST_ROOT/update.sh" | cut -d: -f1)"
+    check="$(grep -n 'plan_timescaledb_major_upgrade' "$TEST_ROOT/update.sh" | head -n 1 | cut -d: -f1)"
+    if [ -z "$repair" ] || [ -z "$check" ]; then
+        fail "update.sh no longer calls both"
+    fi
+    if [ "$repair" -ge "$check" ]; then
+        fail "ensure_node_ip (line $repair) runs after the timescaledb check (line $check)"
+    fi
+}
+
 run_tests

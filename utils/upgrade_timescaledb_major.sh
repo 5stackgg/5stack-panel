@@ -260,7 +260,15 @@ EOF
         timescaledb_kubectl delete pod "$pod" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1
         return 1
     fi
-    output="$(timescaledb_kubectl logs "$pod" -c probe)"
+    # The probe always prints major=, empty or not. Without it the output was
+    # never read (a kubelet the API server cannot reach fails every logs call),
+    # and taking that for an empty volume puts the new major over the old data.
+    if ! output="$(timescaledb_kubectl_stdout logs "$pod" -c probe)" || [[ "$output" != *"major="* ]]; then
+        err "could not read what is on timescaledb-pvc; not upgrading blind"
+        err "an x509 error above right after a node moved to a new IP clears within 5 minutes: re-run ./update.sh then"
+        timescaledb_kubectl delete pod "$pod" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1
+        return 1
+    fi
     TIMESCALEDB_NODE="$(timescaledb_kubectl get pod "$pod" -o jsonpath='{.spec.nodeName}')"
     timescaledb_kubectl delete pod "$pod" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1
 

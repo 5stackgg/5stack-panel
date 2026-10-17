@@ -128,6 +128,22 @@ test_missing_data_dir_is_a_no_op() {
     assert_eq "$TIMESCALEDB_UPGRADE_FROM" ""
 }
 
+# A node whose kubelet the API server cannot reach (x509 after a node-ip move)
+# fails exec and logs alike. An unread probe looked like an empty volume, so the
+# new major's image went on over the old data.
+test_probe_output_that_cannot_be_read_refuses() {
+    setup_upgrade
+    volume_on_17
+    stub_rc pg-version 1
+    stub pg-version ""
+    stub_rc probe 1
+    stub probe ""
+    if plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1; then
+        fail "went ahead without reading the volume"
+    fi
+    assert_contains "$(cat "$STUB_DIR/out")" "could not read what is on timescaledb-pvc"
+}
+
 test_missing_data_dir_next_to_a_kept_cluster_refuses() {
     setup_upgrade
     volume_on_17

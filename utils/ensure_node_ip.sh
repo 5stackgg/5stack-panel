@@ -1,19 +1,22 @@
 #!/bin/bash
 
 # k3s's node-ip moves the kubelet (its serving certificate and the
-# k3s.io/internal-ip annotation) but not the Node's InternalIP. The cloud-node
-# controller only takes an address that matches alpha.kubernetes.io/provided-node-ip,
-# and the kubelet writes that once, when the node first registers. A panel
-# installed on its LAN IP and then moved to Tailscale by
-# game-node-server-setup.sh kept its LAN InternalIP, which its kubelet's
-# certificate no longer covers, so every exec, log stream and metrics scrape of
-# that node failed with x509 errors.
+# k3s.io/internal-ip annotation) but not always the Node's InternalIP. The
+# cloud-node controller only takes an address that matches
+# alpha.kubernetes.io/provided-node-ip, and the kubelet only rewrites that when
+# every --node-ip validates against a local interface; vpn-auth adds the
+# Tailscale IPv6, which a host without IPv6 does not have. A panel installed on
+# its LAN IP and then moved to Tailscale by game-node-server-setup.sh kept its
+# LAN InternalIP, which its kubelet's certificate no longer covers, so every
+# exec, log stream and metrics scrape of that node failed with x509 errors.
 ensure_node_ip() {
     local config="${K3S_CONFIG:-/etc/rancher/k3s/config.yaml}"
-    local attempts="${NODE_IP_ATTEMPTS:-30}"
+    local attempts="${NODE_IP_ATTEMPTS:-15}"
     local want attempt name internal provided
 
-    want=$(sed -n 's/^node-ip:[[:space:]]*//p' "$config" 2>/dev/null | tail -n 1 | tr -d '\r')
+    # k3s takes YAML here: a quoted value, a [list] or a trailing comment. The
+    # multi-line list form leaves nothing on the line and is skipped.
+    want=$(sed -n 's/^node-ip:[[:space:]]*//p' "$config" 2>/dev/null | tail -n 1 | sed 's/#.*//' | tr -d "\r\"'[] \t")
     if [ -z "$want" ]; then
         return 0
     fi
@@ -25,7 +28,8 @@ ensure_node_ip() {
             if [ "${internal%%,*}" != "${want%%,*}" ]; then
                 continue
             fi
-            if [ "$provided" = "$want" ]; then
+            # The kubelet keeps it at the IPv4 and IPv6 both, which is right.
+            if [ "${provided%%,*}" = "${want%%,*}" ]; then
                 return 0
             fi
             if ! kubectl --kubeconfig="$KUBECONFIG" annotate node "$name" "alpha.kubernetes.io/provided-node-ip=$want" --overwrite >/dev/null; then
@@ -39,5 +43,5 @@ ensure_node_ip() {
             sleep 2
         fi
     done
-    warn "No node reports the node-ip $want from $config yet; re-run ./update.sh once k3s is up."
+    warn "No node reports the node-ip $want from $config; if k3s was just restarted, re-run ./update.sh in a minute."
 }

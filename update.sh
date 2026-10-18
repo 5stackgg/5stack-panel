@@ -3,6 +3,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
 
+# Validate the chosen build path and every target image before cluster changes.
+if ! update_source_prepare; then
+    exit 1
+fi
+
 # Ahead of the timescaledb check: on a node left on its old IP (see
 # utils/ensure_node_ip.sh) that check cannot read the volume and stops
 # update.sh, and this is the repair. It only annotates the Node.
@@ -164,6 +169,7 @@ update_timescaledb_extension
 finish_timescaledb_major_upgrade
 
 GIT_SHA=$(git rev-parse HEAD)
+update_source_record_install "$GIT_SHA" || die "failed to record the installed update source"
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite
 

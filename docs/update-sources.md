@@ -23,7 +23,10 @@ active jobs are not replaced. Third-party plugins retain their configured images
 
 Use the commands shown by the settings page from the panel checkout on the host.
 They fetch the selected GitHub repository/ref, check it out, and record its
-provenance before running `./update.sh`. For image-only sources, run `./update.sh`
+provenance before running `./update.sh`. The commands first verify that the
+selected ref contains `utils/update_source.sh`; older panel refs that cannot
+honor the saved policy stop before checkout or apply. Official channels require
+this feature to be merged into their panel ref. For image-only sources, run `./update.sh`
 in the existing compatible checkout. Standard host updates still include the
 panel's database migration and maintenance steps.
 

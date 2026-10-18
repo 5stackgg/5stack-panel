@@ -45,8 +45,9 @@ test_wrong_panel_path_stops_before_registry_or_apply() {
 test_hashed_configmaps_preserve_current_runtime_images() {
     kubectl() {
         case "$*" in
-            *"get deployments"*) jq -n '{items:[{metadata:{name:"api"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/api:testing",envFrom:[{configMapRef:{name:"api-config-hashed"}}]}]}}}},{metadata:{name:"web"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/web:testing"}]}}}},{metadata:{name:"demo-parser"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/demo-parser:testing"}]}}}}]}' ;;
+            *"get deployments"*) jq -n '{items:[{metadata:{name:"api"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/api:testing",envFrom:[{configMapRef:{name:"api-config-hashed"}},{configMapRef:{name:"optional-missing",optional:true}}]}]}}}},{metadata:{name:"web"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/web:testing"}]}}}},{metadata:{name:"demo-parser"},spec:{template:{spec:{containers:[{image:"ghcr.io/example/demo-parser:testing"}]}}}}]}' ;;
             *"get daemonset"*) echo '{"spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/example/connector:testing"}]}}}}' ;;
+            *"get configmap optional-missing"*) ;;
             *"get configmap api-config-hashed"*) echo '{"data":{"GAME_STREAMER_IMAGE":"ghcr.io/example/streamer:testing","SERVER_IMAGE":"ghcr.io/example/server:testing"}}' ;;
             *) fail "unexpected kubectl call: $*" ;;
         esac

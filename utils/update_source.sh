@@ -18,17 +18,22 @@ update_source_validate() {
 }
 
 update_source_current_images() {
-    local deployments connector config config_name configs="[]"
+    local deployments connector config config_name optional configs="[]"
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
     deployments="$(kubectl "${kc[@]}" -n 5stack get deployments api web demo-parser -o json)" || return 1
     connector="$(kubectl "${kc[@]}" -n 5stack get daemonset game-server-node-connector -o json)" || return 1
     # Kustomize hashes generated ConfigMap names. Follow the deployment's actual
     # envFrom order so a preserved installation cannot silently inherit defaults.
-    while IFS= read -r config_name; do
-        config="$(kubectl "${kc[@]}" -n 5stack get configmap "$config_name" -o json)" || return 1
+    while IFS=$'\t' read -r config_name optional; do
+        config="$(kubectl "${kc[@]}" -n 5stack get configmap "$config_name" --ignore-not-found -o json)" || return 1
+        if [ -z "$config" ]; then
+            [ "$optional" = true ] && continue
+            echo "Required API ConfigMap unavailable: $config_name" >&2
+            return 1
+        fi
         configs="$(jq --argjson config "$config" '. + [$config]' <<<"$configs")" || return 1
-    done < <(jq -r '.items[] | select(.metadata.name=="api") | .spec.template.spec.containers[0].envFrom[]?.configMapRef.name // empty' <<<"$deployments")
+    done < <(jq -r '.items[] | select(.metadata.name=="api") | .spec.template.spec.containers[0].envFrom[]? | select(.configMapRef.name != null) | [.configMapRef.name, (.configMapRef.optional // false)] | @tsv' <<<"$deployments")
     config="$(jq '{data: (reduce .[] as $item ({}; . + ($item.data // {})))}' <<<"$configs")" || return 1
     jq -n --argjson ds "$deployments" --argjson connector "$connector" --argjson config "$config" '
       ($ds.items | map(select(.metadata.name == "api"))[0].spec.template.spec.containers[0]) as $api |

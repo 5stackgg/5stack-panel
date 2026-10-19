@@ -10,4 +10,4 @@ Before your first pull request can be merged, you sign the
 request with the one line to post. You sign once per repository.
 
 You keep the copyright in your work. The agreement lets the maintainer
-release 5Stack under its open-source license and also under other terms.
+release 5Stack under its current licenses and also under other terms.

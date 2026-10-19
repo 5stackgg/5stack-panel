@@ -1,8 +1,8 @@
 # 5Stack Contributor License Agreement
 
 Thank you for contributing to 5Stack. This agreement lets the maintainer
-keep releasing 5Stack under its open-source license and also offer it
-under other terms, including commercial licenses. You keep the copyright
+keep releasing 5Stack under its current licenses and also offer it under
+other terms, including commercial licenses. You keep the copyright
 in your work.
 
 **"Maintainer"** means Luke Policinski and anyone to whom he transfers the

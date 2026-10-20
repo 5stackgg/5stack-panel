@@ -1,0 +1,104 @@
+5Stack Panel
+Copyright (C) 2024-2026 Luke Policinski
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License, version 3 only, as
+published by the Free Software Foundation (see LICENSE), together with the
+additional terms below.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+General Public License for more details.
+
+
+ADDITIONAL TERMS (GNU AGPL version 3, section 7)
+
+These terms apply to every copy of this program and to every work based
+on it.
+
+1. Attribution (section 7(b)). Keep this NOTICE file and every copyright
+   notice in the source. Any user interface that displays Appropriate
+   Legal Notices must include the credit "Powered by 5Stack" with a
+   working link to https://5stack.gg. In the 5Stack web panel that credit
+   is on the sign-in page and on the Licenses page (/licenses).
+
+2. Origin (section 7(c)). Do not present a modified version as the
+   official 5Stack, or as made or endorsed by its author, and mark a
+   modified version as changed from the original.
+
+3. Names and marks (section 7(e)). This license grants no right to use
+   the 5Stack name or logo, except to give the credit in term 1 and to
+   describe the origin of the work truthfully.
+
+
+EARLIER VERSIONS
+
+Versions of this repository published before this NOTICE file was added
+were released under the MIT License and remain under it. The
+contributions they contain were made under that license, whose notice
+follows:
+
+    MIT License
+
+    Copyright (c) 2025 5Stack.gg
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be
+    included in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+    LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+    OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+OTHER LICENSING
+
+To use this program under terms other than the license above, contact
+the copyright holder: https://github.com/lukepolo
+
+
+THIRD-PARTY SOFTWARE
+
+overlays/cert-manager-crds/cert-manager.yaml comes from cert-manager
+(https://cert-manager.io), Copyright The cert-manager Authors, Apache
+License 2.0. Its license header is kept in the file.
+
+The backblaze-proxy Cloudflare Worker bundles aws4fetch
+(https://github.com/mhart/aws4fetch):
+
+    Copyright 2018 Michael Hart (michael.hart.au@gmail.com)
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of
+    this software and associated documentation files (the "Software"), to deal in
+    the Software without restriction, including without limitation the rights to
+    use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+    of the Software, and to permit persons to whom the Software is furnished to do
+    so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+The installer deploys third-party software from its publishers' own
+images, each under its own license: K3s, Hasura GraphQL Engine, Redis,
+RustFS, PostgreSQL with TimescaleDB, Typesense, MediaMTX and coturn.
+See https://docs.5stack.gg/install/what-is-installed.

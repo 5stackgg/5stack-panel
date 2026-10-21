@@ -3,11 +3,25 @@
 Pull requests are welcome. Report bugs and request features on the
 [5Stack Panel issue tracker](https://github.com/5stackgg/5stack-panel/issues).
 
-## Contributor License Agreement
+## Contribution terms
 
-Before your first pull request can be merged, you sign the
-[Contributor License Agreement](CLA.md). A bot comments on the pull
-request with the one line to post. You sign once per repository.
+By submitting a pull request, patch or any other contribution to this
+repository, you agree to these terms:
 
-You keep the copyright in your work. The agreement lets the maintainer
-release 5Stack under its current licenses and also under other terms.
+1. **License to the maintainer.** You grant Luke Policinski, and anyone he
+   transfers the 5Stack project to, a perpetual, worldwide, non-exclusive,
+   no-charge, royalty-free, irrevocable license to use, copy, modify,
+   sublicense and distribute your contribution under any terms, including
+   proprietary and commercial licenses.
+2. **Patent license.** You grant the same people, and everyone who receives
+   5Stack from them, a matching license to any of your patent claims that
+   your contribution, alone or combined with 5Stack, would infringe.
+3. **You keep your copyright.** You can still use your contribution however
+   you like.
+4. **It is yours to give.** You wrote the contribution, or you have the
+   right to submit it under these terms, including your employer's
+   permission where your employer has rights in your work.
+5. **No warranty.** Your contribution is provided "as is", and nobody has to
+   use it.
+
+If you do not agree to these terms, do not submit a contribution.

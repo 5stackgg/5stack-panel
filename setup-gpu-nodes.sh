@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Sets up the game-streaming feature: prompts for which cluster nodes have
-# NVIDIA GPUs, labels them `nvidia-gpu=true`, and deploys MediaMTX (the SRT/HLS
-# publish target). Production streamer pods are spawned per-match by the
-# 5stack API on nodes carrying that label.
+# Sets up GPU nodes: prompts for which cluster nodes have NVIDIA GPUs, labels
+# them `nvidia-gpu=true`, and runs update.sh, which deploys the NVIDIA device
+# plugin once GPU_VENDOR=nvidia. Render pods for live streams, demo playback
+# and highlights are spawned by the 5stack API on nodes carrying that label.
 #
 # NVIDIA-only today. AMD (issue #467) and Intel (issue #468) are tracked but
 # not yet supported.
@@ -22,7 +22,7 @@ case "$PREVIOUS_GPU_VENDOR" in
 esac
 
 interactive_menu VENDOR_INDEX \
-    "Which GPU vendor will the streamer nodes use?" \
+    "Which GPU vendor do your GPU nodes use?" \
     $((DEFAULT_VENDOR_CHOICE - 1)) \
     "NVIDIA" \
     "AMD (not yet supported)" \
@@ -33,13 +33,13 @@ case "$VENDOR_INDEX" in
     1)
         err "AMD GPUs are not supported yet."
         err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/467"
-        err "  Docs:           https://docs.5stack.gg/advanced/game-streaming/amd"
+        err "  Docs:           https://docs.5stack.gg/servers/gpu-nodes/amd"
         exit 1
         ;;
     2)
         err "Intel GPUs are not supported yet."
         err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/468"
-        err "  Docs:           https://docs.5stack.gg/advanced/game-streaming/intel"
+        err "  Docs:           https://docs.5stack.gg/servers/gpu-nodes/intel"
         exit 1
         ;;
 esac
@@ -82,7 +82,7 @@ update_env_var ".5stack-env.config" "GPU_VENDOR" "$GPU_VENDOR"
 update_env_var ".5stack-env.config" "GPU_NODES" "\"$GPU_NODES\""
 
 if [ -z "$GPU_NODES" ]; then
-    err "no GPU nodes selected; the streamer cannot run without a GPU node."
+    err "no GPU nodes selected; rendering cannot run without a GPU node."
     exit 1
 fi
 
@@ -95,7 +95,7 @@ STEAM_PASSWORD_CURRENT=$(grep -h "^STEAM_PASSWORD=" "$STEAM_SECRETS_FILE" | cut 
 
 if [ -z "$STEAM_USER_CURRENT" ] || [ -z "$STEAM_PASSWORD_CURRENT" ]; then
     echo
-    echo "Steam credentials are required for the streamer to download CS2."
+    echo "Steam credentials are required for the render pods to download CS2."
     warn "This account must NOT have Steam Guard / 2FA enabled."
     warn "  steamcmd cannot prompt for an auth code; the streamer will hang."
     warn "  Use a dedicated Steam account with 2FA disabled."
@@ -150,4 +150,4 @@ fi
 
 source "$REPO_DIR/update.sh" "$@"
 
-banner "Game Streamer : Updated"
+banner "GPU Nodes : Updated"

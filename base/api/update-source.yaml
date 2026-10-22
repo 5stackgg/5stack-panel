@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: 5stack-update-source
+  namespace: 5stack
+# No initial data: later kubectl apply must preserve the operator's selected
+# profile.json and the host updater's installed.json.

@@ -94,6 +94,13 @@ spec:
                 name: api
                 port:
                   number: 5585
+            path: /system/update-source
+            pathType: Exact
+          - backend:
+              service:
+                name: api
+                port:
+                  number: 5585
             path: /system/logs/download
             pathType: Exact
           - backend:

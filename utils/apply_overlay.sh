@@ -125,6 +125,14 @@ apply_overlay() {
         return 1
     fi
 
+    # Source preferences are persisted outside generated overlays.
+    if declare -F update_source_render >/dev/null; then
+        if ! update_source_render "$rendered"; then
+            err "failed to apply the selected update-source image references"
+            return 1
+        fi
+    fi
+
     for ((attempt = 1; attempt <= attempts; attempt++)); do
         if output="$(kubectl "${kc[@]}" apply -f "$rendered" 2>&1)"; then
             if [ "$DEBUG" = true ]; then

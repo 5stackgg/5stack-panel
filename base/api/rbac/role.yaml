@@ -97,3 +97,11 @@ rules:
       - watch
       - patch
       - delete
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [5stack-update-source]
+    verbs: [get, patch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    resourceNames: [game-server-node-connector, game-server-node-connector-nvidia]
+    verbs: [get]

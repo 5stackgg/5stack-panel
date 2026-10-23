@@ -29,7 +29,7 @@ spec:
                   - "true"
       containers:
       - name: redis
-        image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+        image: redis:8.10.2-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
         resources:
           requests:
             memory: "128Mi"

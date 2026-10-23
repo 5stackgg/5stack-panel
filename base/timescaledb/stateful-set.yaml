@@ -43,6 +43,13 @@ spec:
             - pg_stat_statements.max=10000
             - '-c'
             - pg_stat_statements.track=all
+            # Planning time per statement; it is otherwise invisible, and on
+            # busy panels a large share of the CPU goes to planning.
+            - '-c'
+            - pg_stat_statements.track_planning=on
+            # Disk wait per statement, so the rest of its time reads as CPU.
+            - '-c'
+            - track_io_timing=on
             - '-c'
             - fivestack.app_key=$(APP_KEY)
           ports:

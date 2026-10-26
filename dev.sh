@@ -1,6 +1,8 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# setup-env.sh shifts every argument away while utils.sh is sourced
+DEV_ARGS=("$@")
 source "$SCRIPT_DIR/utils/utils.sh"
 
 cleanup() {
@@ -79,5 +81,9 @@ if ! plan_timescaledb_major_upgrade || ! upgrade_timescaledb_major; then
     exit 1
 fi
 forget_timescaledb_major_upgrade
+
+DEV_GAME_SERVER="$(dev_game_server "${DEV_ARGS[@]}")"
+export DEV_GAME_SERVER
+echo "Game servers: $DEV_GAME_SERVER (choose with --simulator or --cs2; SIM_SPEED sets the simulator's pace)"
 
 tilt up

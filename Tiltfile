@@ -1,6 +1,43 @@
 allow_k8s_contexts('default')
 
-k8s_yaml(kustomize("./overlays/dev", kustomize_bin="./kustomize"))
+dev_yaml = kustomize("./overlays/dev", kustomize_bin="./kustomize")
+
+# CS2 or the simulated game server, as dev.sh chose (utils/dev_game_server.sh).
+# The simulator is built from ../game-server, and Tilt swaps the api's
+# SERVER_IMAGE for the image it pushed, so every match server the api launches
+# is the simulator.
+game_server = str(local('bash -c "source utils/dev_game_server.sh && dev_game_server"', quiet=True)).strip()
+
+if game_server == 'simulator':
+    SIMULATOR_IMAGE = 'ghcr.io/5stackgg/game-server-sim'
+
+    docker_build(
+        SIMULATOR_IMAGE,
+        '../game-server',
+        dockerfile='../game-server/apps/simulator/Dockerfile',
+        only=[
+            'Directory.Build.props',
+            'shared/dotnet/FiveStack.Entities',
+            'shared/dotnet/FiveStack.Enums',
+            'apps/simulator',
+        ],
+        # game seconds per real second; ./dev.sh plays a map in about 1.5
+        # minutes, SIM_SPEED=1 at CS2's own pace
+        build_args={'SIM_SPEED': os.getenv('SIM_SPEED', '')},
+        match_in_env_vars=True,
+    )
+
+    objects = decode_yaml_stream(dev_yaml)
+    for o in objects:
+        if o['kind'] == 'Deployment' and o['metadata']['name'] == 'api':
+            for container in o['spec']['template']['spec']['containers']:
+                if container['name'] == 'api':
+                    container['env'] = container.get('env', []) + [
+                        {'name': 'SERVER_IMAGE', 'value': SIMULATOR_IMAGE},
+                    ]
+    dev_yaml = encode_yaml_stream(objects)
+
+k8s_yaml(dev_yaml)
 
 docker_build(
     "ghcr.io/5stackgg/api:latest",

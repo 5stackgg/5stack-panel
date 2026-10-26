@@ -80,4 +80,8 @@ if ! plan_timescaledb_major_upgrade || ! upgrade_timescaledb_major; then
 fi
 forget_timescaledb_major_upgrade
 
+DEV_GAME_SERVER="$(dev_game_server "$@")"
+export DEV_GAME_SERVER
+echo "Game servers: $DEV_GAME_SERVER (choose with --simulator or --cs2; SIM_SPEED sets the simulator's pace)"
+
 tilt up

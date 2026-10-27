@@ -513,8 +513,6 @@ if [ -n "$DB_VAR" ] && [ -n "$DB_FILE" ]; then
         if [ -n "$secret" ]; then
             DB_URL="$(kubectl -n 5stack get "$secret" \
                 -o jsonpath='{.data.POSTGRES_CONNECTION_STRING}' 2>/dev/null | base64 -d || true)"
-            # The plan setting is for Hasura's connections only.
-            DB_URL="${DB_URL%\?options=-c%20plan_cache_mode%3Dforce_generic_plan}"
         fi
         if [ -n "$DB_URL" ]; then
             # Copied, not referenced: that secret's name carries a kustomize

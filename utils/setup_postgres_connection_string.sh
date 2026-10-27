@@ -11,10 +11,7 @@ setup_postgres_connection_string() {
     POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" "$secrets_file" | cut -d '=' -f2-)
     
     if [ "$POSTGRES_PASSWORD" != "VAULT" ] && [ -n "$POSTGRES_PASSWORD" ]; then
-        # Hasura's connection: it prepares its statements, and a generic plan
-        # gets each planned once per connection instead of on every
-        # subscription poll (half of Postgres's CPU in the api's load lab).
-        POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura?options=-c%20plan_cache_mode%3Dforce_generic_plan"
+        POSTGRES_CONNECTION_STRING="postgres://hasura:$POSTGRES_PASSWORD@timescaledb:5432/hasura"
         if grep -q "^POSTGRES_CONNECTION_STRING=" "$secrets_file"; then
             update_env_var "$secrets_file" "POSTGRES_CONNECTION_STRING" "$POSTGRES_CONNECTION_STRING"
         else

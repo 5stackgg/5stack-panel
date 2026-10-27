@@ -97,11 +97,17 @@ spec:
               value: "false"
             - name: HASURA_GRAPHQL_METADATA_DIR
               value: /app/hasura/metadata
-            - name: HASURA_GRAPHQL_DATABASE_URL
+            - name: POSTGRES_CONNECTION_STRING
               valueFrom:
                 secretKeyRef:
                   name: timescaledb-secrets
                   key: POSTGRES_CONNECTION_STRING
+            # Hasura prepares its statements, and a generic plan gets each one
+            # planned once per connection instead of on every subscription poll
+            # (half of Postgres's CPU in the api's load lab). Set here, for
+            # Hasura's connections only, whether the secret comes from Vault or not.
+            - name: HASURA_GRAPHQL_DATABASE_URL
+              value: "$(POSTGRES_CONNECTION_STRING)?options=-c%20plan_cache_mode%3Dforce_generic_plan"
           volumeMounts:
             - mountPath: /app
               name: workdir

@@ -350,6 +350,7 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/push-secrets.env" "kv/push"
     migrate_secrets_to_vault "overlays/local-secrets/steam-secrets.env" "kv/steam"
     migrate_secrets_to_vault "overlays/local-secrets/timescaledb-secrets.env" "kv/timescaledb"
+    ensure_vault_postgres_connection_options
     migrate_secrets_to_vault "overlays/local-secrets/typesense-secrets.env" "kv/typesense"
     migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale"
     migrate_secrets_to_vault "overlays/local-secrets/s3-secrets.env" "kv/s3"

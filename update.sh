@@ -151,10 +151,6 @@ if [ "$VAULT_MANAGER" = true ]; then
     if ! resync_vault_secrets; then
         exit 1
     fi
-    if [ "$RESTART_HASURA_AFTER_SECRETS" = true ]; then
-        kubectl --kubeconfig=$KUBECONFIG -n 5stack rollout restart deployment/hasura >/dev/null 2>&1
-        ok "hasura restarted on its new connection string"
-    fi
 fi
 
 step "Recycling stateful workloads"

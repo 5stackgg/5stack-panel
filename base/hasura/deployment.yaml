@@ -34,7 +34,7 @@ spec:
                 values:
                   - "true"
       containers:
-        - image: hasura/graphql-engine:v2.50.5-ce.cli-migrations-v3@sha256:4955dba48e3c1a814cfaaf1951219f23661dcd846c00be04c4fc54949069d34d
+        - image: hasura/graphql-engine:v2.51.3-ce.cli-migrations-v3@sha256:fc93e226608dcd44fa57968d74f8ed1854d7075825d1f8655fa0c9f2a6a9846d
           name: hasura
           resources:
             requests:

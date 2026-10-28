@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: server-creator-upgrades
+  namespace: system-upgrade
+subjects:
+- kind: ServiceAccount
+  name: server-creator
+  namespace: 5stack
+roleRef:
+  kind: Role
+  name: server-creator-upgrades
+  apiGroup: rbac.authorization.k8s.io

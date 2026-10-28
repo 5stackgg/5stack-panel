@@ -14,6 +14,8 @@ on:
       - base/api/deployment.yaml
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
+      - base/kustomization.yaml
+      - "base/system-upgrade/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -27,6 +29,8 @@ on:
       - base/api/deployment.yaml
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
+      - base/kustomization.yaml
+      - "base/system-upgrade/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -38,6 +42,7 @@ jobs:
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh
+      - run: bash tests/scripts/system_upgrade_test.sh
       - run: bash tests/scripts/plugin_test.sh
       - run: bash tests/scripts/node_ip_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh

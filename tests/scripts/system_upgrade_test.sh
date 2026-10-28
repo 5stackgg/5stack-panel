@@ -25,9 +25,12 @@ test_the_api_can_manage_plans() {
     assert_contains "$role" "namespace: system-upgrade"
     assert_contains "$role" "'upgrade.cattle.io'"
     assert_contains "$role" "- plans"
+    for verb in create get list delete; do
+        assert_contains "$role" "- $verb"
+    done
     binding="$(cat "$TEST_ROOT/base/system-upgrade/api-role-binding.yaml")"
-    assert_contains "$binding" "name: server-creator"
-    assert_contains "$binding" "namespace: 5stack"
+    grep -qx '  name: server-creator' <<<"$binding" || fail "the binding's subject is not server-creator"
+    grep -qx '  namespace: 5stack' <<<"$binding" || fail "the binding's subject is not in the 5stack namespace"
 }
 
 # Bumping the controller means replacing both files with a release's assets

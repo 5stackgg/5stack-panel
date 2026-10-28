@@ -151,4 +151,14 @@ test_a_config_without_a_final_newline_keeps_its_last_line() {
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
+test_custom_ports_move_from_nginx_config_env_to_traefik_config_env() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    printf 'HTTP_PORT=8080\nHTTPS_PORT=8443\n' >"$PANEL/overlays/config/nginx-config.env"
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/traefik-config.env HTTP_PORT)" "HTTP_PORT=8080"
+    assert_eq "$(env_lines overlays/config/traefik-config.env HTTPS_PORT)" "HTTPS_PORT=8443"
+    [ ! -e "$PANEL/overlays/config/nginx-config.env" ] || fail "nginx-config.env was left behind"
+}
+
 run_tests

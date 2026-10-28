@@ -79,7 +79,8 @@ chart_archive() {
     if tar --version 2>/dev/null | grep -q GNU; then
         tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='.*' -cf - -C "$parent" "$name" | gzip -n
     else
-        tar --exclude='.*' -cf - -C "$parent" "$name" | gzip -n
+        # macOS tar otherwise adds ._ AppleDouble entries, which Helm rejects.
+        COPYFILE_DISABLE=1 tar --exclude='.*' -cf - -C "$parent" "$name" | gzip -n
     fi
 }
 
@@ -136,8 +137,8 @@ install_helm_chart() {
     echo "Waiting for helm-controller to apply $name..."
     deadline=$((SECONDS + 600))
     while true; do
-        IFS=$'\t' read -r uid complete failed < <(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system \
-            -o jsonpath='{.metadata.uid}{"\t"}{.status.conditions[?(@.type=="Complete")].status}{"\t"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}' 2>/dev/null)
+        IFS='|' read -r uid complete failed < <(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system \
+            -o jsonpath='{.metadata.uid}{"|"}{.status.conditions[?(@.type=="Complete")].status}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}' 2>/dev/null)
         if [ -n "$uid" ] && [ "$uid" != "$old_uid" ]; then
             if [ "$complete" = "True" ]; then
                 return 0

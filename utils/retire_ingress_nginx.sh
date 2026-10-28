@@ -23,6 +23,13 @@ retire_ingress_nginx() {
     output_redirect kubectl "${kc[@]}" delete validatingwebhookconfiguration ingress-nginx-admission --ignore-not-found
 
     if kubectl "${kc[@]}" get service ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1; then
+        # Not before Traefik has taken up the panel's routes, or it would be
+        # handed the ports with nothing to serve on them.
+        if ! output_redirect kubectl "${kc[@]}" wait httproute/api -n 5stack --timeout=120s \
+            --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'=True; then
+            err "Traefik has not accepted the panel's routes; ingress-nginx is left serving"
+            return 1
+        fi
         echo "Moving ports 80/443 from ingress-nginx to Traefik..."
         output_redirect kubectl "${kc[@]}" delete service ingress-nginx-controller -n ingress-nginx --wait=true
     fi

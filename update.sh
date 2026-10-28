@@ -23,6 +23,8 @@ if [ "$REVERSE_PROXY" = true ]; then
     for CERT in 5stack-ssl 5stack-mediamtx-ssl; do
         kubectl --kubeconfig=$KUBECONFIG delete certificate "$CERT" -n 5stack 2>/dev/null
     done
+    # Behind a proxy that already terminated TLS, this would loop forever.
+    kubectl --kubeconfig=$KUBECONFIG delete httproute https-redirect -n 5stack 2>/dev/null
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then

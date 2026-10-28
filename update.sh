@@ -139,6 +139,10 @@ fi
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
+# install.sh does this when it installs ingress-nginx; installs from before
+# that only get it here. See utils/install_ingress_nginx.sh.
+allow_ingress_nginx_signals || warn "could not let the ingress-nginx controller reload nginx; on Ubuntu 26.04 it will not become Ready"
+
 # Strictly after the apply: it is the apply that removes the cert-manager.io/issuer
 # annotation from the ingresses, and until that lands ingress-shim recreates an
 # Ingress-owned Certificate as fast as we can let go of one.

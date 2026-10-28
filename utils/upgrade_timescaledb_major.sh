@@ -487,9 +487,13 @@ EOF
 
 # The same requests as the StatefulSet, whose pod is gone while this runs: the
 # node has room for them, and they keep the Job off the top of the eviction
-# and OOM lists.
+# and OOM lists. Unconfined for the same reason as the StatefulSet: pg_ctl
+# stops the servers it starts with a signal.
 timescaledb_upgrade_container_tail() {
     cat <<EOF
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
           resources:
             requests:
               memory: "512Mi"

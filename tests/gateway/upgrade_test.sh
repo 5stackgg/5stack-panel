@@ -29,6 +29,7 @@ install_ingress_nginx() {
     echo "$INGRESS_NGINX_SHA256  $WORK_DIR/ingress-nginx.yaml" | shasum -a 256 -c - >/dev/null || return 1
     kubectl apply -f "$WORK_DIR/ingress-nginx.yaml" >/dev/null || return 1
     kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s >/dev/null || return 1
+    kubectl create namespace 5stack >/dev/null || return 1
     apply_with_retries "$HERE/fixtures/ingress-nginx-panel.yaml"
 }
 

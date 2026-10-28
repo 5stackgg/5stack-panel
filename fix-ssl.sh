@@ -28,7 +28,7 @@ while IFS=$'\t' read -r NAME STATUS _; do
         continue
     fi
     warn "$NAME is not valid, requesting a new certificate"
-    # The Secret is intentionally kept: nginx keeps serving whatever it has
+    # The Secret is intentionally kept: Traefik keeps serving whatever it has
     # while the replacement is issued.
     output_redirect kubectl --kubeconfig=$KUBECONFIG delete certificate "$NAME" -n 5stack
 

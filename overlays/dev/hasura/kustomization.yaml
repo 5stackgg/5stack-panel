@@ -4,4 +4,4 @@ kind: Kustomization
 namespace: 5stack
 
 resources:
-  - ingress.yaml
+  - httproute.yaml

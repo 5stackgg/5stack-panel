@@ -38,7 +38,7 @@ if [ -z "$KUBECONFIG" ]; then
     KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 fi
 # Exported so the calls that don't pass --kubeconfig explicitly (install.sh,
-# install_ingress_nginx) talk to the same cluster as the ones that do.
+# install_traefik) talk to the same cluster as the ones that do.
 export KUBECONFIG
 
 setup_kustomize
@@ -224,6 +224,11 @@ if [ -d "base/properties" ]; then
     echo "base/properties directory found, moving to overlays/config"
     mv base/properties/* overlays/config
     rm -rf base/properties
+fi
+
+# The ports file was nginx-config.env while ingress-nginx served the panel.
+if [ -f overlays/config/nginx-config.env ] && [ ! -f overlays/config/traefik-config.env ]; then
+    mv overlays/config/nginx-config.env overlays/config/traefik-config.env
 fi
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"

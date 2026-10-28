@@ -1,0 +1,173 @@
+# An allowlist: a path not listed here is a 404 at the gateway and never
+# reaches the api. Exact and PathPrefix are deliberate, path by path.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: api
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /me
+        - path:
+            type: PathPrefix
+            value: /matches
+        - path:
+            type: PathPrefix
+            value: /twitch
+        - path:
+            type: PathPrefix
+            value: /game-server-node/script
+        - path:
+            type: PathPrefix
+            value: /game-server-node/ping
+        - path:
+            type: PathPrefix
+            value: /avatars
+        - path:
+            type: PathPrefix
+            value: /trophies
+        - path:
+            type: Exact
+            value: /system/healthz
+        - path:
+            type: Exact
+            value: /system/logs/download
+        - path:
+            type: PathPrefix
+            value: /branding
+        - path:
+            type: PathPrefix
+            value: /news
+        - path:
+            type: PathPrefix
+            value: /utility
+        - path:
+            type: PathPrefix
+            value: /custom-pages
+        - path:
+            type: PathPrefix
+            value: /plugins
+        # Broadcast HUD bundles. The game-streamer pod fetches these
+        # in-cluster and never touches the gateway, but the panel's import and
+        # delete come from a browser, and an OBS browser source may load one
+        # directly -- both of which arrive here.
+        - path:
+            type: PathPrefix
+            value: /huds
+        - path:
+            type: PathPrefix
+            value: /events/media
+        - path:
+            type: PathPrefix
+            value: /snapshots
+        - path:
+            type: PathPrefix
+            value: /steam-match-history/upload
+        - path:
+            type: PathPrefix
+            value: /clip-views
+        - path:
+            type: PathPrefix
+            value: /voice
+        - path:
+            type: PathPrefix
+            value: /notifications
+        - path:
+            type: PathPrefix
+            value: /chat
+        # The Player Management plugin's sanction sync, which doubles as the
+        # heartbeat the panel reads to show it as active.
+        - path:
+            type: PathPrefix
+            value: /sanctions/server
+        - path:
+            type: PathPrefix
+            value: /file-manager
+      backendRefs:
+        - name: api
+          port: 5585
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+        - path:
+            type: PathPrefix
+            value: /v1alpha1
+        - path:
+            type: PathPrefix
+            value: /v2
+      backendRefs:
+        - name: hasura
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-web
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: web
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /auth
+        - path:
+            type: PathPrefix
+            value: /extension
+        - path:
+            type: Exact
+            value: /telemetry
+        - path:
+            type: Exact
+            value: /discord-invite
+        - path:
+            type: Exact
+            value: /discord-bot
+        - path:
+            type: PathPrefix
+            value: /calendar
+        - path:
+            type: Exact
+            value: /quick-connect
+      backendRefs:
+        - name: api
+          port: 5585
+---
+# Browsers PUT 64 MiB multipart parts to /5stack through presigned URLs, so the
+# Host header and the path must reach RustFS exactly as signed: no rewrite.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: demos
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: demos
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /demos
+        - path:
+            type: PathPrefix
+            value: /clips
+      backendRefs:
+        - name: api
+          port: 5585
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /5stack
+      backendRefs:
+        - name: rustfs
+          port: 9000

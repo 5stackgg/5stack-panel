@@ -61,20 +61,11 @@ DROPIN
 systemctl daemon-reload
 ok "drop-ins installed"
 
-step "Installing Ingress Nginx (this may take a few minutes)"
-# Two failure modes, told apart by the exit code. Exit 2 is the admission
-# webhook still being slow: the wait exists to avoid a race, apply_overlay
-# retries webhook failures anyway, and a false negative here must not block an
-# install that would otherwise succeed. Exit 1 means the manifest never applied
-# or the controller never came up, and there is no ingress layer at all -- every
-# ingress in the overlay would be rejected, so stop here rather than a minute
-# later with a message that no longer names ingress-nginx as the cause.
-install_ingress_nginx true
-case $? in
-    0) ok "ingress-nginx installed" ;;
-    2) warn "ingress-nginx admission webhook is not answering yet; continuing" ;;
-    *) die "ingress-nginx install failed" ;;
-esac
+# Also what holds the node labels below back until k3s has registered its
+# node: Traefik is not Ready before it is scheduled on one.
+step "Installing Traefik (this may take a few minutes)"
+install_traefik || die "Traefik install failed"
+ok "Traefik installed"
 
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true
 

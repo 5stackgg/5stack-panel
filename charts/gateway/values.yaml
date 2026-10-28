@@ -1,0 +1,77 @@
+traefik:
+  image:
+    digest: sha256:1336e85aaed293bd63d005086e0dd013b04078b26aaeb1c18b26a2f928af7e65
+  # The digest hides the version from the chart's version checks.
+  versionOverride: v3.7.16
+  fullnameOverride: traefik
+
+  global:
+    checkNewVersion: false
+    sendAnonymousUsage: false
+
+  api:
+    dashboard: false
+
+  gatewayClass:
+    enabled: true
+    name: traefik
+
+  # The shared listener: plain HTTP on every hostname, open to routes from any
+  # namespace. Hostname and HTTPS listeners belong on a Gateway of their own.
+  gateway:
+    enabled: true
+    listeners:
+      web:
+        port: 8000
+        protocol: HTTP
+        namespacePolicy:
+          from: All
+
+  # For cert-manager's HTTP-01 solver Ingresses. Not the default class, so an
+  # Ingress without one stays unserved, as it was under ingress-nginx.
+  ingressClass:
+    enabled: true
+    isDefaultClass: false
+    name: traefik
+
+  providers:
+    kubernetesCRD:
+      enabled: true
+    kubernetesGateway:
+      enabled: true
+    kubernetesIngress:
+      enabled: true
+      ingressClass: traefik
+    # Serves nginx-class Ingresses with their annotations, for apps not yet on
+    # the Gateway API. With snippets off, an Ingress carrying one is dropped
+    # whole; on, Traefik runs only its small directive subset.
+    kubernetesIngressNGINX:
+      enabled: true
+      ingressClass: nginx
+      publishService:
+        enabled: true
+      allowSnippetAnnotations: true
+
+  # Traefik v3 cuts any request still being read after 60s, which kills long
+  # uploads, streams and websockets.
+  ports:
+    web:
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+    websecure:
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+
+  service:
+    spec:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 90Mi

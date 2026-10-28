@@ -1,0 +1,46 @@
+# One listener per 5Stack host, which its routes attach to by sectionName and
+# inherit the hostname from. These are the plain-HTTP listeners of a
+# REVERSE_PROXY install; overlays/http/gateway-https-patch.yaml turns them into
+# HTTPS ones. Ports are Traefik's entrypoints (charts/gateway), not the node's:
+# HTTP_PORT and HTTPS_PORT only move the LoadBalancer Service. The listener for
+# every other host is on the chart's shared Gateway, traefik/traefik-gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: 5stack
+  namespace: 5stack
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: web
+      hostname: ${WEB_DOMAIN}
+      protocol: HTTP
+      port: 8000
+    - name: api
+      hostname: ${API_DOMAIN}
+      protocol: HTTP
+      port: 8000
+    - name: demos
+      hostname: ${DEMOS_DOMAIN}
+      protocol: HTTP
+      port: 8000
+    - name: ws
+      hostname: ${WS_DOMAIN}
+      protocol: HTTP
+      port: 8000
+    - name: relay
+      hostname: ${RELAY_DOMAIN}
+      protocol: HTTP
+      port: 8000
+    - name: typesense
+      hostname: ${TYPESENSE_HOST}
+      protocol: HTTP
+      port: 8000
+    - name: s3-console
+      hostname: ${S3_CONSOLE_HOST}
+      protocol: HTTP
+      port: 8000
+    - name: game-stream
+      hostname: ${GAME_STREAM_DOMAIN}
+      protocol: HTTP
+      port: 8000

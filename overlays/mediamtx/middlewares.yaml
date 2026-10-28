@@ -1,0 +1,66 @@
+# Traefik middlewares used as HTTPRoute ExtensionRef filters, each one where
+# the Gateway API has no equivalent: Traefik 3.7 does not implement the
+# standard CORS filter (it fails the whole rule with a 500), and forward-auth
+# and capture-group rewrites are not in the standard at all.
+#
+# Credentialed CORS: the browser sends the session cookie on the WHEP fetch,
+# so the origin can't be "*" and credentials must be allowed.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mediamtx-cors
+  namespace: 5stack
+spec:
+  headers:
+    accessControlAllowOriginList:
+      - https://${WEB_DOMAIN}
+    accessControlAllowCredentials: true
+    accessControlAllowMethods: [GET, POST, OPTIONS, PATCH, DELETE]
+    accessControlAllowHeaders: [Content-Type, Accept, Authorization, If-Match]
+    # The WHEP answer's Location is the session URL trickle ICE PATCHes to.
+    accessControlExposeHeaders: [Location]
+    addVaryHeader: true
+---
+# Require login to watch: every stream request is authorized by the API,
+# which enforces public.require_login_for_live_streams (logged in, and not a
+# player/coach of the live match -- anti-cheat). The api caches an allow for
+# 30s itself; Traefik caches nothing.
+#
+# Only the cookie is forwarded, and Traefik writes X-Forwarded-Method and
+# X-Forwarded-Uri itself: were a client's own copies to reach the api, a GET
+# sent with X-Forwarded-Method: OPTIONS would pass as a preflight. The auth
+# call stays a GET whatever the request's method, since /streams/authorize
+# only answers GET.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mediamtx-auth
+  namespace: 5stack
+spec:
+  forwardAuth:
+    address: http://api.5stack.svc.cluster.local:5585/streams/authorize
+    authRequestHeaders: [Cookie]
+    trustForwardHeader: false
+    preserveRequestMethod: false
+    maxResponseBodySize: 65536
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: snapshot-cors
+  namespace: 5stack
+spec:
+  headers:
+    accessControlAllowOriginList: ["*"]
+    accessControlAllowMethods: [GET, OPTIONS]
+    accessControlAllowHeaders: [Content-Type, Accept, If-None-Match]
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: snapshot-rewrite
+  namespace: 5stack
+spec:
+  replacePathRegex:
+    regex: ^/snapshot/(.+)$
+    replacement: /game-streamer/$1/snapshot

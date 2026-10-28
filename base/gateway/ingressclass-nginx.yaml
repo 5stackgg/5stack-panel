@@ -1,0 +1,8 @@
+# Served by Traefik's ingress-nginx provider, so plugins and other apps that
+# still ship nginx-class Ingresses keep their routes and annotations.
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx
+spec:
+  controller: k8s.io/ingress-nginx

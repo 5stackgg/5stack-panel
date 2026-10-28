@@ -1,0 +1,85 @@
+# Traefik matches RegularExpression paths unanchored, so every pattern carries
+# its own ^ and $. The two never match the same URL, and neither matches
+# /snapshot/<id> on the same host.
+#
+# Filter order is load bearing: CORS answers a preflight itself, and a
+# preflight carries no cookie, so it must never reach the forward-auth.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mediamtx
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: game-stream
+  rules:
+    # WHEP/WHIP, and the session URL trickle ICE PATCHes to.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/[^/]+/(whep|whip)(/[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-auth
+      backendRefs:
+        - name: mediamtx
+          port: 8889
+    # HLS: the player page (/<stream>/) and its files.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/[^/]+/([^/]+\.[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-auth
+      backendRefs:
+        - name: mediamtx
+          port: 8888
+---
+# The standard URLRewrite cannot carry a capture into the new path, hence
+# ReplacePathRegex.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: snapshot
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: game-stream
+  rules:
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/snapshot/.+$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: snapshot-cors
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: snapshot-rewrite
+      backendRefs:
+        - name: api
+          port: 5585

@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: server-creator-upgrades
+  namespace: system-upgrade
+rules:
+  - apiGroups:
+      - 'upgrade.cattle.io'
+    resources:
+      - plans
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - patch
+      - delete
+  - apiGroups:
+      - 'batch'
+    resources:
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - list

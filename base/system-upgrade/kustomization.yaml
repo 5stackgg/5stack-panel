@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# rancher/system-upgrade-controller v0.20.2 release assets, unmodified. No Plan
+# ships here: the api creates one only when an admin runs or schedules a k3s update.
+resources:
+  - crd.yaml
+  - system-upgrade-controller.yaml
+  - api-role.yaml
+  - api-role-binding.yaml

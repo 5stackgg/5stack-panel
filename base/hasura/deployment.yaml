@@ -67,11 +67,14 @@ spec:
             - secretRef:
                 name: hasura-secrets  
           env:
-            # Hasura's runtime threads; its own default is one per core. Polling
-            # subscriptions comes in bursts: with 2, 1,000 users in the api's
-            # load lab waited 6.4 s (p95) for first data, 1.2 s with 4.
+            # Hasura's runtime threads and allocation area; its own defaults are
+            # one thread per core and 4 MB. Polling subscriptions comes in
+            # bursts: with 2 threads, 1,000 users in the api's load lab waited
+            # 6.4 s (p95) for first data, 1.2 s with 4. Every time a thread's
+            # area fills, all of them stop to collect: at 3,000 users 64 MB
+            # took that p95 from 13.7 s to 2.2 s and halved Hasura's CPU.
             - name: GHCRTS
-              value: "-N4"
+              value: "-N4 -A64m"
             # How many viewers of one subscription share a statement (Hasura's
             # default is 100). Postgres plans each statement, so fewer of them
             # halved its time at 1,000 users in the api's load lab.

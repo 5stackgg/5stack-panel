@@ -77,6 +77,11 @@ spec:
             # halved its time at 1,000 users in the api's load lab.
             - name: HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_BATCH_SIZE
               value: "1000"
+            # How often live subscriptions poll (Hasura's default is 1 s). At
+            # 2,000 users in the api's load lab, 2 s halved Postgres's work and
+            # took query p95 from 1.2 s to 212 ms. Vetoes stream instead.
+            - name: HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_REFETCH_INTERVAL
+              value: "2000"
             # Streaming subscriptions have their own interval. The veto screens
             # stream (api#829): an empty primary-key read between moves, so a
             # pick reaches the other team within half a second.

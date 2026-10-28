@@ -77,6 +77,11 @@ spec:
             # halved its time at 1,000 users in the api's load lab.
             - name: HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_BATCH_SIZE
               value: "1000"
+            # Streaming subscriptions have their own interval. The veto screens
+            # stream (api#829): an empty primary-key read between moves, so a
+            # pick reaches the other team within half a second.
+            - name: HASURA_GRAPHQL_STREAMING_QUERIES_MULTIPLEXED_REFETCH_INTERVAL
+              value: "500"
             - name: HASURA_GRAPHQL_CONFIGURED_HEADER_PRECEDENCE
               value: "true"
             - name: HASURA_GRAPHQL_DEV_MODE

@@ -39,7 +39,7 @@ install_cert_manager() {
     for crd in certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io; do
         kubectl wait --for=condition=Established "crd/$crd" --timeout=120s >/dev/null || return 1
     done
-    wait_for_cert_manager >/dev/null
+    wait_for_cert_manager 300 >/dev/null
 }
 
 # The https overlay update.sh applies, rendered to $WORK_DIR/overlay.yaml, and
@@ -77,17 +77,31 @@ PY
 }
 
 # What an ingress-nginx install leaves: the Issuer it had, the panel's
-# Certificate, and the 5stack-ssl that Issuer gave it, here two days from
-# expiring. cert-manager's controller is held at zero until the update has run:
-# on a real install nothing is due during the update, and a renewal attempted
-# here, with no ingress-nginx to serve its solver, would fail and back off for an
-# hour.
+# Certificate, and the 5stack-ssl that Issuer gave it -- a 90-day certificate
+# with 5 days left, so inside renewBefore (240h) and due. cert-manager's
+# controller is held at zero until the update has run: on a real install
+# nothing is due during the update, and a renewal attempted here, with no
+# ingress-nginx to serve its solver, would fail and back off for an hour.
 leave_an_nginx_era_certificate() {
+    local san="" host
+    for host in "$WEB" "$API" "$DEMOS" "$SEARCH" "$CONSOLE" "$WS" "$RELAY"; do
+        san="${san:+$san,}DNS:$host"
+    done
     kubectl -n cert-manager scale deployment cert-manager --replicas=0 >/dev/null || return 1
     kubectl -n cert-manager wait --for=delete pod -l app.kubernetes.io/component=controller --timeout=120s >/dev/null 2>&1
     kubectl apply -f "$HERE/fixtures/nginx-era-issuer.yaml" >/dev/null || return 1
     cert_manager_object Certificate 5stack-ssl | kubectl apply -f - >/dev/null || return 1
-    tls_secret 5stack-ssl "$WEB" "$API" "$DEMOS" "$SEARCH" "$CONSOLE" "$WS" "$RELAY" || return 1
+    client openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=$WEB" -addext "subjectAltName=$san" \
+        -not_before "$(date -u -d '-85 days' +%Y%m%d%H%M%SZ)" -not_after "$(date -u -d '+5 days' +%Y%m%d%H%M%SZ)" \
+        -keyout /tmp/tls.key -out /tmp/tls.crt >/dev/null 2>&1 || return 1
+    docker cp "$PREFIX-client:/tmp/tls.key" "$WORK_DIR/tls.key" >/dev/null
+    docker cp "$PREFIX-client:/tmp/tls.crt" "$WORK_DIR/tls.crt" >/dev/null
+    # Inside renewBefore, not just short-lived: cert-manager renews a
+    # certificate shorter than renewBefore at two thirds of its life instead.
+    openssl x509 -noout -checkend $((6 * 86400)) -in "$WORK_DIR/tls.crt" >/dev/null && return 1
+    openssl x509 -noout -checkend $((4 * 86400)) -in "$WORK_DIR/tls.crt" >/dev/null || return 1
+    kubectl -n 5stack create secret tls 5stack-ssl --cert="$WORK_DIR/tls.crt" --key="$WORK_DIR/tls.key" \
+        --dry-run=client -o yaml | kubectl apply -f - >/dev/null || return 1
     kubectl -n 5stack annotate --overwrite secret 5stack-ssl cert-manager.io/issuer-name=5stack-issuer \
         cert-manager.io/issuer-kind=Issuer cert-manager.io/issuer-group=cert-manager.io \
         cert-manager.io/certificate-name=5stack-ssl >/dev/null || return 1
@@ -270,12 +284,55 @@ test_a_renewal_is_validated_and_served_again() {
     wait_until_served "$API" 5stack-ssl
 }
 
-# The pin: the same Issuer without the solver's router priority. Its challenge
-# is presented -- the solver Ingress exists -- but plain HTTP for the panel host
-# keeps getting the https-redirect route's 308, so cert-manager never sees it
-# reachable. The tests above pass only because the priority is there.
-test_without_the_solver_priority_the_redirect_takes_the_challenge() {
+# The pin: the same Issuer with its solver kept off port 80 (entrypoint
+# websecure). Its challenge is presented -- the solver Ingress exists -- but
+# plain HTTP for the panel host gets the https-redirect route's 308, which is
+# what Let's Encrypt would see, and no certificate is issued. The same request
+# shape is what the issuances above depended on reaching the solver.
+test_with_the_solver_off_port_80_the_redirect_takes_the_challenge() {
     local token="" code
+    cert_manager_object Issuer 5stack-issuer | python3 -I -c '
+import sys
+d = sys.stdin.read()
+assert "router.entrypoints: web\n" in d
+d = d.replace("router.entrypoints: web\n", "router.entrypoints: websecure\n")
+print(d.replace("name: 5stack-issuer", "name: off-port-80"))' | kubectl apply -f - >/dev/null || fail "could not make the Issuer"
+    kubectl apply -f - >/dev/null <<EOF || fail "could not make the Certificate"
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: off-port-80
+  namespace: 5stack
+spec:
+  secretName: off-port-80
+  dnsNames: [$API]
+  issuerRef: {name: off-port-80, kind: Issuer}
+EOF
+    for _ in $(seq 1 60); do
+        token="$(kubectl -n 5stack get challenges \
+            -o jsonpath='{.items[?(@.spec.issuerRef.name=="off-port-80")].spec.token}{"|"}{.items[?(@.spec.issuerRef.name=="off-port-80")].status.presented}')"
+        [ "${token#*|}" = true ] && break
+        sleep 2
+    done
+    [ "${token#*|}" = true ] || fail "the challenge was never presented"
+    token="${token%%|*}"
+    # Long past the few seconds Traefik takes to pick up the solver Ingress.
+    sleep 15
+    for _ in $(seq 1 5); do
+        call http "$API" "/.well-known/acme-challenge/$token"
+        code="$CODE"
+        [ "$code" = 308 ] || fail "with the solver off port 80 the challenge answered $code, not the redirect"
+        sleep 2
+    done
+    kubectl -n 5stack get secret off-port-80 >/dev/null 2>&1 && fail "a certificate was issued with the solver off port 80"
+    kubectl -n 5stack delete certificate off-port-80 >/dev/null
+    kubectl -n 5stack delete issuer off-port-80 >/dev/null
+}
+
+# Measured, not pinned: without the router priority the solver Ingress still
+# outranks the https-redirect route on port 80 (Traefik's default priority for
+# it is longer than the redirect's), so dropping it changes nothing today.
+test_without_the_router_priority_the_solver_still_answers() {
     cert_manager_object Issuer 5stack-issuer | python3 -I -c '
 import sys
 d = sys.stdin.read()
@@ -290,28 +347,14 @@ metadata:
   namespace: 5stack
 spec:
   secretName: no-priority
-  dnsNames: [$API]
+  dnsNames: [$WS]
   issuerRef: {name: no-priority, kind: Issuer}
 EOF
-    for _ in $(seq 1 60); do
-        token="$(kubectl -n 5stack get challenges \
-            -o jsonpath='{.items[?(@.spec.issuerRef.name=="no-priority")].spec.token}{"|"}{.items[?(@.spec.issuerRef.name=="no-priority")].status.presented}')"
-        [ "${token#*|}" = true ] && break
-        sleep 2
-    done
-    [ "${token#*|}" = true ] || fail "the challenge was never presented"
-    token="${token%%|*}"
-    # Long past the few seconds Traefik takes to pick up the solver Ingress.
-    sleep 15
-    for _ in $(seq 1 5); do
-        call http "$API" "/.well-known/acme-challenge/$token"
-        code="$CODE"
-        [ "$code" = 308 ] || fail "without the priority the challenge answered $code, not the redirect"
-        sleep 2
-    done
-    kubectl -n 5stack get secret no-priority >/dev/null 2>&1 && fail "a certificate was issued without the priority"
+    kubectl -n 5stack wait --for=condition=Ready certificate/no-priority --timeout=180s >/dev/null ||
+        fail "without the priority no certificate was issued"
     kubectl -n 5stack delete certificate no-priority >/dev/null
     kubectl -n 5stack delete issuer no-priority >/dev/null
+    kubectl -n 5stack delete secret no-priority >/dev/null
 }
 
 assert_pebble() {
@@ -349,7 +392,8 @@ for name in \
     test_the_panel_hosts_serve_it \
     test_the_stream_certificate_is_issued_for_the_hls_host \
     test_a_renewal_is_validated_and_served_again \
-    test_without_the_solver_priority_the_redirect_takes_the_challenge; do
+    test_with_the_solver_off_port_80_the_redirect_takes_the_challenge \
+    test_without_the_router_priority_the_solver_still_answers; do
     run_test "$name"
 done
 

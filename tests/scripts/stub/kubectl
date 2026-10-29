@@ -23,6 +23,12 @@ case "$args" in
     *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
     *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
     *" get helmchart "*) echo 1 ;;
+    *" get gateway traefik-gateway "*) [ -f "$WORK_DIR/shared-gateway" ] || exit 1 ;;
+    *" get httproute "*)
+        route="$(printf '%s' "$args" | sed -n 's/.* get httproute \([^ ]*\).*/\1/p')"
+        [ -f "$WORK_DIR/route-$route" ] || exit 1
+        cat "$WORK_DIR/route-$route"
+        ;;
     *" get customresourcedefinitions,"*) if [ -f "$WORK_DIR/cluster-objects" ]; then cat "$WORK_DIR/cluster-objects"; fi ;;
     *" get helmcharts.helm.cattle.io "*)
         name="$(printf '%s' "$args" | sed -n 's/.*metadata\.name=\([^ ]*\).*/\1/p')"

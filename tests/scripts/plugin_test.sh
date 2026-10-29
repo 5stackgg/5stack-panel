@@ -39,6 +39,35 @@ EOF
     printf 'HELLO_DOMAIN=hello.example.org\n' >"$PLUGIN/k8s/base/hello.env.example"
 }
 
+# A plugin that also ships Gateway API routes, beside its Ingress install.
+make_gateway_plugin() {
+    make_plugin
+    mkdir -p "$PLUGIN/k8s/gateway/http"
+    sed -i.bak 's#"overlays": { "http": "k8s/overlays/http" },#"overlays": { "http": "k8s/overlays/http" },\n    "gateway": { "overlays": { "http": "k8s/gateway/http" } },#' "$PLUGIN/public/5stack-plugin.json"
+    rm -f "$PLUGIN/public/5stack-plugin.json.bak"
+    # Renders the hello route for the Gateway API install and the hello
+    # Ingress for the other, the way kustomize would.
+    cat >"$PANEL/kustomize" <<'STUB'
+#!/bin/sh
+case "$2" in
+    */k8s/gateway/*) printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: hello\n  namespace: 5stack\n' ;;
+    */k8s/overlays/*) printf 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: hello\n  namespace: 5stack\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: hello\n  namespace: 5stack\n' ;;
+esac
+STUB
+    chmod +x "$PANEL/kustomize"
+}
+
+# Without --dry-run: applies, then retires what it replaces.
+run_plugin_for_real() {
+    (cd "$WORK_DIR" && PATH="$STUB_BIN:$PATH" ROUTE_WAIT_TIMEOUT=0 bash "$PANEL/plugin.sh" "$PLUGIN" -y "$@") \
+        >"$WORK_DIR/plugin-output" 2>&1 \
+        || fail "plugin.sh exited $?: $(tail -n 20 "$WORK_DIR/plugin-output")"
+}
+
+ingress_deletes() {
+    grep ' delete ingress ' "$WORK_DIR/calls" 2>/dev/null || true
+}
+
 run_plugin() {
     (cd "$WORK_DIR" && PATH="$STUB_BIN:$PATH" bash "$PANEL/plugin.sh" "$PLUGIN" --dry-run -y "$@") \
         >"$WORK_DIR/plugin-output" 2>&1 \
@@ -169,6 +198,61 @@ test_a_host_under_the_panel_is_not_warned() {
     run_plugin
     assert_eq "$(plugin_env HELLO_DOMAIN)" "HELLO_DOMAIN=hello.cs-panel.example.com"
     assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "outside the session cookie's domain"
+}
+
+
+test_a_panel_on_traefik_installs_the_plugins_gateway_routes() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway"
+    run_plugin --domain hello.example.com
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/gateway/http"
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/overlays/http"
+}
+
+test_a_panel_still_on_ingress_nginx_installs_the_plugins_ingress() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    run_plugin --domain hello.example.com
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/overlays/http"
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/gateway/http"
+}
+
+test_a_plugin_without_gateway_routes_keeps_its_ingress_on_traefik() {
+    make_panel panel.example.com
+    make_plugin
+    touch "$WORK_DIR/shared-gateway"
+    run_plugin --domain hello.example.com
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/overlays/http"
+}
+
+test_routes_that_serve_retire_the_ingress_install() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway"
+    echo "3 True/True/3 True/True/3 " >"$WORK_DIR/route-hello"
+    run_plugin_for_real --domain hello.example.com
+    assert_eq "$(ingress_deletes)" "-n 5stack delete ingress hello --ignore-not-found"
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "retired Ingress hello"
+}
+
+test_routes_whose_backends_do_not_resolve_keep_the_ingresses() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway"
+    echo "3 True/False/3 True/False/3 " >"$WORK_DIR/route-hello"
+    run_plugin_for_real --domain hello.example.com
+    assert_eq "$(ingress_deletes)" ""
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "Ingresses stay"
+}
+
+test_a_route_status_from_an_older_generation_keeps_the_ingresses() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway"
+    echo "4 True/True/3 True/True/3 " >"$WORK_DIR/route-hello"
+    run_plugin_for_real --domain hello.example.com
+    assert_eq "$(ingress_deletes)" ""
 }
 
 run_tests

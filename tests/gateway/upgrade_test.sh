@@ -90,7 +90,8 @@ expect_other_app_routes_with_its_auth() {
 test_before_the_update_ingress_nginx_serves_everything() {
     wait_for 200 https "$API" /me
     expect_json .backend api
-    [ "$(header Server)" = nginx ] || fail "not ingress-nginx: $(header Server)"
+    kubectl -n ingress-nginx get service ingress-nginx-controller >/dev/null 2>&1 || fail "ingress-nginx is not serving"
+    kubectl get namespace traefik >/dev/null 2>&1 && fail "Traefik is already installed"
     expect_other_app_routes_with_its_auth
 }
 

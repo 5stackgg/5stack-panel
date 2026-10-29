@@ -51,6 +51,9 @@ traefik:
       publishService:
         enabled: true
       allowSnippetAnnotations: true
+      # proxy-body-size is only enforced while request buffering is on, which
+      # ingress-nginx defaulted to and Traefik does not.
+      proxyRequestBuffering: true
 
   # Traefik v3 cuts any request still being read after 60s, which kills long
   # uploads, streams and websockets.

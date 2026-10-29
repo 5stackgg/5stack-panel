@@ -174,7 +174,9 @@ test_mediamtx_preflight_is_answered_before_forward_auth() {
     expect_header Access-Control-Allow-Origin "$ORIGIN"
     expect_header Access-Control-Allow-Credentials true
     [ -z "$BODY" ] || fail "the preflight reached a backend: $BODY"
-    [ "$(auth_log | jq length)" = 0 ] || fail "the preflight went through forward-auth"
+    local seen
+    seen="$(auth_log)"
+    [ "$(jq length <<<"$seen")" = 0 ] || fail "the preflight went through forward-auth: $seen"
 }
 
 test_mediamtx_requires_a_session() {
@@ -319,7 +321,9 @@ test_a_response_streaming_past_60s_completes() {
     local last ticks
     last="$(client tail -n 1 /tmp/stream.out)"
     ticks="$(client grep -c '^tick ' /tmp/stream.out)"
-    [ "${last%% *}" = 200 ] && [ "$ticks" = 70 ] || fail "stream ended after $ticks ticks: $last"
+    if [ "${last%% *}" != 200 ] || [ "$ticks" != 70 ]; then
+        fail "stream ended after $ticks ticks: $last"
+    fi
     awk -v t="${last##* }" 'BEGIN { exit !(t > 60) }' || fail "the stream took only ${last##* }s"
 }
 
@@ -327,7 +331,9 @@ test_a_websocket_held_past_60s_stays_open() {
     local out
     out="$(client cat /tmp/ws.json)"
     [ "$(jq -r .error <<<"$out")" = null ] || fail "$out"
-    [ "$(jq -r .held <<<"$out")" -ge 65 ] && [ "$(jq -r .echoes <<<"$out")" -ge 7 ] || fail "$out"
+    if [ "$(jq -r .held <<<"$out")" -lt 65 ] || [ "$(jq -r .echoes <<<"$out")" -lt 7 ]; then
+        fail "$out"
+    fi
 }
 
 test_http_mode_serves_every_host_without_redirect() {

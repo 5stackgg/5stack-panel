@@ -13,6 +13,6 @@ resources:
   - typesense
   - web
   - volumes
-  - nginx
+  - gateway
   - backups
   - system-upgrade

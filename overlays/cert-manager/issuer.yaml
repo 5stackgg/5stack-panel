@@ -12,4 +12,11 @@ spec:
     solvers:
       - http01:
           ingress:
-            ingressClassName: nginx
+            ingressClassName: traefik
+            # Plain HTTP only, and above the https-redirect route on the same
+            # hosts, so Let's Encrypt reaches the solver instead of a 308.
+            ingressTemplate:
+              metadata:
+                annotations:
+                  traefik.ingress.kubernetes.io/router.entrypoints: web
+                  traefik.ingress.kubernetes.io/router.priority: "1000000"

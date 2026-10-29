@@ -4,4 +4,4 @@ kind: Kustomization
 resources:
   - stateful-set.yaml
   - service.yaml
-  - ingress.yaml
+  - httproute.yaml

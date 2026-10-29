@@ -1,0 +1,71 @@
+name: Gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - update.sh
+      - install.sh
+      - dev.sh
+      - utils/apply_overlay.sh
+      - utils/install_traefik.sh
+      - utils/retire_ingress_nginx.sh
+      - utils/write_overlays.sh
+      - "charts/**"
+      - "base/gateway/**"
+      - "base/*/httproute*.yaml"
+      - "overlays/http/**"
+      - "overlays/mediamtx/**"
+      - "overlays/mediamtx-https/**"
+      - "overlays/cert-manager/**"
+      - "overlays/cert-manager-crds/**"
+      - utils/cert_manager.sh
+      - "overlays/config/*.env.example"
+      - "tests/gateway/**"
+      - .github/workflows/gateway.yml
+  pull_request:
+    paths:
+      - update.sh
+      - install.sh
+      - dev.sh
+      - utils/apply_overlay.sh
+      - utils/install_traefik.sh
+      - utils/retire_ingress_nginx.sh
+      - utils/write_overlays.sh
+      - "charts/**"
+      - "base/gateway/**"
+      - "base/*/httproute*.yaml"
+      - "overlays/http/**"
+      - "overlays/mediamtx/**"
+      - "overlays/mediamtx-https/**"
+      - "overlays/cert-manager/**"
+      - "overlays/cert-manager-crds/**"
+      - utils/cert_manager.sh
+      - "overlays/config/*.env.example"
+      - "tests/gateway/**"
+      - .github/workflows/gateway.yml
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -x utils/install_traefik.sh utils/retire_ingress_nginx.sh utils/write_overlays.sh tests/gateway/*.sh
+
+  fresh-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/fresh_install_test.sh
+
+  upgrade-from-ingress-nginx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/upgrade_test.sh
+
+  cert-manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/cert_manager_test.sh

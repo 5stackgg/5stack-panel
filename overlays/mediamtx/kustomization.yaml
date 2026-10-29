@@ -6,8 +6,8 @@ namespace: 5stack
 resources:
   - deployment.yaml
   - service.yaml
-  - ingress.yaml
-  - snapshot-ingress.yaml
+  - httproute.yaml
+  - middlewares.yaml
 
 configMapGenerator:
   - name: mediamtx-config
@@ -18,20 +18,3 @@ configMapGenerator:
     namespace: 5stack
     envs:
       - mediamtx.env
-
-replacements:
-  - source:
-      kind: ConfigMap
-      name: mediamtx-env
-      fieldPath: data.GAME_STREAM_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: mediamtx
-        fieldPaths:
-          - spec.rules.0.host
-      - select:
-          kind: Ingress
-          name: snapshot
-        fieldPaths:
-          - spec.rules.0.host

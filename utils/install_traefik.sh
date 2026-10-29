@@ -1,0 +1,323 @@
+#!/bin/bash
+
+# Everything that installs Traefik lives here and in charts/, as two releases
+# applied by k3s's helm-controller: the CRDs, then Traefik with the shared
+# Gateway. Two, because a release whose templates define the Gateway API kinds
+# cannot also create a GatewayClass or Gateway: Helm resolves every kind before
+# it applies anything. The panel's own Gateway and routes are in the panel
+# overlay and only need this to have run first.
+# An install ingress-nginx still serves can be listening on ports its env file
+# doesn't say: the Service edited by hand, or the file lost. Those are the ports
+# people reach it on, so Traefik takes them over rather than going back to
+# 80/443. Ports set in the file win.
+carry_over_ingress_nginx_ports() {
+    local ports_env="$1" http https live_http live_https
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    live_http="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller \
+        -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null)"
+    live_https="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller \
+        -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null)"
+    if ! [[ "$live_http" =~ ^[0-9]+$ && "$live_https" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+
+    http="$(grep -s '^HTTP_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    https="$(grep -s '^HTTPS_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    if [ "${http:-80}" != 80 ] || [ "${https:-443}" != 443 ]; then
+        return 0
+    fi
+    if [ "$live_http" = 80 ] && [ "$live_https" = 443 ]; then
+        return 0
+    fi
+
+    update_env_var "$ports_env" HTTP_PORT "$live_http"
+    update_env_var "$ports_env" HTTPS_PORT "$live_https"
+    warn "ingress-nginx was serving on ports $live_http/$live_https, so Traefik keeps them (saved to $ports_env)"
+}
+
+install_traefik() {
+    local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
+    local minor http_port https_port crd
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    # Gateway API v1.6's CRDs validate with CEL's isIP(), which the API server
+    # only has from Kubernetes 1.31; older servers reject the CRDs outright.
+    minor="$(kubectl "${kc[@]}" version -o json 2>/dev/null | sed -n 's/.*"minor": *"\([0-9]*\).*/\1/p' | tail -n 1)"
+    if [ -n "$minor" ] && [ "$minor" -lt 31 ]; then
+        err "Kubernetes 1.$minor is too old for the Gateway API; upgrade k3s to 1.31 or newer first"
+        return 1
+    fi
+
+    carry_over_ingress_nginx_ports "$ports_env"
+
+    http_port="$(grep -s '^HTTP_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    https_port="$(grep -s '^HTTPS_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    http_port="${http_port:-80}"
+    https_port="${https_port:-443}"
+    if ! [[ "$http_port" =~ ^[0-9]+$ && "$https_port" =~ ^[0-9]+$ ]]; then
+        err "HTTP_PORT and HTTPS_PORT in $ports_env must be port numbers"
+        return 1
+    fi
+
+    adopt_orphaned_chart_objects "$PANEL_DIR/charts/gateway-crds" gateway-crds traefik || return 1
+    install_helm_chart gateway-crds "$PANEL_DIR/charts/gateway-crds" "" || return 1
+
+    for crd in gatewayclasses.gateway.networking.k8s.io gateways.gateway.networking.k8s.io \
+        httproutes.gateway.networking.k8s.io middlewares.traefik.io; do
+        if ! output_redirect kubectl "${kc[@]}" wait --for=condition=Established "crd/$crd" --timeout=120s; then
+            err "CRD $crd never became established"
+            return 1
+        fi
+    done
+
+    # The Service is externalTrafficPolicy: Local, so only the node running
+    # Traefik answers on these ports -- and DNS points at the server node, not
+    # at a game node that joined later.
+    install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(cat <<EOF
+traefik:
+  ports:
+    web:
+      exposedPort: $http_port
+    websecure:
+      exposedPort: $https_port
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+EOF
+)" || return 1
+
+    if ! kubectl "${kc[@]}" -n traefik rollout status deployment/traefik --timeout=300s; then
+        err "Traefik never became ready"
+        kubectl "${kc[@]}" -n traefik get pods >&2
+        return 1
+    fi
+}
+
+# The cluster-scoped objects a chart's templates define, as kind/name.
+chart_objects() {
+    awk '/^kind: / { kind = $2; next }
+        kind && /^  name: / { name = $2; gsub(/"/, "", name); print tolower(kind) "/" name; kind = "" }' "$1"/templates/*.yaml
+}
+
+helm_release_gone() {
+    local charts records
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    charts="$(kubectl "${kc[@]}" get helmcharts.helm.cattle.io -A --field-selector "metadata.name=$1" -o name)" || return 1
+    records="$(kubectl "${kc[@]}" -n "$2" get secrets -l "owner=helm,name=$1" -o name)" || return 1
+    [ -z "$charts$records" ]
+}
+
+helm_release_recorded() {
+    local records
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    records="$(kubectl "${kc[@]}" -n "$2" get secrets -l "owner=helm,name=$1" -o name 2>/dev/null)" && [ -n "$records" ]
+}
+
+# k3s's bundled Traefik installs the Gateway API CRDs as its traefik-crd
+# release with helm.sh/resource-policy: keep, so turning it off with
+# --disable=traefik deletes the release but leaves the CRDs marked as its, and
+# Helm won't install over objects another release claims. Ones whose release
+# is gone are handed to this one; anything a live release, or no release, owns
+# stops the install. Only a first install can collide: Helm upgrades what a
+# release already holds whatever its marks say, and the Traefik chart's own
+# crds/ strips them from the traefik.io CRDs the two charts share.
+adopt_orphaned_chart_objects() {
+    local chart_dir="$1" release="$2" release_namespace="$3"
+    local objects existing object owner owner_namespace refused=false
+    local -a kc=() orphaned=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if helm_release_recorded "$release" "$release_namespace"; then
+        return 0
+    fi
+
+    objects="$(chart_objects "$chart_dir")"
+    if ! existing="$(kubectl "${kc[@]}" get customresourcedefinitions,validatingadmissionpolicies,validatingadmissionpolicybindings \
+        -o jsonpath='{range .items[*]}{.kind}/{.metadata.name}|{.metadata.annotations.meta\.helm\.sh/release-name}|{.metadata.annotations.meta\.helm\.sh/release-namespace}{"\n"}{end}')"; then
+        err "could not read the cluster's CRDs before installing $release"
+        return 1
+    fi
+
+    while IFS='|' read -r object owner owner_namespace; do
+        [ -n "$object" ] || continue
+        object="$(printf '%s' "$object" | tr '[:upper:]' '[:lower:]')"
+        grep -qxF "$object" <<<"$objects" || continue
+        if [ "$owner" = "$release" ] && [ "$owner_namespace" = "$release_namespace" ]; then
+            continue
+        fi
+        if [ -z "$owner" ]; then
+            err "$object was created outside Helm, so $release can't install it; delete it, or label it app.kubernetes.io/managed-by=Helm and annotate it meta.helm.sh/release-name=$release meta.helm.sh/release-namespace=$release_namespace"
+            refused=true
+        elif ! helm_release_gone "$owner" "$owner_namespace"; then
+            if [ "$owner" = traefik-crd ]; then
+                err "k3s's bundled Traefik owns $object; add --disable=traefik to k3s's server flags, restart k3s, and run this again"
+            else
+                err "$object belongs to the Helm release $owner in $owner_namespace, so $release can't install it; uninstall that release first"
+            fi
+            refused=true
+        else
+            orphaned+=("$object")
+        fi
+    done <<<"$existing"
+
+    if [ "$refused" = true ]; then
+        return 1
+    fi
+    if [ "${#orphaned[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    warn "Handing ${#orphaned[@]} objects left by a removed Helm release to $release"
+    output_redirect kubectl "${kc[@]}" annotate --overwrite "${orphaned[@]}" \
+        "meta.helm.sh/release-name=$release" "meta.helm.sh/release-namespace=$release_namespace" || return 1
+    output_redirect kubectl "${kc[@]}" label --overwrite "${orphaned[@]}" app.kubernetes.io/managed-by=Helm
+}
+
+# A chart directory as the .tgz Helm expects, byte-identical between runs where
+# GNU tar allows it, so an unchanged chart is not reinstalled.
+chart_archive() {
+    local parent name
+    parent="$(dirname "$1")"
+    name="$(basename "$1")"
+    if tar --version 2>/dev/null | grep -q GNU; then
+        tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='.*' -cf - -C "$parent" "$name" | gzip -n
+    else
+        # macOS tar otherwise adds ._ AppleDouble entries, which Helm rejects.
+        COPYFILE_DISABLE=1 tar --exclude='.*' -cf - -C "$parent" "$name" | gzip -n
+    fi
+}
+
+# Applies a chart from this checkout as a k3s HelmChart (no registry, no helm
+# binary) and waits on the helm-install Job that helm-controller runs for it.
+# That Job keeps its name across changes; a changed HelmChart gets a new Job,
+# so a Job with the old UID is the previous config's and is not waited on.
+# helm-controller never re-runs a failed Job for a HelmChart that hasn't
+# changed, so a re-run of update.sh has to start one. A release that failed under
+# failurePolicy abort refuses every new attempt until someone intervenes, and
+# without a helm binary the only way out is a reinstall: done on the re-run, not
+# the run that failed, so a failed upgrade never takes Traefik down on its own.
+# helm-controller turns a release left pending (other than an upgrade, which it
+# retries) into a failed one before it gives up on it.
+retry_helm_chart() {
+    local name="$1" status
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    status="$(kubectl "${kc[@]}" -n traefik get secrets -l "owner=helm,name=$name" \
+        -o jsonpath='{range .items[*]}{.metadata.labels.version}{" "}{.metadata.labels.status}{"\n"}{end}' 2>/dev/null |
+        sort -n | tail -n 1 | cut -d' ' -f2)"
+    if [[ "$status" =~ ^(failed|pending-install|pending-rollback|uninstalling)$ ]]; then
+        warn "The last $name release failed; reinstalling it, so the panel is offline for a few seconds"
+        output_redirect kubectl "${kc[@]}" patch helmchart "$name" -n kube-system --type merge \
+            -p '{"spec":{"failurePolicy":"reinstall"}}' || return 1
+    else
+        output_redirect kubectl "${kc[@]}" delete job "helm-install-$name" -n kube-system || return 1
+    fi
+}
+
+install_helm_chart() {
+    local name="$1" dir="$2" values="$3"
+    local manifest old_generation new_generation old_uid uid complete failed deadline last_failed logs helm_error=""
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    # A k3s that has just started registers its HelmChart CRD a few seconds in.
+    deadline=$((SECONDS + 120))
+    until kubectl "${kc[@]}" get crd helmcharts.helm.cattle.io >/dev/null 2>&1; do
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            err "this cluster has no HelmChart CRD; Traefik is installed through k3s's helm-controller"
+            return 1
+        fi
+        sleep 2
+    done
+
+    manifest="$(mktemp)"
+    trap 'rm -f "$manifest"' RETURN
+
+    {
+        printf 'apiVersion: helm.cattle.io/v1\nkind: HelmChart\nmetadata:\n  name: %s\n  namespace: kube-system\n' "$name"
+        printf 'spec:\n  targetNamespace: traefik\n  createNamespace: true\n'
+        # abort, not the default reinstall: a failed upgrade must leave the
+        # running Traefik alone rather than uninstall it.
+        printf '  failurePolicy: abort\n  backOffLimit: 3\n'
+        printf '  chartContent: %s\n' "$(chart_archive "$dir" | base64 | tr -d '\n')"
+        if [ -n "$values" ]; then
+            printf '  valuesContent: |\n'
+            printf '%s\n' "$values" | sed 's/^/    /'
+        fi
+    } >"$manifest"
+
+    old_generation="$(kubectl "${kc[@]}" get helmchart "$name" -n kube-system -o jsonpath='{.metadata.generation}' 2>/dev/null)"
+    old_uid="$(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system -o jsonpath='{.metadata.uid}' 2>/dev/null)"
+    last_failed="$(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system \
+        -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null)"
+
+    # Server-side: chartContent is far past the 256KiB a client-side apply can
+    # keep in its last-applied annotation.
+    if ! output_redirect kubectl "${kc[@]}" apply --server-side --force-conflicts --field-manager=5stack-panel -f "$manifest"; then
+        err "could not apply HelmChart $name (k3s's helm-controller is required)"
+        return 1
+    fi
+    new_generation="$(kubectl "${kc[@]}" get helmchart "$name" -n kube-system -o jsonpath='{.metadata.generation}')"
+    if [ "$new_generation" = "$old_generation" ]; then
+        if [ "$last_failed" = "True" ]; then
+            retry_helm_chart "$name" || return 1
+        else
+            old_uid=""
+        fi
+    fi
+
+    echo "Waiting for helm-controller to apply $name..."
+    deadline=$((SECONDS + 600))
+    while true; do
+        IFS='|' read -r uid complete failed < <(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system \
+            -o jsonpath='{.metadata.uid}{"|"}{.status.conditions[?(@.type=="Complete")].status}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}' 2>/dev/null)
+        if [ -n "$uid" ] && [ "$uid" != "$old_uid" ]; then
+            if [ "$complete" = "True" ]; then
+                return 0
+            fi
+            if [ "$failed" = "True" ]; then
+                err "helm-controller could not apply $name:"
+                show_helm_error "$name" "$helm_error"
+                err "Run ./update.sh again to retry it"
+                return 1
+            fi
+            # The Job restarts helm inside its pod and deletes the pod when it
+            # gives up, so helm's error is read while the pod is still there.
+            logs="$(kubectl "${kc[@]}" logs -n kube-system -l "batch.kubernetes.io/controller-uid=$uid" --previous --tail=30 2>/dev/null)"
+            [ -n "$logs" ] && helm_error="$logs"
+        fi
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            err "helm-controller did not apply $name in time:"
+            show_helm_error "$name" "$helm_error"
+            return 1
+        fi
+        sleep 3
+    done
+}
+
+show_helm_error() {
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if [ -n "$2" ]; then
+        printf '%s\n' "$2" >&2
+    elif ! kubectl "${kc[@]}" logs "job/helm-install-$1" -n kube-system --tail=30 --pod-running-timeout=5s >&2 2>/dev/null; then
+        err "helm-install-$1 left no logs: its pod is already gone"
+    fi
+}

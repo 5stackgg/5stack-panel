@@ -1,0 +1,89 @@
+# The panel's HTTPS listeners on mkcert's wildcard certificate (dev.sh), plus
+# the dev-only Hasura console and BullMQ dashboard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: 5stack
+  namespace: 5stack
+spec:
+  listeners:
+    - name: web
+      hostname: ${WEB_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: api
+      hostname: ${API_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: demos
+      hostname: ${DEMOS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: ws
+      hostname: ${WS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: relay
+      hostname: ${RELAY_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: typesense
+      hostname: ${TYPESENSE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: s3-console
+      hostname: ${S3_CONSOLE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: game-stream
+      hostname: ${GAME_STREAM_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: hasura-dashboard
+      hostname: hasura.5stack.localhost
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: queues
+      hostname: queues.5stack.localhost
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl

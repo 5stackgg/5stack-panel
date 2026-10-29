@@ -1,0 +1,77 @@
+# Turns every 5Stack listener into HTTPS. Kustomize replaces the whole list,
+# so each listener is restated in full. The Certificates are declared in
+# full in overlays/cert-manager and overlays/mediamtx-https; these listeners
+# only consume the Secrets they produce. Plain HTTP for these hosts lands on
+# the chart's shared listener, where https-redirect.yaml sends them to HTTPS
+# and cert-manager's HTTP-01 solver answers its challenges.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: 5stack
+  namespace: 5stack
+spec:
+  listeners:
+    - name: web
+      hostname: ${WEB_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: api
+      hostname: ${API_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: demos
+      hostname: ${DEMOS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: ws
+      hostname: ${WS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: relay
+      hostname: ${RELAY_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: typesense
+      hostname: ${TYPESENSE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: s3-console
+      hostname: ${S3_CONSOLE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-ssl
+    - name: game-stream
+      hostname: ${GAME_STREAM_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-mediamtx-ssl

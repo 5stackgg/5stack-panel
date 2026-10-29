@@ -56,7 +56,8 @@ export KUBECONFIG=~/.kube/5stack-dev
 
 kubectl config use-context k3d-5stack-dev
 
-install_ingress_nginx
+install_traefik "$PANEL_DIR/overlays/dev/config/traefik-config.env" || exit 1
+retire_ingress_nginx --immediately || exit 1
 
 echo "Labeling node..."
 kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true 5stack-mediamtx=true

@@ -1,0 +1,29 @@
+# No port on the redirect: browsers come back on 443 whatever HTTPS_PORT the
+# node uses, as they did with ingress-nginx.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+      sectionName: web
+  hostnames:
+    - ${WEB_DOMAIN}
+    - ${API_DOMAIN}
+    - ${DEMOS_DOMAIN}
+    - ${WS_DOMAIN}
+    - ${RELAY_DOMAIN}
+    - ${TYPESENSE_HOST}
+    - ${S3_CONSOLE_HOST}
+    - ${GAME_STREAM_DOMAIN}
+    - hasura.5stack.localhost
+    - queues.5stack.localhost
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 308

@@ -1,0 +1,579 @@
+# The panel's ingress-nginx layer before the move to the Gateway API: every
+# Ingress and the controller Service from 5stack-panel 2e4e8f3, rendered from
+# overlays/local-secrets-https with the test domains. The upgrade test starts
+# from this.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.12.1
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+spec:
+  externalTrafficPolicy: Local
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - appProtocol: http
+    name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  - appProtocol: https
+    name: https
+    port: 443
+    protocol: TCP
+    targetPort: https
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/client-max-body-size: 4G
+    nginx.ingress.kubernetes.io/proxy-body-size: 4G
+  name: api
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /me
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /matches
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /twitch
+        pathType: Prefix
+      - backend:
+          service:
+            name: hasura
+            port:
+              number: 8080
+        path: /v1
+        pathType: Prefix
+      - backend:
+          service:
+            name: hasura
+            port:
+              number: 8080
+        path: /v1alpha1
+        pathType: Prefix
+      - backend:
+          service:
+            name: hasura
+            port:
+              number: 8080
+        path: /v2
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /game-server-node/script
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /game-server-node/ping
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /avatars
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /trophies
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /system/healthz
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /system/logs/download
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /branding
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /news
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /utility
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /custom-pages
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /plugins
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /huds
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /events/media
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /snapshots
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /steam-match-history/upload
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /clip-views
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /voice
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /notifications
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /chat
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /sanctions/server
+        pathType: Prefix
+  - host: 5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /auth
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /extension
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /telemetry
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /discord-invite
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /discord-bot
+        pathType: Exact
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /calendar
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /quick-connect
+        pathType: Exact
+  tls:
+  - hosts:
+    - api.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/chunked-transfer-encoding: "false"
+    nginx.ingress.kubernetes.io/client-max-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  name: demos
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: demos.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /demos
+        pathType: Prefix
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /clips
+        pathType: Prefix
+      - backend:
+          service:
+            name: rustfs
+            port:
+              number: 9000
+        path: /5stack
+        pathType: Prefix
+  tls:
+  - hosts:
+    - demos.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/client-max-body-size: 4G
+    nginx.ingress.kubernetes.io/proxy-body-size: 4G
+  name: file-manager
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /file-manager
+        pathType: Prefix
+  tls:
+  - hosts:
+    - api.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /healthz
+  name: hasura
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: hasura
+            port:
+              number: 8080
+        path: /v2/healthz
+        pathType: Exact
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/auth-cache-duration: 200 30s
+    nginx.ingress.kubernetes.io/auth-cache-key: $http_cookie$mediamtx_path
+    nginx.ingress.kubernetes.io/auth-url: http://api.5stack.svc.cluster.local:5585/streams/authorize
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-allow-headers: Content-Type, Accept, Authorization,
+      If-Match
+    nginx.ingress.kubernetes.io/cors-allow-methods: GET, POST, OPTIONS, PATCH, DELETE
+    nginx.ingress.kubernetes.io/cors-allow-origin: https://5stack.test
+    nginx.ingress.kubernetes.io/cors-expose-headers: Location
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  name: mediamtx
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: hls.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: mediamtx
+            port:
+              number: 8889
+        path: /(?<mediamtx_path>[^/]+)/(whep|whip)(/[^/]+)?$
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: mediamtx
+            port:
+              number: 8888
+        path: /(?<mediamtx_path>[^/]+)/([^/]+\.[^/]+)?$
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - hls.5stack.test
+    secretName: 5stack-mediamtx-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /match-relay/$1
+  name: relay
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: tv.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /(.*)
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - tv.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 2048m
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+  name: s3-console
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: console.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: rustfs
+            port:
+              number: 9001
+        path: /(.*)
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - console.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/cors-allow-headers: Content-Type, Accept, If-None-Match
+    nginx.ingress.kubernetes.io/cors-allow-methods: GET, OPTIONS
+    nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 2m
+    nginx.ingress.kubernetes.io/rewrite-target: /game-streamer/$1/snapshot
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  name: snapshot
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: hls.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /snapshot/(.+)
+        pathType: ImplementationSpecific
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: typesense
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: search.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: typesense
+            port:
+              number: 8108
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - search.5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+  name: web
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: 5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: web
+            port:
+              number: 3000
+        path: /(.*)
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - 5stack.test
+    secretName: 5stack-ssl
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /ws/$1
+  name: ws
+  namespace: 5stack
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ws.5stack.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 5585
+        path: /(.*)
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - ws.5stack.test
+    secretName: 5stack-ssl

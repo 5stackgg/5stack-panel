@@ -8,8 +8,8 @@
 # Is this failure "an admission webhook isn't serving yet" rather than "the
 # manifest is wrong"? Worth telling apart: the first is worth waiting out, the
 # second should be reported immediately instead of after a minute of pointless
-# retries. Both cert-manager and ingress-nginx front their resources with a
-# failurePolicy: Fail webhook, and both produce these strings while starting.
+# retries. cert-manager fronts its resources with a failurePolicy: Fail
+# webhook, and produces these strings while starting.
 webhook_unavailable_error() {
     case "$1" in
         *"failed calling webhook"*|\

@@ -5,10 +5,9 @@ resources:
   - deployment.yaml
   - service.yaml
   - pdb.yaml
-  - ingress.yaml
-  - ingress-ws.yaml
-  - ingress-relay.yaml
-  - ingress-file-manager.yaml
+  - httproute.yaml
+  - httproute-ws.yaml
+  - httproute-relay.yaml
   - rbac/service-accounts.yaml
   - rbac/cluster-role-binding.yaml
   - rbac/cluster-role.yaml

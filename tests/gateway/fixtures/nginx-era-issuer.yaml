@@ -1,0 +1,18 @@
+# overlays/cert-manager/issuer.yaml as ingress-nginx installs had it, with only
+# the ACME server pointed at the test's Pebble, as the current one is.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  namespace: 5stack
+  name: 5stack-issuer
+spec:
+  acme:
+    server: https://pebble.pebble.svc:14000/dir
+    skipTLSVerify: true
+    email: hello@5stack.test
+    privateKeySecretRef:
+      name: 5stack-issuer
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx

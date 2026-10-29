@@ -1,0 +1,78 @@
+# A REVERSE_PROXY install's hosts over HTTPS as well as plain HTTP. Some
+# proxies forward to the node on 443 without checking its certificate, which
+# ingress-nginx answered for every host with its own self-signed one; this
+# Gateway does the same on a certificate write_overlays makes once per install.
+# Its listeners are named like the 5stack Gateway's, so reverse-proxy-tls.yaml
+# can attach every route to both without knowing which host it is for.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: 5stack-tls
+  namespace: 5stack
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: web
+      hostname: ${WEB_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: api
+      hostname: ${API_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: demos
+      hostname: ${DEMOS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: ws
+      hostname: ${WS_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: relay
+      hostname: ${RELAY_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: typesense
+      hostname: ${TYPESENSE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: s3-console
+      hostname: ${S3_CONSOLE_HOST}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls
+    - name: game-stream
+      hostname: ${GAME_STREAM_DOMAIN}
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: 5stack-reverse-proxy-tls

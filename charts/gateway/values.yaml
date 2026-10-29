@@ -1,0 +1,91 @@
+traefik:
+  image:
+    digest: sha256:1336e85aaed293bd63d005086e0dd013b04078b26aaeb1c18b26a2f928af7e65
+  # The digest hides the version from the chart's version checks.
+  versionOverride: v3.7.16
+  fullnameOverride: traefik
+
+  global:
+    checkNewVersion: false
+    sendAnonymousUsage: false
+
+  api:
+    dashboard: false
+
+  gatewayClass:
+    enabled: true
+    name: traefik
+
+  # The shared listeners, on every hostname and open to routes from any
+  # namespace: plain HTTP, and HTTPS on a self-signed certificate
+  # (templates/gateway-tls-secret.yaml) for reverse proxies that forward to 443.
+  # A route attaches to both to answer either way. Listeners with a hostname and
+  # a real certificate belong on a Gateway of their own, and win for their host.
+  gateway:
+    enabled: true
+    listeners:
+      web:
+        port: 8000
+        protocol: HTTP
+        namespacePolicy:
+          from: All
+      websecure:
+        port: 8443
+        protocol: HTTPS
+        namespacePolicy:
+          from: All
+        mode: Terminate
+        certificateRefs:
+          - name: traefik-gateway-tls
+
+  # For cert-manager's HTTP-01 solver Ingresses. Not the default class, so an
+  # Ingress without one stays unserved, as it was under ingress-nginx.
+  ingressClass:
+    enabled: true
+    isDefaultClass: false
+    name: traefik
+
+  providers:
+    kubernetesCRD:
+      enabled: true
+    kubernetesGateway:
+      enabled: true
+    kubernetesIngress:
+      enabled: true
+      ingressClass: traefik
+    # Serves nginx-class Ingresses with their annotations, for apps not yet on
+    # the Gateway API. With snippets off, an Ingress carrying one is dropped
+    # whole; on, Traefik runs only its small directive subset.
+    kubernetesIngressNGINX:
+      enabled: true
+      ingressClass: nginx
+      publishService:
+        enabled: true
+      allowSnippetAnnotations: true
+      # proxy-body-size is only enforced while request buffering is on, which
+      # ingress-nginx defaulted to and Traefik does not.
+      proxyRequestBuffering: true
+
+  # Traefik v3 cuts any request still being read after 60s, which kills long
+  # uploads, streams and websockets.
+  ports:
+    web:
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+    websecure:
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+
+  service:
+    spec:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 90Mi

@@ -1,0 +1,30 @@
+# The dashboard lives under /queues on the api; the host's bare paths are
+# moved there too.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: queues
+  namespace: 5stack
+spec:
+  parentRefs:
+    - name: 5stack
+      sectionName: queues
+  hostnames:
+    - queues.5stack.localhost
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /queues
+      backendRefs:
+        - name: api
+          port: 5585
+    - filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /queues/
+      backendRefs:
+        - name: api
+          port: 5585

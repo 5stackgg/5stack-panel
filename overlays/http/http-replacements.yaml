@@ -2,107 +2,186 @@ replacements:
   - source:
       kind: ConfigMap
       name: api-config
-      fieldPath: data.WS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: ws
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.API_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: api
-        fieldPaths:
-          - spec.rules.0.host
-      - select:
-          kind: Ingress
-          name: hasura
-        fieldPaths:
-          - spec.rules.0.host
-      - select:
-          kind: Ingress
-          name: file-manager
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
-      fieldPath: data.DEMOS_DOMAIN
-    targets:
-      - select:
-          kind: Ingress
-          name: demos
-        fieldPaths:
-          - spec.rules.0.host
-  - source:
-      kind: ConfigMap
-      name: api-config
       fieldPath: data.WEB_DOMAIN
     targets:
       - select:
-          kind: Ingress
+          kind: HTTPRoute
+          name: api-web
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
           name: web
         fieldPaths:
-          - spec.rules.0.host
+          - spec.hostnames.0
       - select:
-          kind: Ingress
-          name: api
+          kind: Gateway
+          name: 5stack
         fieldPaths:
-          - spec.rules.1.host
+          - spec.listeners.[name=web].hostname
       - select:
-          kind: Ingress
-          name: mediamtx
+          kind: Gateway
+          name: 5stack-tls
         fieldPaths:
-          - metadata.annotations.[nginx.ingress.kubernetes.io/cors-allow-origin]
+          - spec.listeners.[name=web].hostname
+      - select:
+          kind: Middleware
+          name: mediamtx-cors
+        fieldPaths:
+          - spec.headers.accessControlAllowOriginList.0
         options:
           delimiter: "://"
           index: 1
   - source:
       kind: ConfigMap
       name: api-config
-      fieldPath: data.RELAY_DOMAIN
+      fieldPath: data.API_DOMAIN
     targets:
       - select:
-          kind: Ingress
-          name: relay
+          kind: HTTPRoute
+          name: api
         fieldPaths:
-          - spec.rules.0.host
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
+          name: hasura
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=api].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=api].hostname
   - source:
       kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
+      name: api-config
+      fieldPath: data.DEMOS_DOMAIN
     targets:
       - select:
-          kind: Ingress
-          name: s3-console
+          kind: HTTPRoute
+          name: demos
         fieldPaths:
-          - spec.rules.0.host
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=demos].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=demos].hostname
   - source:
       kind: ConfigMap
       name: typesense-config
       fieldPath: data.TYPESENSE_HOST
     targets:
       - select:
-          kind: Ingress
+          kind: HTTPRoute
           name: typesense
         fieldPaths:
-          - spec.rules.0.host
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=typesense].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=typesense].hostname
   - source:
       kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTP_PORT
+      name: s3-config
+      fieldPath: data.S3_CONSOLE_HOST
     targets:
       - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
+          kind: HTTPRoute
+          name: s3-console
         fieldPaths:
-          - spec.ports.0.port
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=s3-console].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=s3-console].hostname
+  - source:
+      kind: ConfigMap
+      name: api-config
+      fieldPath: data.WS_DOMAIN
+    targets:
+      - select:
+          kind: HTTPRoute
+          name: ws
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=ws].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=ws].hostname
+  - source:
+      kind: ConfigMap
+      name: api-config
+      fieldPath: data.RELAY_DOMAIN
+    targets:
+      - select:
+          kind: HTTPRoute
+          name: relay
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=relay].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=relay].hostname
+  - source:
+      kind: ConfigMap
+      name: mediamtx-env
+      fieldPath: data.GAME_STREAM_DOMAIN
+    targets:
+      - select:
+          kind: HTTPRoute
+          name: mediamtx
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
+          name: snapshot
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: Gateway
+          name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=game-stream].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=game-stream].hostname
   - source:
       kind: ConfigMap
       name: api-config
@@ -113,14 +192,3 @@ replacements:
           name: 5stack-issuer
         fieldPaths:
           - spec.acme.email
-  - source:
-      kind: ConfigMap
-      name: nginx-config
-      fieldPath: data.HTTPS_PORT
-    targets:
-      - select:
-          kind: Service
-          name: ingress-nginx-controller
-          namespace: ingress-nginx
-        fieldPaths:
-          - spec.ports.1.port

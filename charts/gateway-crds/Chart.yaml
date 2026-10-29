@@ -1,0 +1,7 @@
+apiVersion: v2
+name: gateway-crds
+description: The Gateway API (v1.6.3, standard channel) and Traefik v3.7 CRDs that the gateway chart needs. Install it first.
+type: application
+version: 0.1.0
+appVersion: v1.6.3
+kubeVersion: ">=1.31.0-0"

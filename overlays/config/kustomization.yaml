@@ -14,10 +14,6 @@ configMapGenerator:
     namespace: 5stack
     envs:
       - s3-config.env
-  - name: nginx-config
-    namespace: 5stack
-    envs:
-      - nginx-config.env 
   - name: redis-config
     namespace: 5stack
     envs:

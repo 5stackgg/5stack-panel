@@ -194,6 +194,23 @@ test_crds_created_outside_helm_stop_the_install() {
     assert_eq "$(handovers)" ""
 }
 
+# Traefik's own chart re-creates the traefik.io CRDs without Helm's marks once
+# gateway-crds is installed; an update after that must not trip over them.
+test_an_installed_release_is_left_to_helm() {
+    cluster_objects "CustomResourceDefinition/ingressroutes.traefik.io||" \
+        "CustomResourceDefinition/httproutes.gateway.networking.k8s.io|gateway-crds|traefik"
+    echo secret/sh.helm.release.v1.gateway-crds.v1 >"$WORK_DIR/releases-gateway-crds"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_eq "$(handovers)" ""
+}
+
+test_a_first_install_that_failed_still_hands_k3s_crds_over() {
+    cluster_objects "$K3S_HTTPROUTES"
+    echo helmchart.helm.cattle.io/gateway-crds >"$WORK_DIR/helmcharts-gateway-crds"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_contains "$(handovers)" "annotate --overwrite customresourcedefinition/httproutes.gateway.networking.k8s.io"
+}
+
 test_a_cluster_with_nothing_left_over_hands_nothing_over() {
     cluster_objects "CustomResourceDefinition/helmcharts.helm.cattle.io||" \
         "CustomResourceDefinition/httproutes.gateway.networking.k8s.io|gateway-crds|traefik" \

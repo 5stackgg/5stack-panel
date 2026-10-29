@@ -120,17 +120,31 @@ helm_release_gone() {
     [ -z "$charts$records" ]
 }
 
+helm_release_recorded() {
+    local records
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    records="$(kubectl "${kc[@]}" -n "$2" get secrets -l "owner=helm,name=$1" -o name 2>/dev/null)" && [ -n "$records" ]
+}
+
 # k3s's bundled Traefik installs the Gateway API CRDs as its traefik-crd
 # release with helm.sh/resource-policy: keep, so turning it off with
 # --disable=traefik deletes the release but leaves the CRDs marked as its, and
 # Helm won't install over objects another release claims. Ones whose release
 # is gone are handed to this one; anything a live release, or no release, owns
-# stops the install.
+# stops the install. Only a first install can collide: Helm upgrades what a
+# release already holds whatever its marks say, and the Traefik chart's own
+# crds/ strips them from the traefik.io CRDs the two charts share.
 adopt_orphaned_chart_objects() {
     local chart_dir="$1" release="$2" release_namespace="$3"
     local objects existing object owner owner_namespace refused=false
     local -a kc=() orphaned=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if helm_release_recorded "$release" "$release_namespace"; then
+        return 0
+    fi
 
     objects="$(chart_objects "$chart_dir")"
     if ! existing="$(kubectl "${kc[@]}" get customresourcedefinitions,validatingadmissionpolicies,validatingadmissionpolicybindings \

@@ -111,7 +111,7 @@ make_panel() {
 
     local script
     for script in colors.sh output_redirect.sh apply_overlay.sh setup_kustomize.sh write_overlays.sh \
-        install_traefik.sh retire_ingress_nginx.sh; do
+        update_env_var.sh install_traefik.sh retire_ingress_nginx.sh; do
         # shellcheck source=/dev/null
         source "$PANEL_DIR/utils/$script"
     done

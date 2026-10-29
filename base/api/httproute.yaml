@@ -39,6 +39,9 @@ spec:
             type: Exact
             value: /system/logs/download
         - path:
+            type: Exact
+            value: /mediamtx/stats
+        - path:
             type: PathPrefix
             value: /branding
         - path:

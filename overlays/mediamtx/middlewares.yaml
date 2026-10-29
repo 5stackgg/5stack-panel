@@ -19,6 +19,7 @@ spec:
     accessControlAllowHeaders: [Content-Type, Accept, Authorization, If-Match]
     # The WHEP answer's Location is the session URL trickle ICE PATCHes to.
     accessControlExposeHeaders: [Location]
+    accessControlMaxAge: 600
     addVaryHeader: true
 ---
 # Require login to watch: every stream request is authorized by the API,
@@ -54,6 +55,7 @@ spec:
     accessControlAllowOriginList: ["*"]
     accessControlAllowMethods: [GET, OPTIONS]
     accessControlAllowHeaders: [Content-Type, Accept, If-None-Match]
+    accessControlMaxAge: 600
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware

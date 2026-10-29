@@ -78,7 +78,7 @@ test_api_allowlist_paths_reach_their_backends() {
         /game-server-node/script:api /game-server-node/ping/1:api /avatars/1.png:api /trophies/x:api \
         /branding/logo:api /news/1:api /utility/x:api /custom-pages/x:api /plugins/authorize/x:api \
         /huds/x.zip:api /events/media/1:api /snapshots/1:api /steam-match-history/upload:api /clip-views/1:api \
-        /voice/1:api /notifications/1:api /chat/1:api /sanctions/server/1:api /file-manager/upload:api \
+        /voice/1:api /notifications/1:api /chat/1:api /sanctions/server/1:api /file-manager/upload:api /mediamtx/stats:api \
         /v1/graphql:hasura /v1alpha1/x:hasura /v2/query:hasura; do
         path="${entry%:*}"
         backend="${entry##*:}"
@@ -91,7 +91,7 @@ test_api_allowlist_paths_reach_their_backends() {
 
 test_paths_outside_the_allowlist_are_404() {
     local path
-    for path in / /nope /matchesx /me/x /system/healthz/x /system/logs /v3 /ws /auth/steam; do
+    for path in / /nope /matchesx /me/x /system/healthz/x /system/logs /v3 /ws /auth/steam /mediamtx; do
         call https "$API" "$path"
         expect_code 404
     done

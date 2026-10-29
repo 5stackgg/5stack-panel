@@ -45,4 +45,5 @@ jobs:
       - run: bash tests/scripts/system_upgrade_test.sh
       - run: bash tests/scripts/plugin_test.sh
       - run: bash tests/scripts/node_ip_test.sh
+      - run: bash tests/scripts/traefik_install_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh

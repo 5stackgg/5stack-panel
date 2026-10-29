@@ -25,9 +25,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+      # A published version is never pushed again: whoever installed it keeps
+      # getting the chart they installed. Bump Chart.yaml's version to publish.
       - run: |
-          helm package charts/gateway-crds --destination dist
-          helm package charts/gateway --destination dist
-          for chart in dist/*.tgz; do
-            helm push "$chart" oci://ghcr.io/5stackgg/charts
+          for dir in charts/gateway-crds charts/gateway; do
+            name="$(yq -r .name "$dir/Chart.yaml")"
+            version="$(yq -r .version "$dir/Chart.yaml")"
+            if helm show chart "oci://ghcr.io/5stackgg/charts/$name" --version "$version" >/dev/null 2>&1; then
+              echo "$name $version is already published"
+              continue
+            fi
+            helm package "$dir" --destination dist
+            helm push "dist/$name-$version.tgz" oci://ghcr.io/5stackgg/charts
           done

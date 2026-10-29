@@ -6,6 +6,37 @@
 # cannot also create a GatewayClass or Gateway: Helm resolves every kind before
 # it applies anything. The panel's own Gateway and routes are in the panel
 # overlay and only need this to have run first.
+# An install ingress-nginx still serves can be listening on ports its env file
+# doesn't say: the Service edited by hand, or the file lost. Those are the ports
+# people reach it on, so Traefik takes them over rather than going back to
+# 80/443. Ports set in the file win.
+carry_over_ingress_nginx_ports() {
+    local ports_env="$1" http https live_http live_https
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    live_http="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller \
+        -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null)"
+    live_https="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller \
+        -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null)"
+    if ! [[ "$live_http" =~ ^[0-9]+$ && "$live_https" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+
+    http="$(grep -s '^HTTP_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    https="$(grep -s '^HTTPS_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
+    if [ "${http:-80}" != 80 ] || [ "${https:-443}" != 443 ]; then
+        return 0
+    fi
+    if [ "$live_http" = 80 ] && [ "$live_https" = 443 ]; then
+        return 0
+    fi
+
+    update_env_var "$ports_env" HTTP_PORT "$live_http"
+    update_env_var "$ports_env" HTTPS_PORT "$live_https"
+    warn "ingress-nginx was serving on ports $live_http/$live_https, so Traefik keeps them (saved to $ports_env)"
+}
+
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
     local minor http_port https_port crd
@@ -19,6 +50,8 @@ install_traefik() {
         err "Kubernetes 1.$minor is too old for the Gateway API; upgrade k3s to 1.31 or newer first"
         return 1
     fi
+
+    carry_over_ingress_nginx_ports "$ports_env"
 
     http_port="$(grep -s '^HTTP_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
     https_port="$(grep -s '^HTTPS_PORT=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')"
@@ -88,9 +121,29 @@ chart_archive() {
 # binary) and waits on the helm-install Job that helm-controller runs for it.
 # That Job keeps its name across changes; a changed HelmChart gets a new Job,
 # so a Job with the old UID is the previous config's and is not waited on.
+# helm-controller never re-runs a failed Job for a HelmChart that hasn't
+# changed, so a re-run of update.sh has to start one. A release that failed under
+# failurePolicy abort refuses every new attempt until someone intervenes, and
+# without a helm binary the only way out is a reinstall: done on the re-run, not
+# the run that failed, so a failed upgrade never takes Traefik down on its own.
+retry_helm_chart() {
+    local name="$1"
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if kubectl "${kc[@]}" logs "job/helm-install-$name" -n kube-system --tail=50 2>/dev/null |
+        grep -q "waiting for operator intervention"; then
+        warn "The last $name release failed; reinstalling it, so the panel is offline for a few seconds"
+        output_redirect kubectl "${kc[@]}" patch helmchart "$name" -n kube-system --type merge \
+            -p '{"spec":{"failurePolicy":"reinstall"}}' || return 1
+    else
+        output_redirect kubectl "${kc[@]}" delete job "helm-install-$name" -n kube-system || return 1
+    fi
+}
+
 install_helm_chart() {
     local name="$1" dir="$2" values="$3"
-    local manifest old_generation new_generation old_uid uid complete failed deadline
+    local manifest old_generation new_generation old_uid uid complete failed deadline last_failed
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -122,6 +175,8 @@ install_helm_chart() {
 
     old_generation="$(kubectl "${kc[@]}" get helmchart "$name" -n kube-system -o jsonpath='{.metadata.generation}' 2>/dev/null)"
     old_uid="$(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system -o jsonpath='{.metadata.uid}' 2>/dev/null)"
+    last_failed="$(kubectl "${kc[@]}" get job "helm-install-$name" -n kube-system \
+        -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null)"
 
     # Server-side: chartContent is far past the 256KiB a client-side apply can
     # keep in its last-applied annotation.
@@ -131,7 +186,11 @@ install_helm_chart() {
     fi
     new_generation="$(kubectl "${kc[@]}" get helmchart "$name" -n kube-system -o jsonpath='{.metadata.generation}')"
     if [ "$new_generation" = "$old_generation" ]; then
-        old_uid=""
+        if [ "$last_failed" = "True" ]; then
+            retry_helm_chart "$name" || return 1
+        else
+            old_uid=""
+        fi
     fi
 
     echo "Waiting for helm-controller to apply $name..."
@@ -146,6 +205,7 @@ install_helm_chart() {
             if [ "$failed" = "True" ]; then
                 err "helm-controller could not apply $name:"
                 kubectl "${kc[@]}" logs "job/helm-install-$name" -n kube-system --tail=30 >&2
+                err "Run ./update.sh again to retry it"
                 return 1
             fi
         fi

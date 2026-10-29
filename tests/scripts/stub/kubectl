@@ -19,6 +19,38 @@ while [ $# -gt 0 ]; do
 done
 
 case "$args" in
+    *" get crd helmcharts.helm.cattle.io "* | *" apply --server-side "*) ;;
+    *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
+    *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
+    *" get helmchart "*) echo 1 ;;
+    *" get job helm-install-"*)
+        case "$args" in
+            *'uid}{"|"}'*)
+                if [ -f "$WORK_DIR/job-retried" ]; then
+                    echo "uid-2|True|"
+                elif [ -f "$WORK_DIR/job-failed" ]; then
+                    echo "uid-1||True"
+                else
+                    echo "uid-1|True|"
+                fi
+                ;;
+            *'type=="Failed"'*) if [ -f "$WORK_DIR/job-failed" ]; then echo True; fi ;;
+            *) echo uid-1 ;;
+        esac
+        ;;
+    *" logs job/helm-install-"*) if [ -f "$WORK_DIR/job-logs" ]; then cat "$WORK_DIR/job-logs"; fi ;;
+    *" patch helmchart "* | *" delete job helm-install-"*) touch "$WORK_DIR/job-retried" ;;
+    *" get service ingress-nginx-controller "*)
+        case "$args" in
+            *'name=="https"'*) port_file="$WORK_DIR/nginx-https-port" ;;
+            *) port_file="$WORK_DIR/nginx-http-port" ;;
+        esac
+        if [ ! -f "$port_file" ]; then
+            echo 'Error from server (NotFound): services "ingress-nginx-controller" not found' >&2
+            exit 1
+        fi
+        cat "$port_file"
+        ;;
     *" get nodes "*)
         if [ -f "$WORK_DIR/nodes" ]; then cat "$WORK_DIR/nodes"; fi
         if [ -f "$WORK_DIR/nodes.next" ]; then mv "$WORK_DIR/nodes.next" "$WORK_DIR/nodes"; fi

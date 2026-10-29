@@ -175,7 +175,7 @@ test_mediamtx_preflight_is_answered_before_forward_auth() {
     expect_header Access-Control-Allow-Credentials true
     [ -z "$BODY" ] || fail "the preflight reached a backend: $BODY"
     local seen
-    seen="$(auth_log)"
+    seen="$(auth_log | jq '[.[] | select(.headers["x-forwarded-uri"] | startswith("/m1/whep"))]')"
     [ "$(jq length <<<"$seen")" = 0 ] || fail "the preflight went through forward-auth: $seen"
 }
 

@@ -92,6 +92,7 @@ test_before_the_update_ingress_nginx_serves_everything() {
     expect_json .backend api
     kubectl -n ingress-nginx get service ingress-nginx-controller >/dev/null 2>&1 || fail "ingress-nginx is not serving"
     kubectl get namespace traefik >/dev/null 2>&1 && fail "Traefik is already installed"
+    wait_for 302 http qx.test /dashboard
     expect_other_app_routes_with_its_auth
 }
 

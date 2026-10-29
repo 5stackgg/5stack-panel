@@ -24,6 +24,10 @@ case "$args" in
     *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
     *" get helmchart "*) echo 1 ;;
     *" get gateway traefik-gateway "*) [ -f "$WORK_DIR/shared-gateway" ] || exit 1 ;;
+    *" get ingress "*)
+        ingress="$(printf '%s' "$args" | sed -n 's/.* get ingress \([^ ]*\).*/\1/p')"
+        if [ -f "$WORK_DIR/ingress-$ingress" ]; then echo "ingress.networking.k8s.io/$ingress"; fi
+        ;;
     *" get httproute "*)
         route="$(printf '%s' "$args" | sed -n 's/.* get httproute \([^ ]*\).*/\1/p')"
         [ -f "$WORK_DIR/route-$route" ] || exit 1

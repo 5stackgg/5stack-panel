@@ -40,17 +40,27 @@ EOF
 }
 
 # A plugin that also ships Gateway API routes, beside its Ingress install.
+# $1: which Gateway API overlays it ships (default http); $2: "with-https" for
+# a certificate Ingress install as well. The gateway overlays render the hello
+# route, or a $WORK_DIR/gateway-kind of choice; the Ingress ones the hello
+# Ingress, the way kustomize would.
 make_gateway_plugin() {
+    local gateway="${1:-http}" legacy='"http": "k8s/overlays/http"' overlays=""
     make_plugin
-    mkdir -p "$PLUGIN/k8s/gateway/http"
-    sed -i.bak 's#"overlays": { "http": "k8s/overlays/http" },#"overlays": { "http": "k8s/overlays/http" },\n    "gateway": { "overlays": { "http": "k8s/gateway/http" } },#' "$PLUGIN/public/5stack-plugin.json"
+    [ "${2:-}" = with-https ] && legacy="$legacy, \"https\": \"k8s/overlays/https\""
+    case "$gateway" in
+        http) overlays='"http": "k8s/gateway/http"' ;;
+        https) overlays='"https": "k8s/gateway/https"' ;;
+        both) overlays='"http": "k8s/gateway/http", "https": "k8s/gateway/https"' ;;
+    esac
+    mkdir -p "$PLUGIN/k8s/gateway/http" "$PLUGIN/k8s/gateway/https" "$PLUGIN/k8s/overlays/https"
+    sed -i.bak "s#\"overlays\": { \"http\": \"k8s/overlays/http\" },#\"overlays\": { $legacy },\\n    \"gateway\": { \"overlays\": { $overlays } },#" "$PLUGIN/public/5stack-plugin.json"
     rm -f "$PLUGIN/public/5stack-plugin.json.bak"
-    # Renders the hello route for the Gateway API install and the hello
-    # Ingress for the other, the way kustomize would.
     cat >"$PANEL/kustomize" <<'STUB'
 #!/bin/sh
+kind="$(cat "$WORK_DIR/gateway-kind" 2>/dev/null || echo HTTPRoute)"
 case "$2" in
-    */k8s/gateway/*) printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: hello\n  namespace: 5stack\n' ;;
+    */k8s/gateway/*) printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: %s\nmetadata:\n  name: hello\n  namespace: 5stack\n' "$kind" ;;
     */k8s/overlays/*) printf 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: hello\n  namespace: 5stack\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: hello\n  namespace: 5stack\n' ;;
 esac
 STUB
@@ -229,7 +239,7 @@ test_a_plugin_without_gateway_routes_keeps_its_ingress_on_traefik() {
 test_routes_that_serve_retire_the_ingress_install() {
     make_panel panel.example.com
     make_gateway_plugin
-    touch "$WORK_DIR/shared-gateway"
+    touch "$WORK_DIR/shared-gateway" "$WORK_DIR/ingress-hello"
     echo "3 True/True/3 True/True/3 " >"$WORK_DIR/route-hello"
     run_plugin_for_real --domain hello.example.com
     assert_eq "$(ingress_deletes)" "-n 5stack delete ingress hello --ignore-not-found"
@@ -239,7 +249,7 @@ test_routes_that_serve_retire_the_ingress_install() {
 test_routes_whose_backends_do_not_resolve_keep_the_ingresses() {
     make_panel panel.example.com
     make_gateway_plugin
-    touch "$WORK_DIR/shared-gateway"
+    touch "$WORK_DIR/shared-gateway" "$WORK_DIR/ingress-hello"
     echo "3 True/False/3 True/False/3 " >"$WORK_DIR/route-hello"
     run_plugin_for_real --domain hello.example.com
     assert_eq "$(ingress_deletes)" ""
@@ -249,10 +259,50 @@ test_routes_whose_backends_do_not_resolve_keep_the_ingresses() {
 test_a_route_status_from_an_older_generation_keeps_the_ingresses() {
     make_panel panel.example.com
     make_gateway_plugin
-    touch "$WORK_DIR/shared-gateway"
+    touch "$WORK_DIR/shared-gateway" "$WORK_DIR/ingress-hello"
     echo "4 True/True/3 True/True/3 " >"$WORK_DIR/route-hello"
     run_plugin_for_real --domain hello.example.com
     assert_eq "$(ingress_deletes)" ""
+}
+
+
+test_an_install_with_no_ingress_on_the_cluster_neither_waits_nor_retires() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway"
+    run_plugin_for_real --domain hello.example.com
+    assert_eq "$(ingress_deletes)" ""
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "Ingresses stay"
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "retired Ingress"
+}
+
+test_an_overlay_that_renders_no_httproute_keeps_the_ingresses() {
+    make_panel panel.example.com
+    make_gateway_plugin
+    touch "$WORK_DIR/shared-gateway" "$WORK_DIR/ingress-hello"
+    echo GRPCRoute >"$WORK_DIR/gateway-kind"
+    run_plugin_for_real --domain hello.example.com
+    assert_eq "$(ingress_deletes)" ""
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "renders no HTTPRoute"
+}
+
+test_an_https_site_keeps_the_certificate_install_when_the_routes_are_http_only() {
+    make_panel panel.example.com
+    sed -i.bak 's/^REVERSE_PROXY=true/REVERSE_PROXY=false/' "$PANEL/.5stack-env.config"
+    make_gateway_plugin http with-https
+    touch "$WORK_DIR/shared-gateway"
+    run_plugin --domain hello.example.com
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/overlays/https"
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/gateway/http"
+}
+
+test_a_proxied_site_keeps_the_http_install_when_the_routes_are_https_only() {
+    make_panel panel.example.com
+    make_gateway_plugin https
+    touch "$WORK_DIR/shared-gateway"
+    run_plugin --domain hello.example.com
+    assert_contains "$(cat "$WORK_DIR/plugin-output")" "custom/hello/k8s/overlays/http"
+    assert_not_contains "$(cat "$WORK_DIR/plugin-output")" "kustomize build $PANEL/custom/hello "
 }
 
 run_tests

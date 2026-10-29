@@ -69,7 +69,7 @@ test_an_install_without_ingress_nginx_changes_nothing() {
     assert_eq "$(cat "$WORK_DIR/traefik-config.env")" "$(printf 'HTTP_PORT=80\nHTTPS_PORT=443')"
 }
 
-run_install_chart() {
+install_chart() {
     (
         # shellcheck source=utils/colors.sh
         source "$TEST_ROOT/utils/colors.sh"
@@ -78,7 +78,11 @@ run_install_chart() {
         # shellcheck source=utils/install_traefik.sh
         source "$TEST_ROOT/utils/install_traefik.sh"
         install_helm_chart gateway "$TEST_ROOT/charts/gateway" ""
-    ) >"$WORK_DIR/output" 2>&1 || fail "install_helm_chart exited $?: $(cat "$WORK_DIR/output")"
+    ) >"$WORK_DIR/output" 2>&1
+}
+
+run_install_chart() {
+    install_chart || fail "install_helm_chart exited $?: $(cat "$WORK_DIR/output")"
 }
 
 calls() {
@@ -92,12 +96,110 @@ test_a_rerun_after_a_failed_install_tries_it_again() {
     assert_eq "$(calls)" "--kubeconfig=/dev/null delete job helm-install-gateway -n kube-system"
 }
 
+# By the time update.sh runs again the failed Job's pod, and its logs, are gone;
+# the release records say what state helm left it in.
 test_a_release_waiting_for_intervention_is_reinstalled_on_the_rerun() {
     touch "$WORK_DIR/job-failed"
-    echo "Release status is 'failed' and failure policy is 'abort', not 'reinstall'; waiting for operator intervention" >"$WORK_DIR/job-logs"
+    printf '%s\n' "9 deployed" "10 failed" >"$WORK_DIR/releases-gateway"
     run_install_chart
     assert_contains "$(calls)" "patch helmchart gateway -n kube-system --type merge -p {\"spec\":{\"failurePolicy\":\"reinstall\"}}"
     assert_contains "$(cat "$WORK_DIR/output")" "reinstalling it"
+}
+
+test_a_failed_job_on_a_deployed_release_is_just_run_again() {
+    touch "$WORK_DIR/job-failed"
+    printf '%s\n' "1 superseded" "2 deployed" >"$WORK_DIR/releases-gateway"
+    run_install_chart
+    assert_eq "$(calls)" "--kubeconfig=/dev/null delete job helm-install-gateway -n kube-system"
+}
+
+test_a_failed_install_shows_helms_error_from_before_its_pod_went() {
+    printf '%s\n' "uid-1||" "uid-1||True" >"$WORK_DIR/job-states"
+    echo 'Error: INSTALLATION FAILED: Unable to continue with install: CustomResourceDefinition "httproutes.gateway.networking.k8s.io" exists' >"$WORK_DIR/pod-logs"
+    if install_chart; then
+        fail "install_helm_chart succeeded for a failed Job"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "Unable to continue with install"
+    assert_not_contains "$(cat "$WORK_DIR/output")" "timed out waiting for the condition"
+}
+
+test_a_failed_install_whose_pod_left_nothing_says_so() {
+    echo "uid-1||True" >"$WORK_DIR/job-states"
+    if install_chart; then
+        fail "install_helm_chart succeeded for a failed Job"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "its pod is already gone"
+}
+
+cluster_objects() {
+    printf '%s\n' "$@" >"$WORK_DIR/cluster-objects"
+}
+
+hand_over() {
+    (
+        # shellcheck source=utils/colors.sh
+        source "$TEST_ROOT/utils/colors.sh"
+        # shellcheck source=utils/output_redirect.sh
+        source "$TEST_ROOT/utils/output_redirect.sh"
+        # shellcheck source=utils/install_traefik.sh
+        source "$TEST_ROOT/utils/install_traefik.sh"
+        adopt_orphaned_chart_objects "$TEST_ROOT/charts/gateway-crds" gateway-crds traefik
+    ) >"$WORK_DIR/output" 2>&1
+}
+
+handovers() {
+    grep -E ' (annotate|label) ' "$WORK_DIR/calls" 2>/dev/null || true
+}
+
+K3S_HTTPROUTES="CustomResourceDefinition/httproutes.gateway.networking.k8s.io|traefik-crd|kube-system"
+K3S_GATEWAYS="CustomResourceDefinition/gateways.gateway.networking.k8s.io|traefik-crd|kube-system"
+
+test_crds_left_by_k3s_traefik_are_handed_to_gateway_crds() {
+    cluster_objects "$K3S_HTTPROUTES" "$K3S_GATEWAYS" \
+        "CustomResourceDefinition/gatewayclasses.gateway.networking.k8s.io|gateway-crds|traefik" \
+        "CustomResourceDefinition/helmcharts.helm.cattle.io||"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_contains "$(handovers)" "annotate --overwrite customresourcedefinition/httproutes.gateway.networking.k8s.io customresourcedefinition/gateways.gateway.networking.k8s.io meta.helm.sh/release-name=gateway-crds meta.helm.sh/release-namespace=traefik"
+    assert_contains "$(handovers)" "label --overwrite customresourcedefinition/httproutes.gateway.networking.k8s.io customresourcedefinition/gateways.gateway.networking.k8s.io app.kubernetes.io/managed-by=Helm"
+    assert_not_contains "$(handovers)" gatewayclasses
+    assert_not_contains "$(handovers)" helmcharts
+}
+
+test_k3s_still_running_its_traefik_stops_the_install() {
+    cluster_objects "$K3S_HTTPROUTES"
+    echo helmchart.helm.cattle.io/traefik-crd >"$WORK_DIR/helmcharts-traefik-crd"
+    if hand_over; then
+        fail "the CRDs of k3s's running Traefik were taken"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "--disable=traefik"
+    assert_eq "$(handovers)" ""
+}
+
+test_crds_of_another_live_release_stop_the_install() {
+    cluster_objects "CustomResourceDefinition/httproutes.gateway.networking.k8s.io|eg|envoy-gateway-system"
+    echo secret/sh.helm.release.v1.eg.v1 >"$WORK_DIR/releases-eg"
+    if hand_over; then
+        fail "another release's CRDs were taken"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "belongs to the Helm release eg in envoy-gateway-system"
+    assert_eq "$(handovers)" ""
+}
+
+test_crds_created_outside_helm_stop_the_install() {
+    cluster_objects "CustomResourceDefinition/httproutes.gateway.networking.k8s.io||"
+    if hand_over; then
+        fail "CRDs created outside Helm were taken"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "created outside Helm"
+    assert_eq "$(handovers)" ""
+}
+
+test_a_cluster_with_nothing_left_over_hands_nothing_over() {
+    cluster_objects "CustomResourceDefinition/helmcharts.helm.cattle.io||" \
+        "CustomResourceDefinition/httproutes.gateway.networking.k8s.io|gateway-crds|traefik" \
+        "ValidatingAdmissionPolicy/safe-upgrades.gateway.networking.k8s.io|gateway-crds|traefik"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_eq "$(handovers)" ""
 }
 
 test_an_unchanged_chart_that_installed_is_left_alone() {

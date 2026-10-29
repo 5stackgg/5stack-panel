@@ -23,10 +23,24 @@ case "$args" in
     *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
     *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
     *" get helmchart "*) echo 1 ;;
+    *" get customresourcedefinitions,"*) if [ -f "$WORK_DIR/cluster-objects" ]; then cat "$WORK_DIR/cluster-objects"; fi ;;
+    *" get helmcharts.helm.cattle.io "*)
+        name="$(printf '%s' "$args" | sed -n 's/.*metadata\.name=\([^ ]*\).*/\1/p')"
+        if [ -f "$WORK_DIR/helmcharts-$name" ]; then cat "$WORK_DIR/helmcharts-$name"; fi
+        ;;
+    *" get secrets "*)
+        name="$(printf '%s' "$args" | sed -n 's/.*owner=helm,name=\([^ ]*\).*/\1/p')"
+        if [ -f "$WORK_DIR/releases-$name" ]; then cat "$WORK_DIR/releases-$name"; fi
+        ;;
     *" get job helm-install-"*)
         case "$args" in
             *'uid}{"|"}'*)
-                if [ -f "$WORK_DIR/job-retried" ]; then
+                if [ -f "$WORK_DIR/job-states" ]; then
+                    head -n 1 "$WORK_DIR/job-states"
+                    if [ "$(wc -l <"$WORK_DIR/job-states")" -gt 1 ]; then
+                        sed -i.bak 1d "$WORK_DIR/job-states"
+                    fi
+                elif [ -f "$WORK_DIR/job-retried" ]; then
                     echo "uid-2|True|"
                 elif [ -f "$WORK_DIR/job-failed" ]; then
                     echo "uid-1||True"
@@ -38,7 +52,14 @@ case "$args" in
             *) echo uid-1 ;;
         esac
         ;;
-    *" logs job/helm-install-"*) if [ -f "$WORK_DIR/job-logs" ]; then cat "$WORK_DIR/job-logs"; fi ;;
+    *" logs job/helm-install-"*)
+        if [ ! -f "$WORK_DIR/job-logs" ]; then
+            echo "error: timed out waiting for the condition" >&2
+            exit 1
+        fi
+        cat "$WORK_DIR/job-logs"
+        ;;
+    *" logs -n kube-system -l batch.kubernetes.io/controller-uid="*) if [ -f "$WORK_DIR/pod-logs" ]; then cat "$WORK_DIR/pod-logs"; fi ;;
     *" patch helmchart "* | *" delete job helm-install-"*) touch "$WORK_DIR/job-retried" ;;
     *" get service ingress-nginx-controller "*)
         case "$args" in
@@ -56,6 +77,7 @@ case "$args" in
         if [ -f "$WORK_DIR/nodes.next" ]; then mv "$WORK_DIR/nodes.next" "$WORK_DIR/nodes"; fi
         ;;
     *" annotate "*) if [ -f "$WORK_DIR/annotate-fails" ]; then exit 1; fi ;;
+    *" label "*) ;;
     *" get pods "*) cat "$WORK_DIR/pods" ;;
     *" get pod "*) cat "$WORK_DIR/containers-$pod" ;;
     *" logs "*)

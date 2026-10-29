@@ -33,6 +33,18 @@ install_ingress_nginx() {
     apply_with_retries "$HERE/fixtures/ingress-nginx-panel.yaml"
 }
 
+# What k3s's own Traefik leaves once k3s runs with --disable=traefik: the
+# Gateway API CRDs, kept by their resource policy and still marked as its
+# traefik-crd release, which is gone.
+leave_k3s_traefik_crds() {
+    local -a crds
+    kubectl apply --server-side -f "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml" >/dev/null || return 1
+    kubectl delete validatingadmissionpolicybinding,validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io >/dev/null || return 1
+    mapfile -t crds < <(kubectl get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
+    kubectl annotate --overwrite "${crds[@]}" meta.helm.sh/release-name=traefik-crd meta.helm.sh/release-namespace=kube-system >/dev/null || return 1
+    kubectl label --overwrite "${crds[@]}" app.kubernetes.io/managed-by=Helm >/dev/null
+}
+
 # Another app on the same cluster that stays on an nginx-class Ingress: plain
 # HTTP, its own forward-auth with a sign-in redirect, a body limit, no
 # buffering and long timeouts.
@@ -104,6 +116,12 @@ test_ingress_nginx_is_gone() {
     kubectl get clusterrole ingress-nginx >/dev/null 2>&1 && fail "the ingress-nginx ClusterRole is still there"
     [ "$(kubectl get ingressclass nginx -o jsonpath='{.spec.controller}')" = k8s.io/ingress-nginx ] || fail "IngressClass nginx is gone"
     [ -z "$(kubectl -n 5stack get ingress -o name)" ] || fail "panel Ingresses left: $(kubectl -n 5stack get ingress -o name)"
+}
+
+test_the_crds_k3s_left_belong_to_gateway_crds() {
+    [ "$(kubectl get crd httproutes.gateway.networking.k8s.io -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')" = gateway-crds ] ||
+        fail "httproutes is still marked as another release's"
+    kubectl get validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io >/dev/null 2>&1 || fail "the chart's safe-upgrades policy is missing"
 }
 
 test_panel_routes_go_through_traefik() {
@@ -194,6 +212,7 @@ deploy_panel_stubs || exit 1
 tls_secret 5stack-ssl "$DOMAIN" "$API" "demos.$DOMAIN" "ws.$DOMAIN" "tv.$DOMAIN" "search.$DOMAIN" "console.$DOMAIN" || exit 1
 tls_secret 5stack-mediamtx-ssl "$HLS" || exit 1
 deploy_other_app || exit 1
+leave_k3s_traefik_crds || exit 1
 
 run_test test_before_the_update_ingress_nginx_serves_everything
 
@@ -213,6 +232,7 @@ POLL="$(client cat /tmp/poll.json)"
 
 for name in \
     test_ingress_nginx_is_gone \
+    test_the_crds_k3s_left_belong_to_gateway_crds \
     test_panel_routes_go_through_traefik \
     test_the_other_app_keeps_its_nginx_ingress_and_auth \
     test_the_switch_costs_seconds \

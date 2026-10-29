@@ -381,11 +381,25 @@ test_an_upgrade_keeps_the_shared_certificate() {
     [ "$(shared_certificate)" = "$before" ] || fail "the upgrade replaced the certificate"
 }
 
+# Rewrites the certificate's recorded expiry as Helm itself would have written
+# it. helm-controller's Helm applies server-side as "helm", so a change made
+# under any other field manager would conflict with the upgrade's own apply.
+age_shared_certificate() {
+    kubectl -n traefik get secret traefik-gateway-tls -o json |
+        python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)
+m = s["metadata"]
+m["annotations"]["gateway.5stack.gg/not-after"] = sys.argv[1]
+print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s["type"], "data": s["data"],
+                  "metadata": {k: m[k] for k in ("name", "namespace", "labels", "annotations") if k in m}}))' "$1" |
+        kubectl apply --server-side --field-manager=helm --force-conflicts -f - >/dev/null
+}
+
 test_an_upgrade_renews_a_shared_certificate_about_to_expire() {
     local before expires
     before="$(shared_certificate)"
-    kubectl -n traefik annotate --overwrite secret traefik-gateway-tls \
-        "gateway.5stack.gg/not-after=$(($(date +%s) + 86400))" >/dev/null || fail "could not age the certificate"
+    age_shared_certificate "$(($(date +%s) + 86400))" || fail "could not age the certificate"
     upgrade_gateway_release twice || fail "the upgrade never completed"
     [ "$(shared_certificate)" != "$before" ] || fail "the upgrade kept a certificate a day from expiring"
     expires="$(kubectl -n traefik get secret traefik-gateway-tls -o jsonpath='{.metadata.annotations.gateway\.5stack\.gg/not-after}')"

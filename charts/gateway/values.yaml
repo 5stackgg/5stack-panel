@@ -16,8 +16,11 @@ traefik:
     enabled: true
     name: traefik
 
-  # The shared listener: plain HTTP on every hostname, open to routes from any
-  # namespace. Hostname and HTTPS listeners belong on a Gateway of their own.
+  # The shared listeners, on every hostname and open to routes from any
+  # namespace: plain HTTP, and HTTPS on a self-signed certificate
+  # (templates/gateway-tls-secret.yaml) for reverse proxies that forward to 443.
+  # A route attaches to both to answer either way. Listeners with a hostname and
+  # a real certificate belong on a Gateway of their own, and win for their host.
   gateway:
     enabled: true
     listeners:
@@ -26,6 +29,14 @@ traefik:
         protocol: HTTP
         namespacePolicy:
           from: All
+      websecure:
+        port: 8443
+        protocol: HTTPS
+        namespacePolicy:
+          from: All
+        mode: Terminate
+        certificateRefs:
+          - name: traefik-gateway-tls
 
   # For cert-manager's HTTP-01 solver Ingresses. Not the default class, so an
   # Ingress without one stays unserved, as it was under ingress-nginx.

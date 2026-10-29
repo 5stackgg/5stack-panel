@@ -1,6 +1,6 @@
 apiVersion: v2
 name: gateway
-description: Traefik serving the Kubernetes Gateway API, with a shared HTTP Gateway every namespace can attach routes to. Needs the gateway-crds chart.
+description: Traefik serving the Kubernetes Gateway API, with a shared Gateway every namespace can attach routes to, on HTTP and on HTTPS with a self-signed certificate. Needs the gateway-crds chart.
 type: application
 version: 0.1.0
 appVersion: v3.7.16

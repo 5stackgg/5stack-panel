@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # The self-signed certificate 5stack-tls answers on in a REVERSE_PROXY install
-# (overlays/http/gateway-tls.yaml). Made once and kept, so an update changes
-# nothing; the proxy in front doesn't check it, as it didn't ingress-nginx's.
+# (overlays/http/gateway-tls.yaml). Kept, so an update changes nothing, until
+# it's within 30 days of expiring or unreadable; the proxy in front doesn't
+# check it, as it didn't ingress-nginx's.
 ensure_reverse_proxy_certificate() {
     local dir="$1"
-    if [ -s "$dir/reverse-proxy-tls.crt" ] && [ -s "$dir/reverse-proxy-tls.key" ]; then
+    if [ -s "$dir/reverse-proxy-tls.key" ] &&
+        openssl x509 -noout -checkend 2592000 -in "$dir/reverse-proxy-tls.crt" >/dev/null 2>&1; then
         return 0
     fi
     (

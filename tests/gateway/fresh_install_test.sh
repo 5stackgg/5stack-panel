@@ -290,6 +290,109 @@ EOF
     expect_code 404
 }
 
+# An app on the shared Gateway, attached to both of its listeners, as a
+# reverse proxy that forwards to 443 needs.
+shared_route_on_both_listeners() {
+    kubectl apply -f - >/dev/null <<'EOF'
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: other-both
+  namespace: other
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+      sectionName: web
+    - name: traefik-gateway
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - both.test
+  rules:
+    - backendRefs:
+        - name: other
+          port: 80
+EOF
+}
+
+# The subject of the certificate served on 443 for SNI $1.
+served_certificate() {
+    client sh -c "openssl s_client -connect $NODE_IP:443 -servername $1 </dev/null 2>/dev/null | openssl x509 -noout -subject -nameopt RFC2253"
+}
+
+test_the_shared_gateway_answers_on_443_as_well() {
+    shared_route_on_both_listeners
+    wait_for 200 https both.test /x
+    expect_json .backend other
+    expect_json '.headers["x-forwarded-proto"]' https
+    call http both.test /x
+    expect_code 200
+    expect_json '.headers["x-forwarded-proto"]' http
+}
+
+# The shared listener on 443 has no hostname; the panel's own listeners carry
+# theirs, so they keep their hosts and their certificate.
+test_panel_hosts_keep_their_certificate_beside_the_shared_listener() {
+    [ "$(served_certificate "$API")" = "subject=CN=$WEB" ] || fail "$API was served $(served_certificate "$API")"
+    call https "$API" /me
+    expect_code 200
+    expect_json .backend api
+}
+
+test_http_mode_shares_443_with_the_shared_gateway() {
+    call https "$API" /me
+    expect_code 200
+    expect_json .backend api
+    call https both.test /x
+    expect_code 200
+    expect_json .backend other
+    expect_json '.headers["x-forwarded-proto"]' https
+}
+
+# Has helm-controller upgrade the gateway release, by changing one value.
+upgrade_gateway_release() {
+    local old_uid uid complete
+    old_uid="$(kubectl -n kube-system get job helm-install-gateway -o jsonpath='{.metadata.uid}')"
+    kubectl -n kube-system patch helmchart gateway --type merge \
+        -p "{\"spec\":{\"set\":{\"traefik.deployment.podAnnotations.upgraded\":\"$1\"}}}" >/dev/null || return 1
+    for _ in $(seq 1 100); do
+        IFS='|' read -r uid complete < <(kubectl -n kube-system get job helm-install-gateway \
+            -o jsonpath='{.metadata.uid}{"|"}{.status.conditions[?(@.type=="Complete")].status}{"\n"}' 2>/dev/null)
+        if [ -n "$uid" ] && [ "$uid" != "$old_uid" ] && [ "$complete" = True ]; then
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+shared_certificate() {
+    kubectl -n traefik get secret traefik-gateway-tls -o jsonpath='{.data.tls\.crt}'
+}
+
+# helm-controller upgrades the release with cluster access, so lookup finds
+# the certificate the install made and the upgrade keeps it.
+test_an_upgrade_keeps_the_shared_certificate() {
+    local before
+    before="$(shared_certificate)"
+    [ -n "$before" ] || fail "traefik-gateway-tls is missing"
+    upgrade_gateway_release once || fail "the upgrade never completed"
+    [ "$(shared_certificate)" = "$before" ] || fail "the upgrade replaced the certificate"
+}
+
+test_an_upgrade_renews_a_shared_certificate_about_to_expire() {
+    local before expires
+    before="$(shared_certificate)"
+    kubectl -n traefik annotate --overwrite secret traefik-gateway-tls \
+        "gateway.5stack.gg/not-after=$(($(date +%s) + 86400))" >/dev/null || fail "could not age the certificate"
+    upgrade_gateway_release twice || fail "the upgrade never completed"
+    [ "$(shared_certificate)" != "$before" ] || fail "the upgrade kept a certificate a day from expiring"
+    expires="$(kubectl -n traefik get secret traefik-gateway-tls -o jsonpath='{.metadata.annotations.gateway\.5stack\.gg/not-after}')"
+    [ "$expires" -gt $(($(date +%s) + 3000 * 86400)) ] || fail "the new certificate expires at $expires"
+    wait_for 200 https both.test /x
+}
+
 start_long_requests() {
     client sh -c 'head -c 125829120 /dev/zero >/tmp/big'
     docker exec -d "$PREFIX-client" sh -c "curl -sk --resolve $DEMOS:443:$NODE_IP -X PUT --data-binary @/tmp/big \
@@ -421,7 +524,9 @@ for name in \
     test_snapshot_is_rewritten_with_open_cors \
     test_http_redirects_to_https_without_a_port \
     test_client_ip_reaches_the_backend \
-    test_other_namespaces_attach_to_the_shared_listener; do
+    test_other_namespaces_attach_to_the_shared_listener \
+    test_the_shared_gateway_answers_on_443_as_well \
+    test_panel_hosts_keep_their_certificate_beside_the_shared_listener; do
     run_test "$name"
 done
 
@@ -434,5 +539,8 @@ routing_layer http || exit 1
 kubectl delete httproute https-redirect -n 5stack >/dev/null
 run_test test_http_mode_serves_every_host_without_redirect
 run_test test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there
+run_test test_http_mode_shares_443_with_the_shared_gateway
+run_test test_an_upgrade_keeps_the_shared_certificate
+run_test test_an_upgrade_renews_a_shared_certificate_about_to_expire
 
 summary

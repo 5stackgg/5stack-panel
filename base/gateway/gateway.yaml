@@ -2,8 +2,9 @@
 # inherit the hostname from. These are the plain-HTTP listeners of a
 # REVERSE_PROXY install; overlays/http/gateway-https-patch.yaml turns them into
 # HTTPS ones. Ports are Traefik's entrypoints (charts/gateway), not the node's:
-# HTTP_PORT and HTTPS_PORT only move the LoadBalancer Service. The listener for
-# every other host is on the chart's shared Gateway, traefik/traefik-gateway.
+# HTTP_PORT and HTTPS_PORT only move the LoadBalancer Service. The listeners for
+# every other host are on the chart's shared Gateway, traefik/traefik-gateway:
+# web (HTTP) and websecure (HTTPS on a self-signed certificate).
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:

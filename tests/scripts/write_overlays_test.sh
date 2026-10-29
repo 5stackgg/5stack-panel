@@ -37,6 +37,25 @@ test_the_certificate_is_kept_across_updates() {
         fail "the kustomization was appended to, not rewritten"
 }
 
+test_a_certificate_near_its_expiry_is_replaced() {
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 10 -subj "/CN=5stack" \
+        -keyout "$(overlay local-secrets-http)/reverse-proxy-tls.key" \
+        -out "$(overlay local-secrets-http)/reverse-proxy-tls.crt" >/dev/null 2>&1
+    cp "$(overlay local-secrets-http)/reverse-proxy-tls.crt" "$WORK_DIR/expiring.crt"
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    cmp -s "$WORK_DIR/expiring.crt" "$(overlay local-secrets-http)/reverse-proxy-tls.crt" && fail "the expiring certificate was kept"
+    openssl x509 -noout -checkend $((3000 * 86400)) -in "$(overlay local-secrets-http)/reverse-proxy-tls.crt" >/dev/null ||
+        fail "the new certificate isn't good for ten years"
+}
+
+test_an_unreadable_certificate_is_replaced() {
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    echo "not a certificate" >"$(overlay local-secrets-http)/reverse-proxy-tls.crt"
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    openssl x509 -noout -in "$(overlay local-secrets-http)/reverse-proxy-tls.crt" || fail "it was not replaced"
+}
+
 test_the_key_is_readable_only_by_its_owner() {
     write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
     assert_eq "$(find "$(overlay local-secrets-http)/reverse-proxy-tls.key" -perm 600 | wc -l | tr -d ' ')" 1

@@ -36,6 +36,13 @@ spec:
       containers:
         - image: hasura/graphql-engine:v2.51.3-ce.cli-migrations-v3@sha256:fc93e226608dcd44fa57968d74f8ed1854d7075825d1f8655fa0c9f2a6a9846d
           name: hasura
+          # The cli-migrations entrypoint starts a temporary graphql-engine to
+          # apply metadata, then kills it. On Ubuntu 26.04's kernel, containerd's
+          # default AppArmor profile denies that signal and Hasura never starts
+          # (containerd/containerd#12886).
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
           resources:
             requests:
               memory: "256Mi"
@@ -67,16 +74,24 @@ spec:
             - secretRef:
                 name: hasura-secrets  
           env:
-            # Hasura's runtime threads; its own default is one per core. Polling
-            # subscriptions comes in bursts: with 2, 1,000 users in the api's
-            # load lab waited 6.4 s (p95) for first data, 1.2 s with 4.
+            # Hasura's runtime threads and allocation area; its own defaults are
+            # one thread per core and 4 MB. Polling subscriptions comes in
+            # bursts: with 2 threads, 1,000 users in the api's load lab waited
+            # 6.4 s (p95) for first data, 1.2 s with 4. Every time a thread's
+            # area fills, all of them stop to collect: at 3,000 users 64 MB
+            # took that p95 from 13.7 s to 2.2 s and halved Hasura's CPU.
             - name: GHCRTS
-              value: "-N4"
+              value: "-N4 -A64m"
             # How many viewers of one subscription share a statement (Hasura's
             # default is 100). Postgres plans each statement, so fewer of them
             # halved its time at 1,000 users in the api's load lab.
             - name: HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_BATCH_SIZE
               value: "1000"
+            # How often live subscriptions poll (Hasura's default is 1 s). At
+            # 2,000 users in the api's load lab, 2 s halved Postgres's work and
+            # took query p95 from 1.2 s to 212 ms. Vetoes stream instead.
+            - name: HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_REFETCH_INTERVAL
+              value: "2000"
             # Streaming subscriptions have their own interval. The veto screens
             # stream (api#829): an empty primary-key read between moves, so a
             # pick reaches the other team within half a second.

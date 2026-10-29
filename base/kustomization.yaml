@@ -15,3 +15,4 @@ resources:
   - volumes
   - gateway
   - backups
+  - system-upgrade

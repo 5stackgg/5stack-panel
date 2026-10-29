@@ -248,6 +248,8 @@ if [ "$COMMAND" = "remove" ]; then
 
     overlay_http="$(json_read "$manifest" install.overlays.http)"
     overlay_https="$(json_read "$manifest" install.overlays.https)"
+    gateway_http="$(json_read "$manifest" install.gateway.overlays.http)"
+    gateway_https="$(json_read "$manifest" install.gateway.overlays.https)"
     setup_kustomize
 
     step "Removing $SOURCE"
@@ -256,16 +258,62 @@ if [ "$COMMAND" = "remove" ]; then
     [ "$ASSUME_YES" = true ] && confirm_default=y
     if [ "$(ask "Continue? (y/n)" "$confirm_default")" != "y" ]; then die "cancelled."; fi
 
-    for overlay in "$overlay_https" "$overlay_http"; do
-        [ -n "$overlay" ] && [ -d "$dir/$overlay" ] || continue
-        ./kustomize build "$dir/$overlay" | kubectl delete --ignore-not-found -f - || true
-        break
+    # Either install may be the one on the cluster, so both go.
+    for pair in "$gateway_https $gateway_http" "$overlay_https $overlay_http"; do
+        for overlay in $pair; do
+            [ -d "$dir/$overlay" ] || continue
+            ./kustomize build "$dir/$overlay" | kubectl delete --ignore-not-found -f - || true
+            break
+        done
     done
     ok "removed from the cluster"
     echo "    Files are still at $dir — delete them by hand if you're done with it."
     echo
     exit 0
 fi
+
+# kind/name of each object an overlay renders.
+rendered_objects() {
+    ./kustomize build "$1" | awk '/^kind: /{ kind = $2; next } kind && /^  name: /{ print kind "/" $2; kind = "" }'
+}
+
+# Accepted by every parent, with its backends resolved, at the route's
+# current generation.
+route_ready() {
+    local state gen parents parent
+    state="$(kubectl -n 5stack get httproute "$1" -o jsonpath='{.metadata.generation}{" "}{range .status.parents[*]}{.conditions[?(@.type=="Accepted")].status}/{.conditions[?(@.type=="ResolvedRefs")].status}/{.conditions[?(@.type=="Accepted")].observedGeneration}{" "}{end}' 2>/dev/null)" || return 1
+    gen="${state%% *}"
+    parents="${state#"$gen"}"
+    [ -n "$gen" ] && [ -n "${parents// /}" ] || return 1
+    for parent in $parents; do
+        [ "$parent" = "True/True/$gen" ] || return 1
+    done
+}
+
+# The Ingresses an earlier, Ingress install of this plugin made, deleted by
+# the names that install renders -- never by guess -- once every route the
+# Gateway API install renders is serving. Until then they stay and serve.
+retire_ingresses() {
+    local routes ingresses route ingress deadline
+    routes="$(rendered_objects "$1" | sed -n 's#^HTTPRoute/##p')"
+    ingresses="$(rendered_objects "$2" | sed -n 's#^Ingress/##p')"
+    [ -n "$ingresses" ] || return 0
+    deadline=$((SECONDS + ${ROUTE_WAIT_TIMEOUT:-120}))
+    for route in $routes; do
+        until route_ready "$route"; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+                warn "HTTPRoute $route isn't serving yet, so $NAME's Ingresses stay — kubectl -n 5stack describe httproute $route"
+                return 0
+            fi
+            sleep 3
+        done
+    done
+    for ingress in $ingresses; do
+        if kubectl -n 5stack delete ingress "$ingress" --ignore-not-found >/dev/null; then
+            ok "retired Ingress $ingress"
+        fi
+    done
+}
 
 # ---------------------------------------------------------------------------
 # Fetch
@@ -347,7 +395,9 @@ NAME="$(json_read "$MANIFEST" name)"
 
 OVERLAY_HTTP="$(json_read "$MANIFEST" install.overlays.http)"
 OVERLAY_HTTPS="$(json_read "$MANIFEST" install.overlays.https)"
-[ -n "$OVERLAY_HTTP$OVERLAY_HTTPS" ] \
+GATEWAY_HTTP="$(json_read "$MANIFEST" install.gateway.overlays.http)"
+GATEWAY_HTTPS="$(json_read "$MANIFEST" install.gateway.overlays.https)"
+[ -n "$OVERLAY_HTTP$OVERLAY_HTTPS$GATEWAY_HTTP$GATEWAY_HTTPS" ] \
     || die "$NAME ships no \"install\" block, so it can't be deployed to this cluster.
     It is a static build — host it anywhere and register it in the panel.
     See https://docs.5stack.gg/plugins/deploying"
@@ -407,6 +457,24 @@ done < <(find "$TARGET" -name '*.env.example' 2>/dev/null)
 
 step "Choosing the install"
 
+# A panel on Traefik has the shared Gateway. There, a plugin that ships
+# Gateway API routes installs those, and the Ingress install it replaces is
+# retired once they are serving; everywhere else, the Ingress install.
+USE_GATEWAY=false
+LEGACY_HTTP=""
+LEGACY_HTTPS=""
+if [ -n "$GATEWAY_HTTP$GATEWAY_HTTPS" ] && kubectl -n traefik get gateway traefik-gateway >/dev/null 2>&1; then
+    USE_GATEWAY=true
+    LEGACY_HTTP="$OVERLAY_HTTP"
+    LEGACY_HTTPS="$OVERLAY_HTTPS"
+    OVERLAY_HTTP="$GATEWAY_HTTP"
+    OVERLAY_HTTPS="$GATEWAY_HTTPS"
+    ok "Gateway API routes — this panel routes through Traefik"
+elif [ -z "$OVERLAY_HTTP$OVERLAY_HTTPS" ]; then
+    die "$NAME only ships Gateway API routes, and this panel has no shared Gateway yet.
+    Run ./update.sh first."
+fi
+
 if [ -z "$TLS_MODE" ]; then
     if [ "$REVERSE_PROXY" = "true" ]; then TLS_MODE=http; else TLS_MODE=https; fi
     echo "    ${C_DIM}from this site's REVERSE_PROXY=$REVERSE_PROXY${C_RESET}"
@@ -431,6 +499,15 @@ else
 fi
 
 [ -d "$TARGET/$OVERLAY" ] || die "the manifest points at $OVERLAY, which isn't in the repo."
+
+LEGACY_OVERLAY=""
+if [ "$USE_GATEWAY" = true ]; then
+    if [ "$TLS_MODE" = "https" ] && [ -n "$LEGACY_HTTPS" ]; then
+        LEGACY_OVERLAY="$LEGACY_HTTPS"
+    else
+        LEGACY_OVERLAY="$LEGACY_HTTP"
+    fi
+fi
 
 setup_kustomize
 
@@ -593,6 +670,10 @@ for deployment in $DEPLOYMENTS; do
     kubectl -n 5stack rollout status "deployment/$deployment" --timeout=300s \
         || warn "$deployment isn't ready — kubectl -n 5stack describe deployment/$deployment"
 done
+
+if [ -n "$LEGACY_OVERLAY" ] && [ -d "$TARGET/$LEGACY_OVERLAY" ]; then
+    retire_ingresses "$TARGET/$OVERLAY" "$TARGET/$LEGACY_OVERLAY"
+fi
 
 # ---------------------------------------------------------------------------
 

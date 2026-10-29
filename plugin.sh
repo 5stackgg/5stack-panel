@@ -293,11 +293,24 @@ route_ready() {
 # The Ingresses an earlier, Ingress install of this plugin made, deleted by
 # the names that install renders -- never by guess -- once every route the
 # Gateway API install renders is serving. Until then they stay and serve.
+# Only ones on the cluster count, so a fresh install or a re-run neither waits
+# on routes nor reports a retirement, and an Ingress the Gateway API install
+# renders itself is its own and stays.
 retire_ingresses() {
-    local routes ingresses route ingress deadline
-    routes="$(rendered_objects "$1" | sed -n 's#^HTTPRoute/##p')"
-    ingresses="$(rendered_objects "$2" | sed -n 's#^Ingress/##p')"
+    local rendered routes ingresses route ingress deadline
+    rendered="$(rendered_objects "$1")"
+    routes="$(sed -n 's#^HTTPRoute/##p' <<<"$rendered")"
+    ingresses=""
+    for ingress in $(rendered_objects "$2" | sed -n 's#^Ingress/##p'); do
+        grep -qxF "Ingress/$ingress" <<<"$rendered" && continue
+        [ -n "$(kubectl -n 5stack get ingress "$ingress" --ignore-not-found -o name 2>/dev/null)" ] || continue
+        ingresses="$ingresses $ingress"
+    done
     [ -n "$ingresses" ] || return 0
+    if [ -z "$routes" ]; then
+        warn "$1 renders no HTTPRoute, so $NAME's Ingresses stay"
+        return 0
+    fi
     deadline=$((SECONDS + ${ROUTE_WAIT_TIMEOUT:-120}))
     for route in $routes; do
         until route_ready "$route"; do
@@ -457,27 +470,34 @@ done < <(find "$TARGET" -name '*.env.example' 2>/dev/null)
 
 step "Choosing the install"
 
-# A panel on Traefik has the shared Gateway. There, a plugin that ships
-# Gateway API routes installs those, and the Ingress install it replaces is
-# retired once they are serving; everywhere else, the Ingress install.
-USE_GATEWAY=false
-LEGACY_HTTP=""
-LEGACY_HTTPS=""
-if [ -n "$GATEWAY_HTTP$GATEWAY_HTTPS" ] && kubectl -n traefik get gateway traefik-gateway >/dev/null 2>&1; then
-    USE_GATEWAY=true
-    LEGACY_HTTP="$OVERLAY_HTTP"
-    LEGACY_HTTPS="$OVERLAY_HTTPS"
-    OVERLAY_HTTP="$GATEWAY_HTTP"
-    OVERLAY_HTTPS="$GATEWAY_HTTPS"
-    ok "Gateway API routes — this panel routes through Traefik"
-elif [ -z "$OVERLAY_HTTP$OVERLAY_HTTPS" ]; then
-    die "$NAME only ships Gateway API routes, and this panel has no shared Gateway yet.
-    Run ./update.sh first."
-fi
-
 if [ -z "$TLS_MODE" ]; then
     if [ "$REVERSE_PROXY" = "true" ]; then TLS_MODE=http; else TLS_MODE=https; fi
     echo "    ${C_DIM}from this site's REVERSE_PROXY=$REVERSE_PROXY${C_RESET}"
+fi
+
+# A panel on Traefik has the shared Gateway. There, a plugin whose Gateway API
+# install covers this site's TLS mode installs that, and the Ingress install it
+# replaces is retired once it serves. Otherwise the Ingress install, which
+# Traefik also serves: an https site keeps the certificate an Ingress install
+# carries rather than fall back to plain-HTTP routes.
+USE_GATEWAY=false
+LEGACY_HTTP=""
+LEGACY_HTTPS=""
+if [ "$TLS_MODE" = "https" ]; then GATEWAY_FOR_MODE="$GATEWAY_HTTPS"; else GATEWAY_FOR_MODE="$GATEWAY_HTTP"; fi
+if [ -n "$GATEWAY_HTTP$GATEWAY_HTTPS" ] && kubectl -n traefik get gateway traefik-gateway >/dev/null 2>&1; then
+    if [ -n "$GATEWAY_FOR_MODE" ] || [ -z "$OVERLAY_HTTP$OVERLAY_HTTPS" ]; then
+        USE_GATEWAY=true
+        LEGACY_HTTP="$OVERLAY_HTTP"
+        LEGACY_HTTPS="$OVERLAY_HTTPS"
+        OVERLAY_HTTP="$GATEWAY_HTTP"
+        OVERLAY_HTTPS="$GATEWAY_HTTPS"
+        ok "Gateway API routes — this panel routes through Traefik"
+    else
+        warn "$NAME's Gateway API routes don't cover $TLS_MODE; using its Ingress install."
+    fi
+elif [ -z "$OVERLAY_HTTP$OVERLAY_HTTPS" ]; then
+    die "$NAME only ships Gateway API routes, and this panel has no shared Gateway yet.
+    Run ./update.sh first."
 fi
 
 if [ "$TLS_MODE" = "https" ] && [ -n "$OVERLAY_HTTPS" ]; then
@@ -498,6 +518,7 @@ else
     ok "plain HTTP — TLS is terminated in front of the cluster"
 fi
 
+[ -n "$OVERLAY" ] || die "$NAME ships no install for a $TLS_MODE site."
 [ -d "$TARGET/$OVERLAY" ] || die "the manifest points at $OVERLAY, which isn't in the repo."
 
 LEGACY_OVERLAY=""

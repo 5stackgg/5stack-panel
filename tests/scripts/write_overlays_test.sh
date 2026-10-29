@@ -79,4 +79,42 @@ test_without_openssl_the_update_stops() {
     [ ! -e "$(overlay local-secrets-http)/reverse-proxy-tls.key" ] || fail "a half-made key was left"
 }
 
+test_no_install_runs_the_ai_service_unless_it_asks() {
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        assert_not_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "../ai"
+    done
+}
+
+test_ai_enabled_deploys_the_ai_service_on_vault_installs_only() {
+    AI_ENABLED=true write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https; do
+        assert_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "- ../ai"
+    done
+    for o in local-secrets-http local-secrets-https; do
+        assert_not_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "../ai"
+    done
+}
+
+test_the_ai_overlay_keeps_its_secrets_to_itself() {
+    rendered="$(kubectl kustomize "$TEST_ROOT/overlays/ai")" || fail "kubectl kustomize overlays/ai failed"
+    assert_contains "$rendered" "image: ghcr.io/5stackgg/ai:latest"
+    assert_contains "$rendered" "name: ghcr-pull"
+    assert_contains "$rendered" "type: kubernetes.io/dockerconfigjson"
+    assert_contains "$rendered" "AI_SERVICE_URL: http://ai:4000"
+    assert_contains "$rendered" "value: postgres://ai:\$(AI_DATABASE_PASSWORD)@timescaledb:5432/ai"
+    app="$(awk '/^      containers:$/{f=1} /^      initContainers:$/{f=0} f' <<<"$rendered")"
+    assert_not_contains "$app" "timescaledb-secrets"
+    assert_not_contains "$app" "postgres://hasura"
+}
+
+test_the_api_only_takes_the_shared_secret_from_ai_secrets() {
+    rendered="$(kubectl kustomize "$TEST_ROOT/base")" || fail "kubectl kustomize base failed"
+    assert_contains "$rendered" "key: AI_SERVICE_SECRET"
+    assert_contains "$rendered" "name: ai-env"
+    if grep -B1 'name: ai-secrets' <<<"$rendered" | grep -q 'secretRef:'; then
+        fail "the api takes all of ai-secrets"
+    fi
+}
+
 run_tests

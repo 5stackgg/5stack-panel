@@ -71,6 +71,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # Only the secret, not the whole of ai-secrets: the api never needs
+            # ai's model or registry keys.
+            - name: AI_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: AI_SERVICE_SECRET
+                  optional: true
           envFrom:
             - configMapRef:
                 name: api-config
@@ -107,4 +115,9 @@ spec:
                 optional: true
             - secretRef:
                 name: coturn-secrets
+                optional: true
+            # Rokkan, the AI service. Only installs with AI_ENABLED=true deploy
+            # it; without AI_SERVICE_URL the api leaves every AI feature off.
+            - configMapRef:
+                name: ai-env
                 optional: true

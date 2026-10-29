@@ -239,6 +239,17 @@ copy_config_or_secrets "overlays/coturn" "overlays/coturn"
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"
 
+# Rokkan, the AI service, keeps its secrets in its own overlay so an install
+# without AI_ENABLED never generates them.
+if [ "$AI_ENABLED" = true ]; then
+    if [ "$VAULT_MANAGER" = true ]; then
+        copy_config_or_secrets "overlays/ai" "overlays/ai"
+        replace_rand32_in_env_files "overlays/ai"
+    else
+        warn "AI_ENABLED needs VAULT_MANAGER=true; the AI service will not be deployed."
+    fi
+fi
+
 # Added here rather than via the .env.example because copy_config_or_secrets
 # only creates env files that don't already exist, so an existing install would
 # never pick a new key up -- and coturn refuses to start without this one.
@@ -364,6 +375,9 @@ if [ "$VAULT_MANAGER" = true ]; then
     migrate_secrets_to_vault "overlays/local-secrets/faceit-secrets.env" "kv/faceit"
     migrate_secrets_to_vault "overlays/local-secrets/discord-secrets.env" "kv/discord"
     migrate_secrets_to_vault "overlays/local-secrets/coturn-secrets.env" "kv/coturn"
+    if [ "$AI_ENABLED" = true ]; then
+        migrate_secrets_to_vault "overlays/ai/ai-secrets.env" "kv/ai"
+    fi
 fi
 
 print_domains_and_hosts

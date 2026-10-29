@@ -284,44 +284,55 @@ test_a_renewal_is_validated_and_served_again() {
     wait_until_served "$API" 5stack-ssl
 }
 
-# The pin: the panel's Issuer without the solver's router priority, for the
-# panel's own hosts. Traefik then ranks the solver Ingress by its rule length,
-# which for some of these hosts is below the https-redirect route: their
-# challenge gets the 308, the redirect lands on the HTTPS listener where no
-# solver is (it's on web only), and the certificate is never issued. Each
-# host's answer is kept in $WORK_DIR/no-priority.codes for the job log.
-test_without_the_solver_priority_the_redirect_takes_some_challenges() {
-    local challenges host token codes=""
+# The pin: the panel's Issuer with its solver on neither port 80 nor 443
+# (Traefik's metrics entrypoint). The https-redirect route then answers the
+# challenge on port 80, the ACME server follows it to 443 where there's no
+# solver either, and nothing is issued: the issuances above stand on the solver
+# winning that path. Neither of its annotations alone decides that on Traefik
+# v3.7.16 -- the solver Ingress outranks the redirect without the priority, and
+# a solver on websecure is reached through the redirect -- so the pin takes
+# both ports away.
+test_with_no_solver_on_80_or_443_the_redirect_takes_the_challenge() {
+    local token="" ready
     cert_manager_object Issuer 5stack-issuer | python3 -I -c '
 import sys
 d = sys.stdin.read()
-assert "router.priority" in d
-d = "\n".join(l for l in d.split("\n") if "router.priority" not in l)
-print(d.replace("name: 5stack-issuer", "name: no-priority"))' | kubectl apply -f - >/dev/null || fail "could not make the Issuer"
-    cert_manager_object Certificate 5stack-ssl |
-        sed -e 's/name: 5stack-ssl$/name: no-priority/' -e 's/secretName: 5stack-ssl$/secretName: no-priority/' \
-            -e 's/name: 5stack-issuer$/name: no-priority/' | kubectl apply -f - >/dev/null || fail "could not make the Certificate"
+assert "router.entrypoints: web\n" in d
+d = d.replace("router.entrypoints: web\n", "router.entrypoints: metrics\n")
+print(d.replace("name: 5stack-issuer", "name: no-solver"))' | kubectl apply -f - >/dev/null || fail "could not make the Issuer"
+    kubectl apply -f - >/dev/null <<EOF || fail "could not make the Certificate"
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: no-solver
+  namespace: 5stack
+spec:
+  secretName: no-solver
+  dnsNames: [$API]
+  issuerRef: {name: no-solver, kind: Issuer}
+EOF
     for _ in $(seq 1 60); do
-        challenges="$(kubectl -n 5stack get challenges -o jsonpath='{range .items[?(@.spec.issuerRef.name=="no-priority")]}{.spec.dnsName} {.spec.token} {.status.presented}{"\n"}{end}')"
-        [ "$(grep -c ' true$' <<<"$challenges")" = 7 ] && break
+        token="$(kubectl -n 5stack get challenges \
+            -o jsonpath='{.items[?(@.spec.issuerRef.name=="no-solver")].spec.token}{"|"}{.items[?(@.spec.issuerRef.name=="no-solver")].status.presented}')"
+        [ "${token#*|}" = true ] && break
         sleep 2
     done
-    [ "$(grep -c ' true$' <<<"$challenges")" = 7 ] || fail "not every challenge was presented: $challenges"
-    # Long past the few seconds Traefik takes to pick up the solver Ingresses.
-    sleep 15
-    while read -r host token _; do
-        call http "$host" "/.well-known/acme-challenge/$token"
-        codes="$codes $host=$CODE"
-    done <<<"$challenges"
-    echo "without the router priority:$codes" >"$WORK_DIR/no-priority.codes"
-    case "$codes" in
-        *=308*) ;;
-        *) fail "every host reached the solver without the priority:$codes" ;;
-    esac
+    [ "${token#*|}" = true ] || fail "the challenge was never presented"
+    token="${token%%|*}"
+    # Long past the time the solver's pod and Ingress take to come up.
     sleep 30
-    kubectl -n 5stack get secret no-priority >/dev/null 2>&1 && fail "a certificate was issued without the priority:$codes"
-    kubectl -n 5stack delete certificate no-priority >/dev/null
-    kubectl -n 5stack delete issuer no-priority >/dev/null
+    for _ in $(seq 1 5); do
+        call http "$API" "/.well-known/acme-challenge/$token"
+        [ "$CODE" = 308 ] || fail "with no solver on 80 or 443 the challenge answered $CODE, not the redirect"
+        call https "$API" "/.well-known/acme-challenge/$token"
+        [ "$CODE" != 200 ] || fail "with no solver on 80 or 443, 443 answered the challenge"
+        sleep 2
+    done
+    sleep 30
+    ready="$(kubectl -n 5stack get certificate no-solver -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+    [ "$ready" != True ] || fail "a certificate was issued with no solver on 80 or 443"
+    kubectl -n 5stack delete certificate no-solver >/dev/null
+    kubectl -n 5stack delete issuer no-solver >/dev/null
 }
 
 assert_pebble() {
@@ -359,9 +370,8 @@ for name in \
     test_the_panel_hosts_serve_it \
     test_the_stream_certificate_is_issued_for_the_hls_host \
     test_a_renewal_is_validated_and_served_again \
-    test_without_the_solver_priority_the_redirect_takes_some_challenges; do
+    test_with_no_solver_on_80_or_443_the_redirect_takes_the_challenge; do
     run_test "$name"
 done
-cat "$WORK_DIR/no-priority.codes" 2>/dev/null
 
 summary

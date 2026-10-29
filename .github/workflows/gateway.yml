@@ -18,6 +18,8 @@ on:
       - "overlays/mediamtx/**"
       - "overlays/mediamtx-https/**"
       - "overlays/cert-manager/**"
+      - "overlays/cert-manager-crds/**"
+      - utils/cert_manager.sh
       - "overlays/config/*.env.example"
       - "tests/gateway/**"
       - .github/workflows/gateway.yml
@@ -37,6 +39,8 @@ on:
       - "overlays/mediamtx/**"
       - "overlays/mediamtx-https/**"
       - "overlays/cert-manager/**"
+      - "overlays/cert-manager-crds/**"
+      - utils/cert_manager.sh
       - "overlays/config/*.env.example"
       - "tests/gateway/**"
       - .github/workflows/gateway.yml
@@ -59,3 +63,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tests/gateway/upgrade_test.sh
+
+  cert-manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/cert_manager_test.sh

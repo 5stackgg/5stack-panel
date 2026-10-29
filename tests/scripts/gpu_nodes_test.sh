@@ -5,7 +5,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 STUB_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/stub" && pwd)"
 
-run_label_gpu_nodes() {
+label_gpu_nodes_in_stub() {
     (
         export PATH="$STUB_BIN:$PATH" KUBECONFIG=/dev/null
         # shellcheck source=utils/colors.sh
@@ -13,7 +13,11 @@ run_label_gpu_nodes() {
         # shellcheck source=utils/gpu_nodes.sh
         source "$TEST_ROOT/utils/gpu_nodes.sh"
         label_gpu_nodes "$@"
-    ) >"$WORK_DIR/output" 2>&1 || fail "label_gpu_nodes exited $?: $(cat "$WORK_DIR/output")"
+    ) >"$WORK_DIR/output" 2>&1
+}
+
+run_label_gpu_nodes() {
+    label_gpu_nodes_in_stub "$@" || fail "label_gpu_nodes exited $?: $(cat "$WORK_DIR/output")"
 }
 
 labels() {
@@ -22,22 +26,18 @@ labels() {
 
 test_an_amd_node_gets_the_vendor_label_and_loses_nvidia_gpu() {
     run_label_gpu_nodes amd "gpu-1" "gpu-1" "" ""
-    assert_eq "$(labels)" "gpu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd --overwrite
-gpu-1 nvidia-gpu- 5stack-gpu-integrated-"
+    assert_eq "$(labels)" "gpu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd nvidia-gpu- 5stack-gpu-integrated- --overwrite"
 }
 
 test_an_integrated_amd_node_is_opted_in() {
     run_label_gpu_nodes amd "apu-1 gpu-1" "apu-1 gpu-1" "" "apu-1"
-    assert_eq "$(labels)" "apu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd 5stack-gpu-integrated=true --overwrite
-apu-1 nvidia-gpu-
-gpu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd --overwrite
-gpu-1 nvidia-gpu- 5stack-gpu-integrated-"
+    assert_eq "$(labels)" "apu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd 5stack-gpu-integrated=true nvidia-gpu- --overwrite
+gpu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd nvidia-gpu- 5stack-gpu-integrated- --overwrite"
 }
 
 test_an_nvidia_node_drops_the_amd_labels() {
     run_label_gpu_nodes nvidia "gpu-1" "gpu-1" "gpu-1" ""
-    assert_eq "$(labels)" "gpu-1 5stack-game-streamer=true nvidia-gpu=true --overwrite
-gpu-1 5stack-gpu-vendor- 5stack-gpu-integrated-"
+    assert_eq "$(labels)" "gpu-1 5stack-game-streamer=true nvidia-gpu=true 5stack-gpu-vendor- 5stack-gpu-integrated- --overwrite"
 }
 
 test_a_deselected_node_loses_every_gpu_label() {
@@ -54,6 +54,18 @@ test_a_node_never_selected_is_left_alone() {
 test_a_node_whose_name_contains_another_is_not_mistaken_for_it() {
     run_label_gpu_nodes amd "gpu-1 gpu-10" "gpu-10" "" ""
     assert_not_contains "$(labels)" "gpu-1 "
+}
+
+test_an_integrated_node_whose_name_contains_another_does_not_opt_that_one_in() {
+    run_label_gpu_nodes amd "apu-1 apu-10" "apu-1 apu-10" "" "apu-10"
+    assert_contains "$(labels)" "apu-1 5stack-game-streamer=true 5stack-gpu-vendor=amd nvidia-gpu- 5stack-gpu-integrated- --overwrite"
+}
+
+test_a_failed_label_stops_with_the_error_instead_of_reporting_success() {
+    touch "$WORK_DIR/label-fails"
+    label_gpu_nodes_in_stub amd "gpu-1" "gpu-1" "" "" && fail "label_gpu_nodes succeeded"
+    assert_contains "$(cat "$WORK_DIR/output")" 'gpu-1: Error from server (Forbidden)'
+    assert_not_contains "$(cat "$WORK_DIR/output")" "labeled as GPU node"
 }
 
 run_tests

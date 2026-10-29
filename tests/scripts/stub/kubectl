@@ -87,7 +87,12 @@ case "$args" in
         if [ -f "$WORK_DIR/nodes.next" ]; then mv "$WORK_DIR/nodes.next" "$WORK_DIR/nodes"; fi
         ;;
     *" annotate "*) if [ -f "$WORK_DIR/annotate-fails" ]; then exit 1; fi ;;
-    *" label "*) ;;
+    *" label "*)
+        if [ -f "$WORK_DIR/label-fails" ]; then
+            echo 'Error from server (Forbidden): nodes "gpu-1" is forbidden' >&2
+            exit 1
+        fi
+        ;;
     *" get pods "*) cat "$WORK_DIR/pods" ;;
     *" get pod "*) cat "$WORK_DIR/containers-$pod" ;;
     *" logs "*)

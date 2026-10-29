@@ -7,6 +7,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - setup-gpu-nodes.sh
       - update.sh
       - Tiltfile
       - "utils/**"
@@ -22,6 +23,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - setup-gpu-nodes.sh
       - update.sh
       - Tiltfile
       - "utils/**"

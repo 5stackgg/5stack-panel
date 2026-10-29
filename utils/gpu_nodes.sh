@@ -2,7 +2,7 @@
 
 label_gpu_nodes() {
     local vendor="$1" all_nodes="$2" gpu_nodes="$3" previous_nodes="$4" integrated_nodes="$5"
-    local node add remove
+    local node add remove output
     for node in $all_nodes; do
         if [[ " $gpu_nodes " == *" $node "* ]]; then
             add=(5stack-game-streamer=true)
@@ -19,8 +19,10 @@ label_gpu_nodes() {
                 add+=(nvidia-gpu=true)
                 remove=(5stack-gpu-vendor- 5stack-gpu-integrated-)
             fi
-            kubectl --kubeconfig="$KUBECONFIG" label node "$node" "${add[@]}" --overwrite >/dev/null
-            kubectl --kubeconfig="$KUBECONFIG" label node "$node" "${remove[@]}" >/dev/null 2>&1 || true
+            if ! output="$(kubectl --kubeconfig="$KUBECONFIG" label node "$node" "${add[@]}" "${remove[@]}" --overwrite 2>&1)"; then
+                err "$node: $output"
+                return 1
+            fi
             ok "$node: labeled as GPU node"
         elif [[ " $previous_nodes " == *" $node "* ]]; then
             kubectl --kubeconfig="$KUBECONFIG" label node "$node" nvidia-gpu- 5stack-gpu-vendor- 5stack-gpu-integrated- 5stack-game-streamer- >/dev/null 2>&1 || true

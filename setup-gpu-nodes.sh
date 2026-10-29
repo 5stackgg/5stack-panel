@@ -69,13 +69,13 @@ GPU_INTEGRATED_NODES=""
 if [ "$GPU_VENDOR" = "amd" ] && [ -n "$GPU_NODES" ]; then
     read -r -a GPU_NODES_ARR <<<"$GPU_NODES"
     interactive_checklist GPU_INTEGRATED_NODES \
-        "Select nodes whose AMD GPU is integrated into the CPU (APU):" \
+        "Select nodes that should use the GPU integrated into their CPU (APU) instead of a discrete card. Leave nodes with a discrete Radeon card unticked:" \
         "$PREVIOUS_GPU_INTEGRATED_NODES" \
         "${GPU_NODES_ARR[@]}"
 fi
 
 step "Labeling GPU nodes"
-label_gpu_nodes "$GPU_VENDOR" "$ALL_NODES" "$GPU_NODES" "$PREVIOUS_GPU_NODES" "$GPU_INTEGRATED_NODES"
+label_gpu_nodes "$GPU_VENDOR" "$ALL_NODES" "$GPU_NODES" "$PREVIOUS_GPU_NODES" "$GPU_INTEGRATED_NODES" || exit 1
 
 update_env_var ".5stack-env.config" "GPU_VENDOR" "$GPU_VENDOR"
 update_env_var ".5stack-env.config" "GPU_NODES" "\"$GPU_NODES\""

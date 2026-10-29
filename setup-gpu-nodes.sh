@@ -1,18 +1,21 @@
 #!/bin/bash
 
-# Sets up GPU nodes: prompts for which cluster nodes have NVIDIA GPUs, labels
-# them `nvidia-gpu=true`, and runs update.sh, which deploys the NVIDIA device
-# plugin once GPU_VENDOR=nvidia. Render pods for live streams, demo playback
-# and highlights are spawned by the 5stack API on nodes carrying that label.
+# Sets up GPU nodes: prompts for the GPU vendor and which cluster nodes have
+# GPUs, labels them (`nvidia-gpu=true` for NVIDIA, `5stack-gpu-vendor=amd` for
+# AMD, plus `5stack-gpu-integrated=true` on an AMD APU), and runs update.sh,
+# which deploys the NVIDIA device plugin once GPU_VENDOR=nvidia. Render pods for
+# live streams, demo playback and highlights are spawned by the 5stack API on
+# nodes carrying those labels.
 #
-# NVIDIA-only today. AMD (issue #467) and Intel (issue #468) are tracked but
-# not yet supported.
+# Intel (issue #468) is tracked but not yet supported.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$REPO_DIR/utils/utils.sh" "$@"
+source "$REPO_DIR/utils/gpu_nodes.sh"
 
 PREVIOUS_GPU_VENDOR="${GPU_VENDOR:-}"
 PREVIOUS_GPU_NODES="${GPU_NODES:-}"
+PREVIOUS_GPU_INTEGRATED_NODES="${GPU_INTEGRATED_NODES:-}"
 
 case "$PREVIOUS_GPU_VENDOR" in
     nvidia) DEFAULT_VENDOR_CHOICE=1 ;;
@@ -25,17 +28,12 @@ interactive_menu VENDOR_INDEX \
     "Which GPU vendor do your GPU nodes use?" \
     $((DEFAULT_VENDOR_CHOICE - 1)) \
     "NVIDIA" \
-    "AMD (not yet supported)" \
+    "AMD" \
     "Intel (not yet supported)"
 
 case "$VENDOR_INDEX" in
     0) GPU_VENDOR=nvidia ;;
-    1)
-        err "AMD GPUs are not supported yet."
-        err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/467"
-        err "  Docs:           https://docs.5stack.gg/servers/gpu-nodes/amd"
-        exit 1
-        ;;
+    1) GPU_VENDOR=amd ;;
     2)
         err "Intel GPUs are not supported yet."
         err "  Tracking issue: https://github.com/5stackgg/5stack-panel/issues/468"
@@ -67,19 +65,21 @@ for node in $GPU_NODES; do
     fi
 done
 
+GPU_INTEGRATED_NODES=""
+if [ "$GPU_VENDOR" = "amd" ] && [ -n "$GPU_NODES" ]; then
+    read -r -a GPU_NODES_ARR <<<"$GPU_NODES"
+    interactive_checklist GPU_INTEGRATED_NODES \
+        "Select nodes that should use the GPU integrated into their CPU (APU) instead of a discrete card. Leave nodes with a discrete Radeon card unticked:" \
+        "$PREVIOUS_GPU_INTEGRATED_NODES" \
+        "${GPU_NODES_ARR[@]}"
+fi
+
 step "Labeling GPU nodes"
-for node in $ALL_NODES; do
-    if echo " $GPU_NODES " | grep -q " $node "; then
-        kubectl --kubeconfig=$KUBECONFIG label node "$node" nvidia-gpu=true 5stack-game-streamer=true --overwrite >/dev/null
-        ok "$node: labeled as GPU node"
-    elif echo " $PREVIOUS_GPU_NODES " | grep -q " $node "; then
-        kubectl --kubeconfig=$KUBECONFIG label node "$node" nvidia-gpu- 5stack-game-streamer- >/dev/null 2>&1 || true
-        warn "$node: GPU labels removed"
-    fi
-done
+label_gpu_nodes "$GPU_VENDOR" "$ALL_NODES" "$GPU_NODES" "$PREVIOUS_GPU_NODES" "$GPU_INTEGRATED_NODES" || exit 1
 
 update_env_var ".5stack-env.config" "GPU_VENDOR" "$GPU_VENDOR"
 update_env_var ".5stack-env.config" "GPU_NODES" "\"$GPU_NODES\""
+update_env_var ".5stack-env.config" "GPU_INTEGRATED_NODES" "\"$GPU_INTEGRATED_NODES\""
 
 if [ -z "$GPU_NODES" ]; then
     err "no GPU nodes selected; rendering cannot run without a GPU node."

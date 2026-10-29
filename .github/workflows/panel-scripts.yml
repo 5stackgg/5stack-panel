@@ -7,6 +7,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - setup-gpu-nodes.sh
       - update.sh
       - Tiltfile
       - "utils/**"
@@ -22,6 +23,7 @@ on:
       - debug.sh
       - dev.sh
       - plugin.sh
+      - setup-gpu-nodes.sh
       - update.sh
       - Tiltfile
       - "utils/**"
@@ -38,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh tests/scripts/*.sh tests/scripts/stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh
@@ -48,3 +50,4 @@ jobs:
       - run: bash tests/scripts/traefik_install_test.sh
       - run: bash tests/scripts/write_overlays_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh
+      - run: bash tests/scripts/gpu_nodes_test.sh

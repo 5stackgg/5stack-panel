@@ -13,6 +13,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: game-stream
+  hostnames:
+    - ${GAME_STREAM_DOMAIN}
   rules:
     # WHEP/WHIP, and the session URL trickle ICE PATCHes to.
     - matches:
@@ -64,6 +66,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: game-stream
+  hostnames:
+    - ${GAME_STREAM_DOMAIN}
   rules:
     - matches:
         - path:

@@ -407,6 +407,69 @@ test_an_upgrade_renews_a_shared_certificate_about_to_expire() {
     wait_for 200 https both.test /x
 }
 
+# Every panel route names its listener's host, so it reads as that host rather
+# than "*" -- in each overlay update.sh or dev.sh applies.
+test_every_panel_route_names_its_listeners_host() {
+    local overlay file
+    write_overlays || fail "write_overlays failed"
+    for file in "$PANEL_DIR"/overlays/local-secrets/*.env; do
+        [ -f "$PANEL_DIR/overlays/dev/secrets/${file##*/}" ] || cp "$file" "$PANEL_DIR/overlays/dev/secrets/"
+    done
+    for overlay in local-secrets-https local-secrets-http dev; do
+        "$PANEL_DIR/kustomize" build "$PANEL_DIR/overlays/$overlay" >"$WORK_DIR/$overlay.yaml" || fail "$overlay did not build"
+        python3 -I "$HERE/route_hostnames.py" "$WORK_DIR/$overlay.yaml" >"$WORK_DIR/hostnames.out" ||
+            fail "$overlay: $(cat "$WORK_DIR/hostnames.out")"
+    done
+}
+
+# GET https://$1$2 asking for gzip: the response's Content-Encoding ("none"
+# without one) and the size of its body once decoded.
+fetch_asking_for_gzip() {
+    # shellcheck disable=SC2016 # expanded by the client container's sh
+    client sh -c 'curl -sk --resolve "$1:443:$2" -H "Accept-Encoding: gzip" -D /tmp/h -o /tmp/b "https://$1$3"
+        encoding="$(tr -d "\r" </tmp/h | awk -F": " "tolower(\$1) == \"content-encoding\" { print \$2 }")"
+        if [ -n "$encoding" ]; then echo "$encoding $(gunzip -c /tmp/b | wc -c | tr -d " ")"
+        else echo "none $(wc -c </tmp/b | tr -d " ")"; fi' sh "$1" "$NODE_IP" "$2"
+}
+
+expect_fetched() {
+    local got
+    got="$(fetch_asking_for_gzip "$1" "$2")"
+    [ "$got" = "$3" ] || fail "https://$1$2: expected '$3', got '$got'"
+}
+
+test_text_from_web_and_the_api_is_compressed() {
+    expect_fetched "$WEB" '/payload?type=text/html;%20charset=utf-8&bytes=20000' "gzip 20000"
+    expect_fetched "$WEB" '/payload?type=image/svg%2Bxml&bytes=20000' "gzip 20000"
+    expect_fetched "$API" '/matches/payload?type=application/json&bytes=20000' "gzip 20000"
+    expect_fetched "$API" '/matches/payload?type=application/json&bytes=500' "none 500"
+}
+
+test_binary_and_already_encoded_responses_pass_through() {
+    expect_fetched "$WEB" '/payload?type=application/octet-stream&bytes=20000' "none 20000"
+    expect_fetched "$API" '/file-manager/payload?type=application/zip&bytes=20000' "none 20000"
+    # Gzipped by the backend: decoding it once gives the body back, so it was
+    # not compressed a second time.
+    expect_fetched "$WEB" '/payload?type=application/json&bytes=20000&encoded=gzip' "gzip 20000"
+    # Hasura on the api host is not behind the middleware; it compresses itself.
+    expect_fetched "$API" '/v1/payload?type=application/json&bytes=20000' "none 20000"
+}
+
+# An event stream's first event arrives at once, uncompressed, rather than
+# being held until the middleware has enough bytes to decide.
+test_event_streams_are_neither_compressed_nor_held_back() {
+    local out
+    # shellcheck disable=SC2016 # expanded by the client container's sh
+    out="$(client sh -c 'curl -sk -N --resolve "$1:443:$2" -H "Accept-Encoding: gzip" -D /tmp/h -o /tmp/b \
+        -w "%{time_starttransfer} %{time_total}" "https://$1/matches/stream?seconds=4&type=text/event-stream"
+        tr -d "\r" </tmp/h | grep -i "^content-encoding" || echo " none"' sh "$API" "$NODE_IP")"
+    python3 -I -c '
+import sys
+first, total, encoding = sys.argv[1].split()[:3]
+assert float(first) < 2 and float(total) >= 3.5, f"first byte after {first}s of {total}s"
+assert encoding == "none", f"compressed: {encoding}"' "$out" || fail "$out"
+}
+
 start_long_requests() {
     client sh -c 'head -c 125829120 /dev/zero >/tmp/big'
     docker exec -d "$PREFIX-client" sh -c "curl -sk --resolve $DEMOS:443:$NODE_IP -X PUT --data-binary @/tmp/big \
@@ -501,6 +564,7 @@ test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there() {
 
 start_cluster || exit 1
 make_panel || exit 1
+run_test test_every_panel_route_names_its_listeners_host
 install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
 deploy_panel_stubs || exit 1
 routing_layer https || exit 1
@@ -529,6 +593,9 @@ for name in \
     test_ws_and_relay_hosts_rewrite_into_the_api \
     test_websocket_upgrades_through_the_ws_host \
     test_typesense_and_s3_console_hosts \
+    test_text_from_web_and_the_api_is_compressed \
+    test_binary_and_already_encoded_responses_pass_through \
+    test_event_streams_are_neither_compressed_nor_held_back \
     test_mediamtx_preflight_is_answered_before_forward_auth \
     test_mediamtx_requires_a_session \
     test_whep_post_and_patch_pass_forward_auth \

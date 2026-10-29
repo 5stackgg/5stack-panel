@@ -9,6 +9,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: api
+  hostnames:
+    - ${API_DOMAIN}
   rules:
     - matches:
         - path:
@@ -92,6 +94,12 @@ spec:
         - path:
             type: PathPrefix
             value: /file-manager
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: compress
       backendRefs:
         - name: api
           port: 5585
@@ -118,6 +126,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: web
+  hostnames:
+    - ${WEB_DOMAIN}
   rules:
     - matches:
         - path:
@@ -156,6 +166,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: demos
+  hostnames:
+    - ${DEMOS_DOMAIN}
   rules:
     - matches:
         - path:

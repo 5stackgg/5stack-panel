@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: api
+  hostnames:
+    - ${API_DOMAIN}
   rules:
     - matches:
         - path:

@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: s3-console
+  hostnames:
+    - ${S3_CONSOLE_HOST}
   rules:
     - backendRefs:
         - name: rustfs

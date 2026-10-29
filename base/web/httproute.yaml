@@ -7,7 +7,15 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: web
+  hostnames:
+    - ${WEB_DOMAIN}
   rules:
-    - backendRefs:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: compress
+      backendRefs:
         - name: web
           port: 3000

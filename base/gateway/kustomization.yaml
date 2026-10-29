@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - gateway.yaml
   - ingressclass-nginx.yaml
+  - compress.yaml

@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: typesense
+  hostnames:
+    - ${TYPESENSE_HOST}
   rules:
     - backendRefs:
         - name: typesense

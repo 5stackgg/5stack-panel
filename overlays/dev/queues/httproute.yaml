@@ -9,6 +9,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: queues
+  hostnames:
+    - queues.5stack.localhost
   rules:
     - matches:
         - path:

@@ -1,0 +1,19 @@
+# Compresses text responses from web and the api (their routes reference it):
+# only these types, so demos, clips, uploads, playcast fragments, event streams
+# and downloads pass straight through, never compressed or held back. Responses
+# under minResponseBodyBytes (1024) stay as they are, and Traefik never touches
+# one that already has a Content-Encoding, so Nuxt's precompressed assets and
+# Hasura's own gzip pass through too.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: compress
+  namespace: 5stack
+spec:
+  compress:
+    includedContentTypes:
+      - text/html
+      - application/json
+      - text/css
+      - application/javascript
+      - image/svg+xml

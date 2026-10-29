@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: hasura-dashboard
+  hostnames:
+    - hasura.5stack.localhost
   rules:
     - backendRefs:
         - name: hasura

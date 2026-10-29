@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: ws
+  hostnames:
+    - ${WS_DOMAIN}
   rules:
     - filters:
         - type: URLRewrite

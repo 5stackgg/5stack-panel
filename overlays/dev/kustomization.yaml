@@ -17,6 +17,16 @@ replacements:
       fieldPath: data.WEB_DOMAIN
     targets:
       - select:
+          kind: HTTPRoute
+          name: api-web
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
+          name: web
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
           kind: Gateway
           name: 5stack
         fieldPaths:
@@ -36,6 +46,16 @@ replacements:
       name: api-config
       fieldPath: data.API_DOMAIN
     targets:
+      - select:
+          kind: HTTPRoute
+          name: api
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
+          name: hasura
+        fieldPaths:
+          - spec.hostnames.0
       - select:
           kind: Gateway
           name: 5stack
@@ -57,6 +77,11 @@ replacements:
       fieldPath: data.DEMOS_DOMAIN
     targets:
       - select:
+          kind: HTTPRoute
+          name: demos
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
           kind: Gateway
           name: 5stack
         fieldPaths:
@@ -76,6 +101,11 @@ replacements:
       name: typesense-config
       fieldPath: data.TYPESENSE_HOST
     targets:
+      - select:
+          kind: HTTPRoute
+          name: typesense
+        fieldPaths:
+          - spec.hostnames.0
       - select:
           kind: Gateway
           name: 5stack
@@ -97,6 +127,11 @@ replacements:
       fieldPath: data.S3_CONSOLE_HOST
     targets:
       - select:
+          kind: HTTPRoute
+          name: s3-console
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
           kind: Gateway
           name: 5stack
         fieldPaths:
@@ -116,6 +151,11 @@ replacements:
       name: api-config
       fieldPath: data.WS_DOMAIN
     targets:
+      - select:
+          kind: HTTPRoute
+          name: ws
+        fieldPaths:
+          - spec.hostnames.0
       - select:
           kind: Gateway
           name: 5stack
@@ -137,6 +177,11 @@ replacements:
       fieldPath: data.RELAY_DOMAIN
     targets:
       - select:
+          kind: HTTPRoute
+          name: relay
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
           kind: Gateway
           name: 5stack
         fieldPaths:
@@ -156,6 +201,16 @@ replacements:
       name: api-config
       fieldPath: data.GAME_STREAM_DOMAIN
     targets:
+      - select:
+          kind: HTTPRoute
+          name: mediamtx
+        fieldPaths:
+          - spec.hostnames.0
+      - select:
+          kind: HTTPRoute
+          name: snapshot
+        fieldPaths:
+          - spec.hostnames.0
       - select:
           kind: Gateway
           name: 5stack

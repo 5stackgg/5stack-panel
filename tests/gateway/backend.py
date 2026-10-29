@@ -4,6 +4,10 @@ One process listens on each port in PORTS ("5585:api,8080:hasura,..."), so a
 Service named like the real one reaches it on the real port. Every response is
 JSON describing the request as it arrived, which is what the tests assert on.
 
+/payload?type=T&bytes=N answers N compressible bytes as Content-Type T, gzipped
+by the backend itself with &encoded=gzip; /stream?seconds=S&type=T sends a line
+a second, flushed, for S seconds.
+
 /streams/authorize, /plugins/authorize and /qx/authorize answer like the api's
 forward-auth on branch feature/forward-auth-traefik: X-Original-* and
 X-Forwarded-* that disagree are refused, a forwarded OPTIONS is a preflight,
@@ -11,6 +15,7 @@ and otherwise the session cookie decides.
 """
 
 import base64
+import gzip
 import hashlib
 import json
 import os
@@ -152,9 +157,21 @@ def handler_for(name):
                 pass
             self.close_connection = True
 
-        def stream(self, seconds):
+        def payload(self, query):
+            size = int(query.get("bytes", ["20000"])[0])
+            data = (b"5stack " * (size // 7 + 1))[:size]
             self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Type", query.get("type", ["application/json"])[0])
+            if query.get("encoded", [""])[0] == "gzip":
+                data = gzip.compress(data)
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def stream(self, seconds, content_type="text/plain"):
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
             for i in range(seconds):
@@ -180,8 +197,11 @@ def handler_for(name):
                         AUTH_LOG.clear()
                 return self.reply(200, log)
             if path.endswith("/stream"):
-                seconds = int(parse_qs(urlsplit(self.path).query).get("seconds", ["5"])[0])
-                return self.stream(seconds)
+                query = parse_qs(urlsplit(self.path).query)
+                return self.stream(int(query.get("seconds", ["5"])[0]), query.get("type", ["text/plain"])[0])
+            if path.endswith("/payload"):
+                self.read_body()
+                return self.payload(parse_qs(urlsplit(self.path).query))
             body_bytes = self.read_body()
             if self.command == "POST" and path.endswith("/whep"):
                 return self.reply(201, self.describe(body_bytes), {"Location": path + "/session-1"})

@@ -7,6 +7,8 @@ spec:
   parentRefs:
     - name: 5stack
       sectionName: relay
+  hostnames:
+    - ${RELAY_DOMAIN}
   rules:
     - filters:
         - type: URLRewrite

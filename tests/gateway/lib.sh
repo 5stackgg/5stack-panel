@@ -128,7 +128,8 @@ routing_layer() {
 import re, sys
 docs = open(sys.argv[1]).read().split("\n---\n")
 kind = lambda d: (re.search(r"(?m)^kind: (\S+)$", d) or [None, None])[1]
-routing = [d for d in docs if kind(d) in ("Namespace", "Gateway", "HTTPRoute", "Middleware", "IngressClass")]
+routing = [d for d in docs if kind(d) in ("Namespace", "Gateway", "HTTPRoute", "Middleware", "IngressClass")
+           or (kind(d) == "Secret" and re.search(r"(?m)^  name: 5stack-reverse-proxy-tls$", d))]
 open(sys.argv[2], "w").write("\n---\n".join(routing) + "\n")
 open(sys.argv[3], "w").write("\n---\n".join(d for d in docs if kind(d) == "Issuer") + "\n")
 PY

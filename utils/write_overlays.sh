@@ -1,5 +1,24 @@
 #!/bin/bash
 
+# The self-signed certificate 5stack-tls answers on in a REVERSE_PROXY install
+# (overlays/http/gateway-tls.yaml). Made once and kept, so an update changes
+# nothing; the proxy in front doesn't check it, as it didn't ingress-nginx's.
+ensure_reverse_proxy_certificate() {
+    local dir="$1"
+    if [ -s "$dir/reverse-proxy-tls.crt" ] && [ -s "$dir/reverse-proxy-tls.key" ]; then
+        return 0
+    fi
+    (
+        umask 077
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=5stack" \
+            -keyout "$dir/reverse-proxy-tls.key" -out "$dir/reverse-proxy-tls.crt" >/dev/null 2>&1
+    ) || {
+        rm -f "$dir/reverse-proxy-tls.key" "$dir/reverse-proxy-tls.crt"
+        echo "could not make the reverse proxy's upstream certificate; is openssl installed?" >&2
+        return 1
+    }
+}
+
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
 # the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN and
 # GPU_VENDOR.
@@ -36,13 +55,15 @@ resources:
 - ../$BASE
 - ../config
 $STREAMING_RESOURCES
-$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; fi)
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
 EOF
             if [ "$PROTOCOL" = "https" ]; then
                 cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"
                 cat "$PANEL_DIR/overlays/http/https-replacements.yaml" >> "$OVERLAY/kustomization.yaml"
             else
-                cat "$PANEL_DIR/overlays/http/http-replacements.yaml" >> "$OVERLAY/kustomization.yaml"
+                ensure_reverse_proxy_certificate "$OVERLAY" || return 1
+                cp "$PANEL_DIR/overlays/http/gateway-tls.yaml" "$OVERLAY/"
+                cat "$PANEL_DIR/overlays/http/http-replacements.yaml" "$PANEL_DIR/overlays/http/reverse-proxy-tls.yaml" >> "$OVERLAY/kustomization.yaml"
             fi
         done
     done

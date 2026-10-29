@@ -25,6 +25,11 @@ if [ "$REVERSE_PROXY" = true ]; then
     done
     # Behind a proxy that already terminated TLS, this would loop forever.
     kubectl --kubeconfig=$KUBECONFIG delete httproute https-redirect -n 5stack 2>/dev/null
+else
+    # A REVERSE_PROXY install's answer on 443; this install's own listeners serve
+    # those hosts there now.
+    kubectl --kubeconfig=$KUBECONFIG delete gateway 5stack-tls -n 5stack 2>/dev/null
+    kubectl --kubeconfig=$KUBECONFIG delete secret 5stack-reverse-proxy-tls -n 5stack 2>/dev/null
 fi
 
 if [ "$REVERSE_PROXY" != true ]; then
@@ -62,7 +67,7 @@ TURN_DOMAIN="$(grep -s '^TURN_DOMAIN=' "$PANEL_DIR/overlays/coturn/coturn.env" |
 TURN_DOMAIN="${TURN_DOMAIN%\"}"
 TURN_DOMAIN="${TURN_DOMAIN#\"}"
 
-write_overlays
+write_overlays || die "failed to generate the overlays"
 ok "overlays generated"
 
 step "Applying kustomize overlay"

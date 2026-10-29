@@ -354,6 +354,34 @@ test_http_mode_serves_every_host_without_redirect() {
     expect_json .host "$DEMOS"
 }
 
+# A proxy that forwards to the node on 443, as many did to ingress-nginx's
+# self-signed certificate. The api's session cookie is Secure and express only
+# sets it when X-Forwarded-Proto says https, so that header is what decides
+# whether anyone can log in through such a proxy.
+test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there() {
+    local route parents
+    wait_for 200 https "$API" /me
+    expect_json .backend api
+    expect_json '.headers["x-forwarded-proto"]' https
+    call https "$WS" /x
+    expect_code 200
+    expect_json .path /ws/x
+    expect_json '.headers["x-forwarded-proto"]' https
+    call https "$HLS" /m1/index.m3u8
+    expect_code 401
+    call https "$HLS" /m1/index.m3u8 -H 'Cookie: session=ok'
+    expect_code 200
+    call https "$DEMOS" '/5stack/demos/a.dem?X-Amz-Signature=x'
+    expect_json .backend rustfs
+    for route in $(kubectl -n 5stack get httproute -o name); do
+        parents="$(kubectl -n 5stack get "$route" -o jsonpath='{range .status.parents[*]}{.parentRef.name}={.conditions[?(@.type=="Accepted")].status} {end}')"
+        case "$parents" in
+            *"5stack=True"*"5stack-tls=True"* | *"5stack-tls=True"*"5stack=True"*) ;;
+            *) fail "$route is not accepted on both Gateways: $parents" ;;
+        esac
+    done
+}
+
 start_cluster || exit 1
 make_panel || exit 1
 install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
@@ -405,5 +433,6 @@ run_test test_a_websocket_held_past_60s_stays_open
 routing_layer http || exit 1
 kubectl delete httproute https-redirect -n 5stack >/dev/null
 run_test test_http_mode_serves_every_host_without_redirect
+run_test test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there
 
 summary

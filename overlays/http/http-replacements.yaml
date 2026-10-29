@@ -10,6 +10,11 @@ replacements:
         fieldPaths:
           - spec.listeners.[name=web].hostname
       - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=web].hostname
+      - select:
           kind: Middleware
           name: mediamtx-cors
         fieldPaths:
@@ -27,6 +32,11 @@ replacements:
           name: 5stack
         fieldPaths:
           - spec.listeners.[name=api].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=api].hostname
   - source:
       kind: ConfigMap
       name: api-config
@@ -35,6 +45,11 @@ replacements:
       - select:
           kind: Gateway
           name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=demos].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
         fieldPaths:
           - spec.listeners.[name=demos].hostname
   - source:
@@ -47,6 +62,11 @@ replacements:
           name: 5stack
         fieldPaths:
           - spec.listeners.[name=typesense].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=typesense].hostname
   - source:
       kind: ConfigMap
       name: s3-config
@@ -55,6 +75,11 @@ replacements:
       - select:
           kind: Gateway
           name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=s3-console].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
         fieldPaths:
           - spec.listeners.[name=s3-console].hostname
   - source:
@@ -67,6 +92,11 @@ replacements:
           name: 5stack
         fieldPaths:
           - spec.listeners.[name=ws].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=ws].hostname
   - source:
       kind: ConfigMap
       name: api-config
@@ -77,6 +107,11 @@ replacements:
           name: 5stack
         fieldPaths:
           - spec.listeners.[name=relay].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
+        fieldPaths:
+          - spec.listeners.[name=relay].hostname
   - source:
       kind: ConfigMap
       name: mediamtx-env
@@ -85,6 +120,11 @@ replacements:
       - select:
           kind: Gateway
           name: 5stack
+        fieldPaths:
+          - spec.listeners.[name=game-stream].hostname
+      - select:
+          kind: Gateway
+          name: 5stack-tls
         fieldPaths:
           - spec.listeners.[name=game-stream].hostname
   - source:

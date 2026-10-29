@@ -1,0 +1,21 @@
+secretGenerator:
+  - name: 5stack-reverse-proxy-tls
+    namespace: 5stack
+    type: kubernetes.io/tls
+    files:
+      - tls.crt=reverse-proxy-tls.crt
+      - tls.key=reverse-proxy-tls.key
+    options:
+      disableNameSuffixHash: true
+patches:
+  # Every route also attaches to the same-named listener of 5stack-tls.
+  - target:
+      group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    patch: |-
+      - op: copy
+        from: /spec/parentRefs/0
+        path: /spec/parentRefs/-
+      - op: replace
+        path: /spec/parentRefs/1/name
+        value: 5stack-tls

@@ -36,6 +36,13 @@ spec:
       containers:
         - image: hasura/graphql-engine:v2.51.3-ce.cli-migrations-v3@sha256:fc93e226608dcd44fa57968d74f8ed1854d7075825d1f8655fa0c9f2a6a9846d
           name: hasura
+          # The cli-migrations entrypoint starts a temporary graphql-engine to
+          # apply metadata, then kills it. On Ubuntu 26.04's kernel, containerd's
+          # default AppArmor profile denies that signal and Hasura never starts
+          # (containerd/containerd#12886).
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
           resources:
             requests:
               memory: "256Mi"

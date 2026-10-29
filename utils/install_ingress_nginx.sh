@@ -33,6 +33,8 @@ install_ingress_nginx() {
         fi
     fi
 
+    allow_ingress_nginx_signals || return 1
+
     echo "Waiting for Ingress Nginx to be ready..."
     while true; do
         PODS=$(kubectl "${kc[@]}" get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
@@ -58,6 +60,24 @@ install_ingress_nginx() {
     done
 
     wait_for_ingress_admission || return 2
+}
+
+# On Ubuntu 26.04's kernel, containerd's default AppArmor profile stops a
+# container's processes signalling each other (containerd/containerd#12886), so
+# the controller cannot send nginx the HUP that reloads it and never turns
+# Ready. The upstream manifest has no knob for this, so it is patched in after
+# the apply. A later apply of the manifest leaves the field alone, since apply
+# only removes fields it set itself; update.sh calls this too, for installs
+# that predate it.
+allow_ingress_nginx_signals() {
+    local -a kc=()
+    [ -n "$KUBECONFIG" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if ! kubectl "${kc[@]}" -n ingress-nginx patch deployment ingress-nginx-controller --type=strategic \
+        -p '{"spec":{"template":{"spec":{"containers":[{"name":"controller","securityContext":{"appArmorProfile":{"type":"Unconfined"}}}]}}}}' >/dev/null; then
+        echo "Failed to let the Ingress Nginx controller signal nginx" >&2
+        return 1
+    fi
 }
 
 # A Ready controller is not the same thing as a usable cluster. ingress-nginx

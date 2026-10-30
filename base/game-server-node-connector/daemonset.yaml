@@ -99,6 +99,12 @@ spec:
             - name: host-apt
               mountPath: /host-apt
               readOnly: true
+            - name: host-run
+              mountPath: /host-run
+              readOnly: true
+            - name: host-dpkg
+              mountPath: /host-dpkg
+              readOnly: true
       volumes:
         - name: server-files
           hostPath:
@@ -133,4 +139,12 @@ spec:
         - name: host-apt
           hostPath:
             path: /etc/apt
+            type: DirectoryOrCreate
+        - name: host-run
+          hostPath:
+            path: /run
+            type: Directory
+        - name: host-dpkg
+          hostPath:
+            path: /var/lib/dpkg
             type: DirectoryOrCreate

@@ -106,6 +106,9 @@ spec:
             - name: cpu-sys
               mountPath: /host-cpu
               readOnly: true
+            - name: host-apt
+              mountPath: /host-apt
+              readOnly: true
       volumes:
         - name: server-files
           hostPath:
@@ -137,3 +140,7 @@ spec:
         - name: cpu-sys
           hostPath:
             path: /sys/devices/system/cpu/
+        - name: host-apt
+          hostPath:
+            path: /etc/apt
+            type: DirectoryOrCreate

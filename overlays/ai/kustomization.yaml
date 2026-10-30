@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: 5stack
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - external-secrets.yaml
+
+configMapGenerator:
+  - name: ai-env
+    namespace: 5stack
+    literals:
+      - AI_SERVICE_URL=http://ai:4000

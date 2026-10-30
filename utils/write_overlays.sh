@@ -22,10 +22,10 @@ ensure_reverse_proxy_certificate() {
 }
 
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
-# the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN and
-# GPU_VENDOR.
+# the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN,
+# GPU_VENDOR and AI_ENABLED.
 write_overlays() {
-    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES
+    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES
     for BASE in vault local-secrets; do
         for PROTOCOL in "http" "https"; do
             OVERLAY="$PANEL_DIR/overlays/${BASE}-${PROTOCOL}"
@@ -48,6 +48,12 @@ write_overlays() {
                 STREAMING_RESOURCES="- ../nvidia
 $STREAMING_RESOURCES"
             fi
+            # Rokkan, the AI service, is 5Stack's own and its image is private.
+            # Vault only: its secrets and the image pull secret are ExternalSecrets.
+            AI_RESOURCES=""
+            if [ "$AI_ENABLED" = true ] && [ "$BASE" = "vault" ]; then
+                AI_RESOURCES="- ../ai"
+            fi
 
             cat > "$OVERLAY/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -57,6 +63,7 @@ resources:
 - ../$BASE
 - ../config
 $STREAMING_RESOURCES
+$AI_RESOURCES
 $(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
 EOF
             if [ "$PROTOCOL" = "https" ]; then

@@ -72,6 +72,26 @@ test_an_update_leaves_empty_push_keys_for_the_api_to_generate() {
     assert_eq "$(env_lines overlays/local-secrets/push-secrets.env WEB_PUSH_PRIVATE_KEY)" "WEB_PUSH_PRIVATE_KEY="
 }
 
+test_an_install_without_ai_enabled_generates_no_ai_secrets() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    mkdir -p "$PANEL/overlays/ai"
+    cp "$TEST_ROOT/overlays/ai/ai-secrets.env.example" "$PANEL/overlays/ai/"
+    run_setup_env
+    [ ! -e "$PANEL/overlays/ai/ai-secrets.env" ] || fail "ai secrets were generated without AI_ENABLED"
+}
+
+test_ai_enabled_without_vault_is_warned_about_and_not_set_up() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    mkdir -p "$PANEL/overlays/ai"
+    cp "$TEST_ROOT/overlays/ai/ai-secrets.env.example" "$PANEL/overlays/ai/"
+    printf 'AI_ENABLED=true\n' >>"$PANEL/.5stack-env.config"
+    run_setup_env
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "AI_ENABLED needs VAULT_MANAGER=true"
+    [ ! -e "$PANEL/overlays/ai/ai-secrets.env" ] || fail "ai secrets were generated without Vault"
+}
+
 test_hosts_beside_the_web_domain_share_its_parent_as_the_cookie_domain() {
     make_panel
     set_sibling_domains

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai
+  namespace: 5stack
+  labels:
+    app: ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai
+  template:
+    metadata:
+      labels:
+        app: ai
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      # Creates ai's own role and database with the superuser's password, which
+      # only this init container sees. The ai role is granted nothing on
+      # 5Stack's tables, so ai can't read them.
+      initContainers:
+        - name: database
+          image: timescale/timescaledb:2.31.0-pg18@sha256:0fcff5761363809d1242f2261a3482197b5a5337407f8b97a976fb174206d579
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              export PGPASSWORD="$POSTGRES_PASSWORD"
+              psql -h timescaledb -U hasura -d hasura -v ON_ERROR_STOP=1 -v ai_password="$AI_DATABASE_PASSWORD" <<'SQL'
+              SELECT 'CREATE ROLE ai LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ai')\gexec
+              ALTER ROLE ai WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'ai_password';
+              SELECT 'CREATE DATABASE ai OWNER ai' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'ai')\gexec
+              SQL
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-secrets
+                  key: POSTGRES_PASSWORD
+            - name: AI_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: AI_DATABASE_PASSWORD
+      containers:
+        - name: ai
+          image: ghcr.io/5stackgg/ai:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "4000"
+            - name: API_URL
+              value: http://api:5585
+            - name: AI_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: AI_DATABASE_PASSWORD
+            - name: AI_DATABASE_URL
+              value: postgres://ai:$(AI_DATABASE_PASSWORD)@timescaledb:5432/ai
+          envFrom:
+            - secretRef:
+                name: ai-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi

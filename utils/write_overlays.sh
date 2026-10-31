@@ -23,9 +23,24 @@ ensure_reverse_proxy_certificate() {
 
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
 # the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN,
-# GPU_VENDOR and AI_ENABLED.
+# GPU_VENDOR, AI_ENABLED and HASURA_REPLICAS.
 write_overlays() {
-    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES
+    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES HASURA_REPLICAS_ENTRY
+    # How many Hasuras serve the api (HASURA_REPLICAS, default 1). In the api's
+    # load lab one is busy from about 3,000 users, and a second halved query and
+    # first-data times there. Each keeps its own Postgres pool (the api
+    # metadata's pool_settings), about 1.5 GB more Postgres memory per replica
+    # at that load. Their init containers take turns migrating (api#929).
+    HASURA_REPLICAS_ENTRY=""
+    if [ -n "$HASURA_REPLICAS" ] && [ "$HASURA_REPLICAS" != 1 ]; then
+        if ! [[ "$HASURA_REPLICAS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "HASURA_REPLICAS must be a whole number of replicas, not '$HASURA_REPLICAS'" >&2
+            return 1
+        fi
+        HASURA_REPLICAS_ENTRY="replicas:
+- name: hasura
+  count: $HASURA_REPLICAS"
+    fi
     for BASE in vault local-secrets; do
         for PROTOCOL in "http" "https"; do
             OVERLAY="$PANEL_DIR/overlays/${BASE}-${PROTOCOL}"
@@ -65,6 +80,7 @@ resources:
 $STREAMING_RESOURCES
 $AI_RESOURCES
 $(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
+$HASURA_REPLICAS_ENTRY
 EOF
             if [ "$PROTOCOL" = "https" ]; then
                 cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"

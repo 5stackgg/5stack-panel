@@ -33,6 +33,16 @@ spec:
                 operator: In
                 values:
                   - "true"
+        # With HASURA_REPLICAS above 1, on separate nodes where there are
+        # several labelled for Hasura.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: hasura
       containers:
         - image: hasura/graphql-engine:v2.51.3-ce.cli-migrations-v3@sha256:fc93e226608dcd44fa57968d74f8ed1854d7075825d1f8655fa0c9f2a6a9846d
           name: hasura

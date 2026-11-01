@@ -12,7 +12,9 @@ setup_steam_web_api_key() {
     
     while [ -z "$STEAM_WEB_API_KEY" ]; do
         echo "Please enter your Steam Web API key (required for Steam authentication). Get one at: https://steamcommunity.com/dev/apikey"
-        read STEAM_WEB_API_KEY
+        if ! read -r STEAM_WEB_API_KEY; then
+            die "$secrets_file has no STEAM_WEB_API_KEY and there is no terminal to ask for one. Add it to that file and run this again."
+        fi
     done
     
     update_env_var "$secrets_file" "STEAM_WEB_API_KEY" "$STEAM_WEB_API_KEY"

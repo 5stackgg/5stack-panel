@@ -181,4 +181,50 @@ test_custom_ports_move_from_nginx_config_env_to_traefik_config_env() {
     [ ! -e "$PANEL/overlays/config/nginx-config.env" ] || fail "nginx-config.env was left behind"
 }
 
+test_a_missing_steam_key_with_no_terminal_stops_instead_of_waiting() {
+    make_panel
+    set_sibling_domains
+    set_env overlays/local-secrets/steam-secrets.env STEAM_WEB_API_KEY ""
+    bash -c 'source "$1/utils/utils.sh"' _ "$PANEL" </dev/null >"$WORK_DIR/setup-output" 2>&1 &
+    local pid=$! ticks=0 status
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$ticks" -ge 100 ]; then
+            kill "$pid"
+            fail "setup-env.sh kept waiting for a Steam key with nothing to read from"
+        fi
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+    wait "$pid"
+    status=$?
+    [ "$status" -ne 0 ] || fail "setup-env.sh carried on without a Steam key"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "has no STEAM_WEB_API_KEY"
+}
+
+use_vault() {
+    sed 's/^VAULT_MANAGER=false$/VAULT_MANAGER=true/' "$PANEL/.5stack-env.config" >"$PANEL/.5stack-env.config.tmp"
+    mv "$PANEL/.5stack-env.config.tmp" "$PANEL/.5stack-env.config"
+    mkdir -p "$WORK_DIR/bin"
+    printf '#!/bin/sh\necho "$*" >>"%s/vault-calls"\nexit 1\n' "$WORK_DIR" >"$WORK_DIR/bin/vault"
+    chmod +x "$WORK_DIR/bin/vault"
+    export PATH="$WORK_DIR/bin:$PATH"
+}
+
+test_the_5stack_service_runs_a_vault_install_without_the_vault_cli() {
+    make_panel
+    set_sibling_domains
+    use_vault
+    FIVESTACK_RELEASE=2026.11.1.1 run_setup_env
+    [ ! -e "$WORK_DIR/vault-calls" ] || fail "setup-env.sh called vault: $(cat "$WORK_DIR/vault-calls")"
+}
+
+test_update_sh_on_a_vault_install_still_checks_the_vault_login() {
+    make_panel
+    set_sibling_domains
+    use_vault
+    bash -c 'source "$1/utils/utils.sh"' _ "$PANEL" </dev/null >"$WORK_DIR/setup-output" 2>&1 && fail "setup-env.sh carried on without a Vault login"
+    assert_contains "$(cat "$WORK_DIR/vault-calls")" "status"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Not logged into vault"
+}
+
 run_tests

@@ -18,6 +18,7 @@ on:
       - "tests/scripts/**"
       - base/kustomization.yaml
       - "base/system-upgrade/**"
+      - "base/backups/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -35,6 +36,7 @@ on:
       - "tests/scripts/**"
       - base/kustomization.yaml
       - "base/system-upgrade/**"
+      - "base/backups/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -55,3 +57,4 @@ jobs:
       - run: bash tests/scripts/dev_game_server_test.sh
       - run: bash tests/scripts/gpu_nodes_test.sh
       - run: bash tests/scripts/service_test.sh
+      - run: bash tests/scripts/postgres_backup_test.sh

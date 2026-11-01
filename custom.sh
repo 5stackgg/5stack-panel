@@ -4,6 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # utils.sh reassigns SCRIPT_DIR to utils/, so keep our own copy of the repo root
 PANEL_DIR="$SCRIPT_DIR"
 source "$SCRIPT_DIR/utils/utils.sh" "$@"
+source "$PANEL_DIR/utils/choose_node.sh"
 
 CUSTOM_DIR=""
 
@@ -59,11 +60,7 @@ select_node() {
     ALL_NODES=$(get_all_nodes)
     echo "Select the node to deploy the custom resource to:"
     IFS=' ' read -r -a NODE_ARRAY <<< "$ALL_NODES"
-    for i in "${!NODE_ARRAY[@]}"; do
-        echo "$((i+1)). ${NODE_ARRAY[$i]}"
-    done
-    read -p "Enter the number of the node: " NODE_INDEX
-    NODE_NAME=${NODE_ARRAY[$((NODE_INDEX-1))]}
+    NODE_NAME="$(choose_node "${NODE_ARRAY[@]}")" || exit 1
     echo "Selected node: $NODE_NAME"
 }
 

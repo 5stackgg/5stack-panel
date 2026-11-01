@@ -142,7 +142,7 @@ test_an_aws_bucket_owned_by_another_account_is_never_uploaded_to() {
     echo 444455556666 >"$WORK_DIR/bucket-owner"
     run_backup "$AWS_ENDPOINT"
     [ "$STATUS" -ne 0 ] || fail "backup succeeded into a bucket owned by another account"
-    assert_contains "$(cat "$WORK_DIR/output")" "the backup bucket 5stack-db-backups isn't owned by AWS account $ACCOUNT_ID that these S3 keys belong to, so the database dump was NOT uploaded"
+    assert_contains "$(cat "$WORK_DIR/output")" "the backup bucket 5stack-db-backups isn't owned by AWS account $ACCOUNT_ID that these S3 keys belong to, or the keys lack s3:ListBucket on it, so the database dump was NOT uploaded"
     assert_eq "$(calls_to "s3 cp ")" ""
 }
 

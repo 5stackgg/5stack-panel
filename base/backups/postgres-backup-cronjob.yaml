@@ -100,7 +100,7 @@ spec:
                     fi
 
                     if [ -n "$ACCOUNT_ID" ] && ! aws s3api head-bucket --bucket "$S3_DB_BACKUP_BUCKET" --endpoint-url "$ENDPOINT" "$@"; then
-                      echo "ERROR: the backup bucket $S3_DB_BACKUP_BUCKET isn't owned by AWS account $ACCOUNT_ID that these S3 keys belong to, so the database dump was NOT uploaded. Create it in your account or set S3_DB_BACKUP_BUCKET"
+                      echo "ERROR: the backup bucket $S3_DB_BACKUP_BUCKET isn't owned by AWS account $ACCOUNT_ID that these S3 keys belong to, or the keys lack s3:ListBucket on it, so the database dump was NOT uploaded. Create it in your account, set S3_DB_BACKUP_BUCKET, or grant s3:ListBucket"
                       exit 1
                     fi
                   fi

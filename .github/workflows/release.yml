@@ -20,14 +20,15 @@ jobs:
       - name: Give the checks time to register
         if: github.event_name == 'push'
         run: sleep 90
-      - name: Get a token from the 5Stack Release app
+      - name: Get a token from the 5Stack Ops app
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          client-id: ${{ vars.OPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OPS_APP_KEY }}
           owner: 5stackgg
           repositories: 5stack-service
+          permission-actions: write
       - name: Start the release in 5stack-service
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}

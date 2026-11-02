@@ -10,24 +10,37 @@ GPUs are both supported, one vendor per panel (`GPU_VENDOR`).
 | `proxmox-gpu-lxc.sh CTID` | the Proxmox host | checks the host driver and kernel modules and the container's settings; `--apply` writes them |
 | `setup-gpu-nodes.sh` | the panel | labels the GPU nodes for the panel's vendor and turns that vendor's support on |
 
-Every script only reports unless you pass `--apply`, and exits 1 while
-something still fails. None of them change the GPU's power or clock settings.
+The two check scripts only report unless you pass `--apply`, and exit 1 while
+something still fails. None of these scripts change the GPU's power or clock
+settings.
+
+## Getting the scripts
+
+A GPU node or a Proxmox host has no panel checkout, so download the script you
+need there:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-node/gpu-node-check.sh
+curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-node/proxmox-gpu-lxc.sh
+```
 
 ## Before you start
 
-- **k3s version.** The node setup command installs the latest k3s, and a
-  kubelet newer than the panel's API server is unsupported. If the panel runs
-  an older k3s, read its version with `kubectl version` on the panel
-  (`Server Version`) and export it on the node before the setup command:
+- **k3s version.** The join command installs the latest k3s, and a kubelet
+  newer than the panel's API server is unsupported. If the panel runs an older
+  k3s, read its version with `kubectl version` on the panel (`Server Version`)
+  and put it after `sudo` in the join command, since `sudo` drops a variable
+  exported before it:
 
   ```bash
-  export INSTALL_K3S_VERSION=v1.36.5+k3s1
+  curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s -- join --panel-key <key>
   ```
 
-- **Disk.** The node setup command wants 120 GB free on `/`.
+- **Disk.** The join wants 120 GB free on `/`, on top of what the system uses.
 - **CPU governor.** Render pods drop frames while the CPU ramps up, so the
-  governor is set to `performance`. In an LXC container that happens on the
-  Proxmox host.
+  governor is set to `performance` with `5stack-cpu-governor.service`, the
+  unit the panel's CPU governor tuning installs. In an LXC container that
+  happens on the Proxmox host.
 
 ## Dedicated machine or VM
 
@@ -40,11 +53,14 @@ something still fails. None of them change the GPU's power or clock settings.
    sudo bash gpu-node-check.sh --apply --k3s-version v1.36.5+k3s1
    ```
 
-3. Export `INSTALL_K3S_VERSION`, run the node setup command from the panel
-   (Settings, Nodes), and run the check again: some checks only apply once k3s
-   is there.
-4. On the panel, run `./setup-gpu-nodes.sh` and pick the vendor and nodes.
-   All GPU nodes of a panel use the same vendor.
+3. Join the node: on the panel's **Game Server Nodes** page
+   (`/game-server-nodes`), create a node and run the command it shows on this
+   machine, with `INSTALL_K3S_VERSION` after `sudo` as above. Then run the check
+   again: some checks only apply once k3s is there.
+4. On the panel, run `setup-gpu-nodes.sh` and pick the vendor and nodes: from
+   the panel checkout as `./setup-gpu-nodes.sh`, or on a panel that runs as the
+   5Stack service, `sudo 5stack run setup-gpu-nodes.sh`. All GPU nodes of a
+   panel use the same vendor.
 
 ### NVIDIA
 
@@ -54,18 +70,23 @@ something still fails. None of them change the GPU's power or clock settings.
 - With Secure Boot on, use Ubuntu's signed prebuilt driver modules
   (`ubuntu-drivers install` picks them) or enroll the DKMS key with `mokutil`.
 - After a driver upgrade, `nvidia-smi` fails until the next reboot.
+- A headless node may have no `/dev/nvidia-modeset`; `nvidia-modprobe -m`
+  creates it.
 
 ### AMD
 
 - `--apply` installs the AMD firmware package.
 - On Ubuntu 24.04, use the HWE kernel (`linux-generic-hwe-24.04`); the original
   6.8 kernel predates recent Radeons.
-- Never boot with `nomodeset`, `amdgpu.modeset=0` or `amdgpu.dpm=0`.
-- For a discrete card: enable Above 4G decoding and Resizable BAR in the
-  firmware, and add `amdgpu.runpm=0` to the kernel command line so a headless
-  card cannot suspend off the bus.
-- For an APU (such as Ryzen AI Max), select the node in the integrated list in
-  `setup-gpu-nodes.sh`. The check says when a GPU is integrated.
+- Never boot with `nomodeset`, `amdgpu.modeset=0` or `amdgpu.dpm=0`. There is
+  no kernel parameter to add.
+- For a discrete card, enable Above 4G decoding and Resizable BAR in the
+  firmware.
+- Tick a node in the integrated list of `setup-gpu-nodes.sh` only when its
+  integrated GPU (an APU, such as Ryzen AI Max) is its only AMD GPU. Leave a
+  node with a discrete Radeon card unticked, even when its CPU also has an
+  integrated GPU: ticked, it renders on the integrated GPU and leaves the card
+  unused. The check says which case a node is.
 
 ## Proxmox LXC container
 
@@ -75,8 +96,9 @@ the device with the container; do not bind the GPU to `vfio-pci`.
 1. On the host, install the GPU driver (NVIDIA: the proxmox headers and
    NVIDIA's `.run` installer; AMD: the kernel driver is built in, firmware comes
    from `pve-firmware`).
-2. Create a privileged Ubuntu container with at least 120 GB of disk and no core
-   limit (the kubelet pins pods to CPUs by number and sees every host CPU).
+2. Create a privileged Ubuntu container with at least 140 GB of disk (120 GB
+   free for the join, plus the system) and no core limit (the kubelet pins pods
+   to CPUs by number and sees every host CPU).
 3. On the host:
 
    ```bash
@@ -87,7 +109,10 @@ the device with the container; do not bind the GPU to `vfio-pci`.
 
    `--apply` loads the kernel modules k3s needs (and at every boot), sets the CPU
    governor, creates the NVIDIA device nodes at boot, turns on nesting, and adds
-   these lines to `/etc/pve/lxc/120.conf` (after backing it up to `/root`):
+   these lines to `/etc/pve/lxc/120.conf`. It backs the config up to `/root`
+   first and changes nothing in the container if that fails, writes the new
+   config beside the old one and renames it over, and stops at an unprivileged
+   container:
 
    ```
    lxc.apparmor.profile: unconfined
@@ -102,6 +127,13 @@ the device with the container; do not bind the GPU to `vfio-pci`.
    # NVIDIA: /dev/nvidia0, nvidiactl, nvidia-uvm, nvidia-uvm-tools,
    # nvidia-modeset and nvidia-caps, the same way
    ```
+
+   > **`proc:rw` changes the whole host.** It lets the kubelet set
+   > `vm.overcommit_memory=1`, `kernel.panic=10` and `kernel.panic_on_oops=1`,
+   > which are not per container: the Proxmox host then reboots 10 seconds
+   > after a kernel oops, and every guest on it goes down. On a host shared
+   > with other guests, decide whether that is acceptable before you restart
+   > the container. `--apply` prints this warning too.
 
 4. Inside the container, run `gpu-node-check.sh --apply`. For NVIDIA it
    installs the host driver's exact version of the NVIDIA libraries, without

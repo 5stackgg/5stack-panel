@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [Cloudflare workers, Gateway, Gateway chart, Panel scripts, TimescaleDB upgrade]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Give the checks time to register
+        if: github.event_name == 'push'
+        run: sleep 90
+      - name: Get a token from the 5Stack Ops app
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.OPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OPS_APP_KEY }}
+          owner: 5stackgg
+          repositories: 5stack-service
+          permission-actions: write
+      - name: Start the release in 5stack-service
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: gh workflow run panel-release.yml -R 5stackgg/5stack-service --ref main

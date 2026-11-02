@@ -351,7 +351,8 @@ fi
 
 setup_steam_web_api_key "overlays/local-secrets/steam-secrets.env"
 
-if [ "$VAULT_MANAGER" = true ]; then
+# The 5Stack service sets FIVESTACK_RELEASE and handles Vault itself; it asks before writing to it.
+if [ "$VAULT_MANAGER" = true ] && [ -z "${FIVESTACK_RELEASE:-}" ]; then
     if ! command -v vault &> /dev/null; then
         echo "Error: vault CLI is not installed. Please install it first (https://developer.hashicorp.com/vault/install)."
         exit 1

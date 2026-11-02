@@ -4,9 +4,11 @@ on:
   push:
     branches: [main]
     paths:
+      - custom.sh
       - debug.sh
       - dev.sh
       - plugin.sh
+      - service.sh
       - setup-gpu-nodes.sh
       - "gpu-node/**"
       - update.sh
@@ -18,12 +20,15 @@ on:
       - "tests/scripts/**"
       - base/kustomization.yaml
       - "base/system-upgrade/**"
+      - "base/backups/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
+      - custom.sh
       - debug.sh
       - dev.sh
       - plugin.sh
+      - service.sh
       - setup-gpu-nodes.sh
       - "gpu-node/**"
       - update.sh
@@ -35,6 +40,7 @@ on:
       - "tests/scripts/**"
       - base/kustomization.yaml
       - "base/system-upgrade/**"
+      - "base/backups/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -42,8 +48,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh gpu-node/*.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh gpu-node/*.sh tests/scripts/*.sh tests/scripts/stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
+      - run: bash tests/scripts/apply_overlay_test.sh
       - run: bash tests/scripts/debug_test.sh
       - run: bash tests/scripts/startup_probe_test.sh
       - run: bash tests/scripts/system_upgrade_test.sh
@@ -53,4 +60,7 @@ jobs:
       - run: bash tests/scripts/write_overlays_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh
       - run: bash tests/scripts/gpu_nodes_test.sh
+      - run: bash tests/scripts/service_test.sh
+      - run: bash tests/scripts/postgres_backup_test.sh
+      - run: bash tests/scripts/choose_node_test.sh
       - run: bash tests/scripts/proxmox_gpu_lxc_test.sh

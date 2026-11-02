@@ -125,6 +125,13 @@ apply_overlay() {
         return 1
     fi
 
+    # Set by the 5Stack service: it checks what this apply changes and may hold new matches first.
+    if [ -n "${FIVESTACK_PRE_APPLY:-}" ] && ! output="$("$FIVESTACK_PRE_APPLY" "$rendered" 2>&1)"; then
+        err "the 5Stack service stopped $overlay from being applied:"
+        echo "$output" | sed 's/^/    /' >&2
+        return 1
+    fi
+
     for ((attempt = 1; attempt <= attempts; attempt++)); do
         if output="$(kubectl "${kc[@]}" apply -f "$rendered" 2>&1)"; then
             if [ "$DEBUG" = true ]; then

@@ -234,25 +234,6 @@ replacements:
 
 patches:
   - target:
-      kind: Deployment
-      name: hasura
-    patch: |-
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: hasura
-      spec:
-        template:
-          spec:
-            initContainers:
-              - name: migrations
-                image: ghcr.io/5stackgg/api:latest
-                command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    yarn build && cp -r /opt/5stack/hasura /app && node dist/src/main.js
-  - target:
       group: gateway.networking.k8s.io
       kind: Gateway
       name: 5stack

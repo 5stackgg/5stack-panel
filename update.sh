@@ -135,7 +135,7 @@ step "Updating the TimescaleDB extension"
 update_timescaledb_extension
 finish_timescaledb_major_upgrade
 
-GIT_SHA=$(git rev-parse HEAD)
+GIT_SHA="${FIVESTACK_RELEASE:-$(git rev-parse HEAD)}"
 
 kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}') 5stack-panel-version=$GIT_SHA --overwrite
 

@@ -39,6 +39,7 @@ spec:
                   zip -j "$ZIP_FILE" "$DUMP_FILE"
 
                   ENDPOINT="${S3_ENDPOINT:-rustfs}"
+                  REMOTE=false
 
                   # Both names mean the in-cluster store (see the minio alias
                   # Service in base/rustfs/service.yaml). Anything else is a
@@ -47,6 +48,7 @@ spec:
                     ENDPOINT="http://$ENDPOINT:9000"
                   else
                     ENDPOINT="https://$S3_ENDPOINT"
+                    REMOTE=true
                   fi
 
                   export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
@@ -54,6 +56,54 @@ spec:
                   export AWS_DEFAULT_REGION="${S3_REGION:-us-east-1}"
 
                   S3_DB_BACKUP_BUCKET="${S3_DB_BACKUP_BUCKET:-5stack-db-backups}"
+
+                  # Remote bucket names are global, so only upload into a bucket
+                  # owned by the account these keys belong to. On AWS the owner
+                  # check takes the 12-digit account id from STS (list-buckets'
+                  # Owner.ID is a canonical id S3 rejects), and only the s3api
+                  # calls get it: aws s3 cp and rm reject --expected-bucket-owner.
+                  set --
+                  ACCOUNT_ID=""
+                  if [ "$REMOTE" = true ]; then
+                    ENDPOINT_HOST=$(printf '%s' "$S3_ENDPOINT" | tr '[:upper:]' '[:lower:]')
+                    ENDPOINT_HOST="${ENDPOINT_HOST#*://}"
+                    ENDPOINT_HOST="${ENDPOINT_HOST%/}"
+                    case "$ENDPOINT_HOST" in
+                      *.amazonaws.com | *.amazonaws.com.cn)
+                        if ! ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text); then
+                          echo "ERROR: could not look up the AWS account these S3 keys belong to"
+                          exit 1
+                        fi
+                        set -- --expected-bucket-owner "$ACCOUNT_ID"
+                        ;;
+                    esac
+
+                    if BUCKETS=$(aws s3api list-buckets --endpoint-url "$ENDPOINT" --query 'Buckets[].Name' --output text 2>/tmp/list-buckets.err); then
+                      FOUND=false
+                      for NAME in $BUCKETS; do
+                        if [ "$NAME" = "$S3_DB_BACKUP_BUCKET" ]; then
+                          FOUND=true
+                        fi
+                      done
+                      if [ "$FOUND" = false ]; then
+                        echo "ERROR: the backup bucket $S3_DB_BACKUP_BUCKET isn't in the account these S3 keys belong to, so the database dump was NOT uploaded. Create it in your account or set S3_DB_BACKUP_BUCKET"
+                        exit 1
+                      fi
+                    elif grep -Eq 'AccessDenied|Unauthorized|\(40[13]\)' /tmp/list-buckets.err; then
+                      if [ -z "$ACCOUNT_ID" ]; then
+                        echo "Note: couldn't check that $S3_DB_BACKUP_BUCKET is owned by this account because these S3 keys can't list buckets"
+                      fi
+                    else
+                      cat /tmp/list-buckets.err
+                      echo "ERROR: S3 upload failed, could not list the buckets on $ENDPOINT"
+                      exit 1
+                    fi
+
+                    if [ -n "$ACCOUNT_ID" ] && ! aws s3api head-bucket --bucket "$S3_DB_BACKUP_BUCKET" --endpoint-url "$ENDPOINT" "$@"; then
+                      echo "ERROR: the backup bucket $S3_DB_BACKUP_BUCKET isn't owned by AWS account $ACCOUNT_ID that these S3 keys belong to, or the keys lack s3:ListBucket on it, so the database dump was NOT uploaded. Create it in your account, set S3_DB_BACKUP_BUCKET, or grant s3:ListBucket"
+                      exit 1
+                    fi
+                  fi
 
                   echo "Uploading to $ENDPOINT : $S3_DB_BACKUP_BUCKET/backup-$TS.zip"
 
@@ -68,7 +118,8 @@ spec:
                     --bucket "$S3_DB_BACKUP_BUCKET" \
                     --query 'reverse(sort_by(Contents, &LastModified))[].Key' \
                     --output text \
-                    --endpoint-url "$ENDPOINT" || true)
+                    --endpoint-url "$ENDPOINT" \
+                    "$@" || true)
 
                   DELETEABLE_KEYS=$(echo "$KEYS" | tr '\t' '\n' | awk 'NR>7')
 
@@ -76,7 +127,7 @@ spec:
                     echo "Pruning old backups, keeping latest 7"
                     echo "$DELETEABLE_KEYS" | while IFS= read -r KEY; do
                       echo "Deleting old backup: $KEY"
-                      aws s3 rm "s3://$S3_DB_BACKUP_BUCKET/$KEY" --endpoint-url "$ENDPOINT" || true
+                      aws s3api delete-object --bucket "$S3_DB_BACKUP_BUCKET" --key "$KEY" --endpoint-url "$ENDPOINT" "$@" || true
                     done
                     echo "Pruning complete"
                   fi

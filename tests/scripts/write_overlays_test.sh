@@ -28,6 +28,24 @@ test_a_reverse_proxy_overlay_answers_on_443_with_its_own_certificate() {
     [ -f "$(overlay local-secrets-http)/gateway-tls.yaml" ] || fail "gateway-tls.yaml was not copied"
 }
 
+test_hasura_keeps_one_replica_by_default() {
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    assert_not_contains "$(cat "$(overlay vault-https)/kustomization.yaml")" "replicas:"
+}
+
+test_hasura_replicas_sets_how_many_hasuras_run() {
+    HASURA_REPLICAS=2 write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for name in vault-http vault-https local-secrets-http local-secrets-https; do
+        assert_contains "$(cat "$(overlay "$name")/kustomization.yaml")" "- name: hasura"
+        assert_contains "$(cat "$(overlay "$name")/kustomization.yaml")" "count: 2"
+    done
+}
+
+test_hasura_replicas_must_be_a_whole_number() {
+    HASURA_REPLICAS=two write && fail "a replica count of 'two' was accepted"
+    assert_contains "$(cat "$WORK_DIR/output")" "HASURA_REPLICAS must be a whole number"
+}
+
 test_the_certificate_is_kept_across_updates() {
     write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
     cp "$(overlay local-secrets-http)/reverse-proxy-tls.crt" "$WORK_DIR/first.crt"

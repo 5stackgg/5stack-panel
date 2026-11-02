@@ -22,13 +22,14 @@ script() {
     )
 }
 
-# fake_amd_gpu NAME integrated|discrete
-# A PCI device directory as sysfs shows an amdgpu device, with a render node.
+# fake_amd_gpu NAME integrated|discrete [DRIVER]
+# A PCI device directory as sysfs shows an AMD GPU, with a render node, bound
+# to DRIVER (amdgpu unless given).
 fake_amd_gpu() {
-    local dev="$WORK_DIR/pci/$1"
+    local dev="$WORK_DIR/pci/$1" driver="${3:-amdgpu}"
     mkdir -p "$dev/drm/renderD128" "$dev/hwmon/hwmon0"
-    ln -s "$WORK_DIR/drivers/amdgpu" "$dev/driver"
-    mkdir -p "$WORK_DIR/drivers/amdgpu"
+    ln -s "$WORK_DIR/drivers/$driver" "$dev/driver"
+    mkdir -p "$WORK_DIR/drivers/$driver"
     if [ "$2" = integrated ]; then
         echo vddnb >"$dev/hwmon/hwmon0/in1_label"
     else
@@ -104,7 +105,7 @@ test_an_apu_beside_a_discrete_card_stays_unticked() {
     AMD_GPUS=("$(fake_amd_gpu 0000:c5:00.0 integrated)" "$(fake_amd_gpu 0000:03:00.0 discrete)")
     local out
     out=$(script check_amd)
-    assert_contains "$out" "0000:c5:00.0 is integrated, and this node has a discrete AMD GPU: leave it unticked"
+    assert_contains "$out" "0000:c5:00.0 is integrated, and this node has a discrete AMD GPU on amdgpu: leave it unticked"
     assert_not_contains "$out" "tick this node"
     assert_not_contains "$out" "runpm"
 }
@@ -115,8 +116,21 @@ test_an_apu_on_its_own_is_ticked() {
     AMD_GPUS=("$(fake_amd_gpu 0000:c5:00.0 integrated)")
     local out
     out=$(script check_amd)
-    assert_contains "$out" "0000:c5:00.0 is integrated and the only AMD GPU: tick this node"
+    assert_contains "$out" "0000:c5:00.0 is integrated and the only AMD GPU on amdgpu: tick this node"
     assert_not_contains "$out" "runpm"
+}
+
+# A card held for VM passthrough renders nothing on this node, so the APU is
+# still the GPU to tick.
+test_a_discrete_card_on_vfio_pci_does_not_count() {
+    load
+    quiet_amd_host
+    AMD_GPUS=("$(fake_amd_gpu 0000:c5:00.0 integrated)" "$(fake_amd_gpu 0000:03:00.0 discrete vfio-pci)")
+    local out
+    out=$(script check_amd)
+    assert_contains "$out" "[FAIL] 0000:03:00.0 is bound to 'vfio-pci', not amdgpu"
+    assert_contains "$out" "0000:c5:00.0 is integrated and the only AMD GPU on amdgpu: tick this node"
+    assert_not_contains "$out" "leave it unticked"
 }
 
 test_the_nvidia_node_hint_uses_m_for_modeset() {
@@ -153,6 +167,7 @@ test_without_k3s_the_join_hint_has_the_pin() {
     out=$(script check_common)
     assert_contains "$out" "sudo INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s -- join"
     assert_not_contains "$out" "INSTALL_K3S_VERSION=v1.36.5+k3s1 curl"
+    assert_contains "$out" "Untested: the pin only takes effect if the join passes INSTALL_K3S_VERSION on to the k3s installer"
 }
 
 # ubuntu-drivers on PATH, writing to stdout as the real one does.
@@ -181,6 +196,26 @@ test_a_failed_driver_install_is_reported() {
     local out
     out=$(script apply_step "installed the recommended NVIDIA driver; reboot, then run this again" install_nvidia_driver)
     assert_eq "$out" "  [FAIL] could not apply: installed the recommended NVIDIA driver; reboot, then run this again"
+}
+
+# check_nvidia on an Ubuntu machine without the NVIDIA module, as --apply
+# reaches install_nvidia_driver there.
+test_check_nvidia_installs_the_driver_and_reports_it() {
+    load
+    shim_ubuntu_drivers 0
+    IN_LXC=false
+    APPLY=true
+    OS_ID=ubuntu
+    NVIDIA_GPUS=()
+    # shellcheck disable=SC2317 # called by the function under test
+    nvidia_kernel_version() { :; }
+    # shellcheck disable=SC2317 # called by the function under test
+    install_nvidia_container_toolkit() { return 0; }
+    local out
+    out=$(script check_nvidia)
+    assert_contains "$out" "[FAIL] the NVIDIA kernel module is not loaded"
+    assert_contains "$out" "[FIX ] installed the recommended NVIDIA driver; reboot, then run this again"
+    assert_not_contains "$out" "Reading package lists"
 }
 
 test_proc_sys_is_probed_under_vm() {
@@ -213,6 +248,7 @@ stub_governor() {
     CPU_SYSFS="$WORK_DIR/cpu"
     SYSTEMD_DIR="$WORK_DIR/systemd"
     GOVERNOR_SCRIPT="$WORK_DIR/bin/5stack-cpu-governor.sh"
+    CPUFREQUTILS_DEFAULT="$WORK_DIR/cpufrequtils"
     RESTART_SETS_GOVERNOR="$1"
     systemctl() {
         echo "systemctl $*" >>"$WORK_DIR/systemctl.log"
@@ -234,6 +270,27 @@ test_the_governor_unit_is_the_panels_and_restarted() {
     assert_contains "$(cat "$WORK_DIR/systemctl.log")" "systemctl restart 5stack-cpu-governor.service"
     assert_not_contains "$(cat "$WORK_DIR/systemctl.log")" "--now"
     [ -e "$WORK_DIR/systemd/5stack-cpu-governor.service.5stack-new" ] && fail "the temp unit was left behind"
+    return 0
+}
+
+# The panel's tuning points cpufrequtils's boot script at performance too.
+test_the_governor_fix_sets_cpufrequtils_to_performance() {
+    load
+    stub_governor true
+    printf 'ENABLE="true"\nGOVERNOR="ondemand"\nMAX_SPEED="0"\n' >"$CPUFREQUTILS_DEFAULT"
+    install_governor_unit >"$WORK_DIR/out" || fail "install_governor_unit failed: $(cat "$WORK_DIR/out")"
+    assert_eq "$(cat "$CPUFREQUTILS_DEFAULT")" 'ENABLE="true"
+MAX_SPEED="0"
+GOVERNOR="performance"'
+    [ -e "$CPUFREQUTILS_DEFAULT.5stack-new" ] && fail "the temp file was left behind"
+    return 0
+}
+
+test_the_governor_fix_adds_no_cpufrequtils_settings() {
+    load
+    stub_governor true
+    install_governor_unit >"$WORK_DIR/out" || fail "install_governor_unit failed: $(cat "$WORK_DIR/out")"
+    [ -e "$CPUFREQUTILS_DEFAULT" ] && fail "cpufrequtils settings were created"
     return 0
 }
 

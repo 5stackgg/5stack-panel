@@ -25,6 +25,7 @@ AMD_GPUS=()
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 GOVERNOR_SCRIPT="${GOVERNOR_SCRIPT:-/usr/local/bin/5stack-cpu-governor.sh}"
 CPU_SYSFS="${CPU_SYSFS:-/sys/devices/system/cpu}"
+CPUFREQUTILS_DEFAULT="${CPUFREQUTILS_DEFAULT:-/etc/default/cpufrequtils}"
 # LXC's proc:mixed leaves /proc/sys/net writable but not /proc/sys/vm, and
 # the kubelet writes to /proc/sys/vm, so that is what is tested.
 PROC_SYS_PROBE="${PROC_SYS_PROBE:-/proc/sys/vm/overcommit_memory}"
@@ -195,13 +196,13 @@ amd_integrated() {
 
 # amd_integrated_note PCI HAS_DISCRETE
 # What to do in setup-gpu-nodes.sh's integrated list for an integrated GPU.
-# A node with a discrete card stays unticked: ticked, it renders on the
-# integrated GPU and leaves the card unused.
+# A node with a discrete card on amdgpu stays unticked: ticked, it renders on
+# the integrated GPU and leaves the card unused.
 amd_integrated_note() {
     if [ "$2" = true ]; then
-        echo "$1 is integrated, and this node has a discrete AMD GPU: leave it unticked in setup-gpu-nodes.sh's integrated list so it renders on the discrete card"
+        echo "$1 is integrated, and this node has a discrete AMD GPU on amdgpu: leave it unticked in setup-gpu-nodes.sh's integrated list so it renders on the discrete card"
     else
-        echo "$1 is integrated and the only AMD GPU: tick this node in setup-gpu-nodes.sh's integrated list (5stack-gpu-integrated=true)"
+        echo "$1 is integrated and the only AMD GPU on amdgpu: tick this node in setup-gpu-nodes.sh's integrated list (5stack-gpu-integrated=true)"
     fi
 }
 
@@ -210,7 +211,10 @@ check_amd() {
 
     step "AMD GPU"
 
+    # A card on vfio-pci or without a driver renders nothing here, so it does
+    # not count as a discrete GPU.
     for dev in "${AMD_GPUS[@]}"; do
+        [ "$(driver_of "$dev")" = amdgpu ] || continue
         amd_integrated "$dev" || has_discrete=true
     done
 
@@ -524,7 +528,9 @@ k3s_service() {
 }
 
 # The same script and unit the panel's CPU governor tuning installs, so a
-# node that later gets that tuning keeps one unit, not two.
+# node that later gets that tuning keeps one unit, not two, and the same
+# change to cpufrequtils's settings, whose boot script would set its own
+# governor.
 install_governor_unit() {
     local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
     mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
@@ -548,6 +554,10 @@ ExecStart=$GOVERNOR_SCRIPT
 WantedBy=multi-user.target
 UNIT
     mv -f "$unit.5stack-new" "$unit" || return 1
+    if [ -f "$CPUFREQUTILS_DEFAULT" ]; then
+        { grep -v '^GOVERNOR=' "$CPUFREQUTILS_DEFAULT" || true; echo 'GOVERNOR="performance"'; } >"$CPUFREQUTILS_DEFAULT.5stack-new" &&
+            mv -f "$CPUFREQUTILS_DEFAULT.5stack-new" "$CPUFREQUTILS_DEFAULT" || return 1
+    fi
     # restart, not enable --now: --now leaves an active unit alone, and the
     # governor may have been changed since it ran.
     systemctl daemon-reload &&
@@ -563,10 +573,16 @@ UNIT
 }
 
 # k3s_join_hint VERSION
-# The panel's join command with the k3s version pinned. sudo drops exported
-# variables, so the pin goes after sudo, where it reaches the k3s installer.
+# The panel's join command with a k3s version pin. sudo drops exported
+# variables, so the pin goes after sudo. The k3s installer reads it, but the
+# join reaches that installer through the 5Stack agent and the panel's node
+# script, and whether they pass it on has not been tested.
 k3s_join_hint() {
     echo "curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=$1 sh -s -- join --panel-key <the key the panel shows>"
+}
+
+k3s_pin_caveat() {
+    hint "Untested: the pin only takes effect if the join passes INSTALL_K3S_VERSION on to the k3s installer. Check 'k3s --version' afterwards."
 }
 
 check_common() {
@@ -613,6 +629,7 @@ check_common() {
             [ "$(printf '%s\n' "$installed" "$K3S_VERSION" | sort -V | tail -1)" = "$installed" ]; then
             warn "k3s $installed is newer than the panel's $K3S_VERSION; a kubelet newer than its API server is unsupported"
             hint "Re-join with the version pinned: $(k3s_join_hint "$K3S_VERSION")"
+            k3s_pin_caveat
         else
             pass "k3s $installed installed"
         fi
@@ -622,8 +639,9 @@ check_common() {
             fail "$service is not running; see 'journalctl -u $service -n 50'"
         fi
     else
-        info "k3s not installed yet. The join command installs the latest k3s; to match the panel, join with the version pinned:"
+        info "k3s not installed yet. The join command installs the latest k3s; to try to match the panel, join with the version pinned:"
         hint "$(k3s_join_hint "${K3S_VERSION:-<the Server Version from kubectl version on the panel>}")"
+        k3s_pin_caveat
     fi
 }
 

@@ -307,6 +307,20 @@ test_apply_stops_at_an_unprivileged_container() {
     assert_eq "$(find "$WORK_DIR/backup" -type f | wc -l)" "0"
 }
 
+# A refused --apply runs the checks in report mode, so the container's
+# hints must not offer --apply for a container it will refuse again.
+test_refused_apply_offers_no_apply_fixes() {
+    load
+    write_container 1
+    stub_pct stopped
+    APPLY=false
+    APPLY_REFUSED=true
+    local out
+    out=$(script check_container)
+    assert_contains "$out" "[FAIL] the container is unprivileged"
+    assert_not_contains "$out" "(--apply"
+}
+
 # The host steps run before the container's, so --apply has to stop before
 # them, not only in check_container.
 test_apply_turns_off_before_the_host_steps_for_an_unprivileged_container() {

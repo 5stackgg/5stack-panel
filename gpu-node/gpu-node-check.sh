@@ -102,7 +102,8 @@ apt_install() {
 }
 
 # apply_step DESCRIPTION COMMAND...
-# Runs an --apply step and reports it as fixed or failed.
+# Runs an --apply step and reports it as fixed or failed, returning 1 when it
+# failed.
 apply_step() {
     local description="$1"
     shift
@@ -110,6 +111,7 @@ apply_step() {
         fixed "$description"
     else
         fail "could not apply: $description"
+        return 1
     fi
 }
 

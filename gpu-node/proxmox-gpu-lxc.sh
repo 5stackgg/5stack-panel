@@ -529,7 +529,9 @@ check_container() {
     if [ "$(conf_value "$conf" unprivileged)" = 1 ]; then
         fail "the container is unprivileged; k3s needs a privileged container"
         hint "Back it up and restore it as privileged: vzdump $CTID, then pct restore with --unprivileged 0."
-        if [ "$APPLY" = true ]; then
+        # Past this point every hint says what --apply would change, and the
+        # pre-flight has already refused --apply for this container.
+        if [ "$APPLY" = true ] || [ "$APPLY_REFUSED" = true ]; then
             hint "--apply changes nothing in this container until it is privileged."
             return
         fi

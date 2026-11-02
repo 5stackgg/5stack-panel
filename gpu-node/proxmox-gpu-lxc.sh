@@ -19,12 +19,18 @@ BACKUP_DIR="${BACKUP_DIR:-/root}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 GOVERNOR_SCRIPT="${GOVERNOR_SCRIPT:-/usr/local/bin/5stack-cpu-governor.sh}"
 CPU_SYSFS="${CPU_SYSFS:-/sys/devices/system/cpu}"
+CPUFREQUTILS_DEFAULT="${CPUFREQUTILS_DEFAULT:-/etc/default/cpufrequtils}"
 PROC_CMDLINE="${PROC_CMDLINE:-/proc/cmdline}"
+NVIDIA_PROC_VERSION="${NVIDIA_PROC_VERSION:-/proc/driver/nvidia/version}"
 
-# The node setup command stops unless / has this much free (df -BG), and the
-# system, k3s and the render images need room on top of it.
+# The node setup command stops unless / has this much free (df -BG): the
+# panel's "Required disk space - fresh install" setting before CS2 is
+# installed, "Required disk space - existing install" once it is. These are
+# their defaults. The system, k3s and the render images need room on top.
 REQUIRED_FREE_GB=120
+REQUIRED_FREE_EXISTING_GB=60
 SYSTEM_HEADROOM_GB=20
+CS2_DIR=/opt/5stack/serverfiles/game/csgo
 
 # The kernel modules k3s, flannel and kube-proxy load. A container cannot load
 # modules, so the host loads them, now and at every boot.
@@ -53,7 +59,8 @@ usage() {
 }
 
 # apply_step DESCRIPTION COMMAND...
-# Runs an --apply step and reports it as fixed or failed.
+# Runs an --apply step and reports it as fixed or failed, returning 1 when it
+# failed.
 apply_step() {
     local description="$1"
     shift
@@ -61,6 +68,7 @@ apply_step() {
         fixed "$description"
     else
         fail "could not apply: $description"
+        return 1
     fi
 }
 
@@ -287,7 +295,7 @@ NVIDIA_NODES="/dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools 
 
 check_host_nvidia() {
     local version
-    version=$(head -1 /proc/driver/nvidia/version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+    version=$(head -1 "$NVIDIA_PROC_VERSION" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
     if [ -z "$version" ]; then
         fail "the NVIDIA driver is not loaded on the host"
         hint "Install it on the host with the proxmox-headers package and NVIDIA's .run installer, then reboot."
@@ -305,6 +313,13 @@ check_host_nvidia() {
         pass "device nodes present, and created at every boot"
     elif [ "$APPLY" = true ] && command -v nvidia-modprobe >/dev/null 2>&1; then
         apply_step "device nodes created, and at every boot ($NVIDIA_UNIT)" install_nvidia_unit
+    elif [ "$APPLY" = true ]; then
+        if [ -n "$missing" ]; then
+            fail "missing device nodes:$missing, and --apply cannot create them without nvidia-modprobe"
+        else
+            warn "nothing creates the NVIDIA device nodes at boot, and --apply cannot add the unit that does without nvidia-modprobe"
+        fi
+        hint "NVIDIA's .run installer installs nvidia-modprobe; install the driver with it, then run this again."
     elif [ -n "$missing" ]; then
         fail "missing device nodes:$missing (--apply creates them at every boot with nvidia-modprobe)"
     else
@@ -378,7 +393,7 @@ check_host_kernel() {
     fi
 
     local governor
-    governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)
+    governor=$(cat "$CPU_SYSFS/cpu0/cpufreq/scaling_governor" 2>/dev/null)
     if [ -z "$governor" ] || [ "$governor" = performance ]; then
         pass "CPU governor ${governor:-not exposed}"
     elif [ "$APPLY" = true ]; then
@@ -389,7 +404,8 @@ check_host_kernel() {
 }
 
 # The same script and unit the panel's CPU governor tuning installs on a
-# node, so a machine never ends up with two of them.
+# node, so a machine never ends up with two of them, and the same change to
+# cpufrequtils's settings, whose boot script would set its own governor.
 install_governor_unit() {
     local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
     mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
@@ -413,6 +429,10 @@ ExecStart=$GOVERNOR_SCRIPT
 WantedBy=multi-user.target
 UNIT
     mv -f "$unit.5stack-new" "$unit" || return 1
+    if [ -f "$CPUFREQUTILS_DEFAULT" ]; then
+        { grep -v '^GOVERNOR=' "$CPUFREQUTILS_DEFAULT" || true; echo 'GOVERNOR="performance"'; } >"$CPUFREQUTILS_DEFAULT.5stack-new" &&
+            mv -f "$CPUFREQUTILS_DEFAULT.5stack-new" "$CPUFREQUTILS_DEFAULT" || return 1
+    fi
     # restart, not enable --now: --now leaves an active unit alone, and the
     # governor may have been changed since it ran.
     systemctl daemon-reload &&
@@ -435,9 +455,21 @@ container_free_gb() {
     pct exec "$CTID" -- df -BG / 2>/dev/null | awk 'NR == 2 { sub(/G$/, "", $4); print $4 }'
 }
 
+# container_has_cs2
+# True when CS2 is installed in the running container, where the node setup
+# looks for it.
+container_has_cs2() {
+    pct exec "$CTID" -- test -d "$CS2_DIR" 2>/dev/null
+}
+
+disk_settings_hint() {
+    hint "The panel sets both minimums: \"Required disk space - fresh install\" ($REQUIRED_FREE_GB GB by default) and \"Required disk space - existing install\" ($REQUIRED_FREE_EXISTING_GB GB), under Settings, Application, Servers."
+}
+
 # check_disk ROOTFS
-# The node setup needs REQUIRED_FREE_GB free on /, so a running container is
-# judged by its free space, and a stopped one by its size.
+# The node setup needs REQUIRED_FREE_GB free on /, or REQUIRED_FREE_EXISTING_GB
+# once CS2 is installed, so a running container is judged by its free space,
+# and a stopped one by its size.
 check_disk() {
     local rootfs="$1" size gb free want
     size=$(echo "$rootfs" | grep -oE 'size=[0-9.]+[KMGT]?' | cut -d= -f2)
@@ -451,15 +483,23 @@ check_disk() {
     case "$free" in *[!0-9]*) free="" ;; esac
 
     if [ -n "$free" ]; then
-        if [ "$free" -ge "$REQUIRED_FREE_GB" ]; then
-            pass "root disk $size, ${free} GB free"
+        local need=$REQUIRED_FREE_GB when="before CS2 is installed"
+        if container_has_cs2; then
+            need=$REQUIRED_FREE_EXISTING_GB
+            when="with CS2 already installed"
+        fi
+        if [ "$free" -ge "$need" ]; then
+            pass "root disk $size, ${free} GB free ($when the node setup needs $need GB)"
         else
-            fail "root disk $size has ${free} GB free; the node setup needs $REQUIRED_FREE_GB GB free"
-            hint "Grow it: pct resize $CTID rootfs +$((REQUIRED_FREE_GB - free + SYSTEM_HEADROOM_GB))G"
+            fail "root disk $size has ${free} GB free; $when the node setup needs $need GB free"
+            hint "Grow it: pct resize $CTID rootfs +$((need - free + SYSTEM_HEADROOM_GB))G"
+            disk_settings_hint
         fi
     elif [ "$gb" -lt "$REQUIRED_FREE_GB" ]; then
-        fail "root disk is $size; the node setup needs $REQUIRED_FREE_GB GB free on it"
+        fail "root disk is $size; before CS2 is installed the node setup needs $REQUIRED_FREE_GB GB free on it"
         hint "Grow it: pct resize $CTID rootfs ${want}G"
+        hint "If CS2 is already installed in it, start the container and run this again: $REQUIRED_FREE_EXISTING_GB GB free is then enough."
+        disk_settings_hint
     elif [ "$gb" -lt "$want" ]; then
         warn "root disk is $size; the node setup needs $REQUIRED_FREE_GB GB free, which leaves little for the system (${want}G is safer)"
         hint "Start the container and run this again to check its free space."
@@ -530,8 +570,8 @@ check_container() {
         RESTART_NEEDED=true
     elif [ "$APPLY" = true ]; then
         backup_conf "$conf" || return
-        apply_step "enabled nesting" pct set "$CTID" --features "$(features_with_nesting "$features")"
-        RESTART_NEEDED=true
+        apply_step "enabled nesting" pct set "$CTID" --features "$(features_with_nesting "$features")" &&
+            RESTART_NEEDED=true
     else
         fail "nesting is off (--apply turns it on)"
     fi
@@ -550,8 +590,8 @@ check_container() {
     done
     if [ "$APPLY" = true ]; then
         backup_conf "$conf" || return
-        apply_step "added ${#missing[@]} LXC lines for k3s and the $VENDOR GPU" locked_add_lxc_lines "$conf" "${lines[@]}"
-        RESTART_NEEDED=true
+        apply_step "added ${#missing[@]} LXC lines for k3s and the $VENDOR GPU" locked_add_lxc_lines "$conf" "${lines[@]}" &&
+            RESTART_NEEDED=true
     else
         fail "${#missing[@]} LXC lines for k3s and the $VENDOR GPU are missing (--apply adds them):"
         for line in "${missing[@]}"; do
@@ -575,6 +615,21 @@ backup_conf() {
     fi
     fail "could not back up $1 to $backup, so --apply changes nothing in the container"
     return 1
+}
+
+# preflight_apply
+# --apply changes the host only for a container it can then finish, so a
+# missing or unprivileged container turns it off before any host step runs.
+APPLY_REFUSED=false
+preflight_apply() {
+    local conf="$PVE_LXC_DIR/$CTID.conf"
+    [ "$APPLY" = true ] || return 0
+    if [ -f "$conf" ] && [ "$(conf_value "$conf" unprivileged)" != 1 ]; then
+        return 0
+    fi
+    APPLY=false
+    APPLY_REFUSED=true
+    echo "${C_WARN}--apply changes nothing on the host or in container $CTID until the container exists and is privileged; only checking${C_RESET}"
 }
 
 main() {
@@ -609,6 +664,7 @@ main() {
     fi
 
     RESTART_NEEDED=false
+    preflight_apply
     check_host_gpu
     check_host_kernel
     check_container
@@ -619,7 +675,7 @@ main() {
     fi
     if [ "$FAILS" -gt 0 ]; then
         echo "${C_ERR}$FAILS failed, $WARNS warnings${C_RESET}"
-        [ "$APPLY" = false ] && echo "Run with --apply to fix what this script can, then run it again."
+        [ "$APPLY" = false ] && [ "$APPLY_REFUSED" = false ] && echo "Run with --apply to fix what this script can, then run it again."
         exit 1
     fi
     echo "${C_OK}host and container $CTID ready ($WARNS warnings)${C_RESET}"

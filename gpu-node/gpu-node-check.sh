@@ -18,39 +18,51 @@
 APPLY=false
 VENDOR=""
 K3S_VERSION=""
+IN_LXC=false
+ON_HOST=""
+NVIDIA_GPUS=()
+AMD_GPUS=()
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+GOVERNOR_SCRIPT="${GOVERNOR_SCRIPT:-/usr/local/bin/5stack-cpu-governor.sh}"
+CPU_SYSFS="${CPU_SYSFS:-/sys/devices/system/cpu}"
+# LXC's proc:mixed leaves /proc/sys/net writable but not /proc/sys/vm, and
+# the kubelet writes to /proc/sys/vm, so that is what is tested.
+PROC_SYS_PROBE="${PROC_SYS_PROBE:-/proc/sys/vm/overcommit_memory}"
 
 usage() {
     echo "usage: gpu-node-check.sh [--apply] [--vendor nvidia|amd] [--k3s-version v1.36.5+k3s1]" >&2
     exit 2
 }
 
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --apply) APPLY=true ;;
-        --vendor)
-            VENDOR="$2"
-            shift
-            ;;
-        --k3s-version)
-            K3S_VERSION="$2"
-            shift
-            ;;
-        -h | --help) usage ;;
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --apply) APPLY=true ;;
+            --vendor)
+                VENDOR="$2"
+                shift
+                ;;
+            --k3s-version)
+                K3S_VERSION="$2"
+                shift
+                ;;
+            -h | --help) usage ;;
+            *)
+                echo "unknown option: $1" >&2
+                usage
+                ;;
+        esac
+        shift
+    done
+
+    case "$VENDOR" in
+        "" | nvidia | amd) ;;
         *)
-            echo "unknown option: $1" >&2
-            usage
+            echo "--vendor must be nvidia or amd" >&2
+            exit 2
             ;;
     esac
-    shift
-done
-
-case "$VENDOR" in
-    "" | nvidia | amd) ;;
-    *)
-        echo "--vendor must be nvidia or amd" >&2
-        exit 2
-        ;;
-esac
+}
 
 if [ -t 1 ]; then
     C_RESET=$'\033[0m' C_STEP=$'\033[1;36m' C_OK=$'\033[0;32m' C_WARN=$'\033[1;33m' C_ERR=$'\033[0;31m'
@@ -67,16 +79,6 @@ warn() { WARNS=$((WARNS + 1)); echo "${C_WARN}  [WARN] $1${C_RESET}"; }
 fail() { FAILS=$((FAILS + 1)); echo "${C_ERR}  [FAIL] $1${C_RESET}"; }
 fixed() { echo "${C_OK}  [FIX ] $1${C_RESET}"; }
 hint() { echo "         $1"; }
-
-if [ "$APPLY" = true ] && [ "$(id -u)" -ne 0 ]; then
-    echo "--apply must run as root" >&2
-    exit 2
-fi
-
-# shellcheck source=/dev/null
-. /etc/os-release 2>/dev/null
-OS_ID="${ID:-unknown}"
-OS_VERSION="${VERSION_ID:-}"
 
 apt_has() {
     command -v apt-cache >/dev/null 2>&1 &&
@@ -115,60 +117,60 @@ kernel_log() {
     dmesg 2>/dev/null || journalctl -k -b 0 --no-pager 2>/dev/null
 }
 
-step "Machine"
+check_machine() {
+    local container vm dev class
 
-CONTAINER=$(systemd-detect-virt -c 2>/dev/null || true)
-VM=$(systemd-detect-virt -v 2>/dev/null || true)
-IN_LXC=false
-ON_HOST=""
-case "$CONTAINER" in
-    lxc*)
-        IN_LXC=true
-        ON_HOST=" on the host"
-        ;;
-    none | "") ;;
-    *)
-        fail "running in a $CONTAINER container; only bare metal, VMs and LXC are supported"
-        ;;
-esac
+    step "Machine"
 
-if [ "$IN_LXC" = true ]; then
-    info "LXC container on kernel $(uname -r); the host owns the GPU driver, firmware and CPU governor"
-elif [ -n "$VM" ] && [ "$VM" != none ]; then
-    info "$VM VM on kernel $(uname -r); the GPU must be passed through to it"
-else
-    info "bare metal, kernel $(uname -r)"
-fi
-info "$OS_ID $OS_VERSION"
-
-# GPUs, from sysfs, which a container sees too.
-NVIDIA_GPUS=()
-AMD_GPUS=()
-for dev in /sys/bus/pci/devices/*; do
-    class=$(cat "$dev/class" 2>/dev/null)
-    case "$class" in
-        0x0300* | 0x0302* | 0x0380*) ;;
-        *) continue ;;
+    container=$(systemd-detect-virt -c 2>/dev/null || true)
+    vm=$(systemd-detect-virt -v 2>/dev/null || true)
+    case "$container" in
+        lxc*)
+            IN_LXC=true
+            ON_HOST=" on the host"
+            ;;
+        none | "") ;;
+        *)
+            fail "running in a $container container; only bare metal, VMs and LXC are supported"
+            ;;
     esac
-    case "$(cat "$dev/vendor" 2>/dev/null)" in
-        0x10de) NVIDIA_GPUS+=("$dev") ;;
-        0x1002) AMD_GPUS+=("$dev") ;;
-    esac
-done
 
-if [ -z "$VENDOR" ]; then
-    if [ ${#NVIDIA_GPUS[@]} -gt 0 ] && [ ${#AMD_GPUS[@]} -gt 0 ]; then
-        fail "found both NVIDIA and AMD GPUs; pass --vendor nvidia or --vendor amd"
-        VENDOR=none
-    elif [ ${#NVIDIA_GPUS[@]} -gt 0 ]; then
-        VENDOR=nvidia
-    elif [ ${#AMD_GPUS[@]} -gt 0 ]; then
-        VENDOR=amd
+    if [ "$IN_LXC" = true ]; then
+        info "LXC container on kernel $(uname -r); the host owns the GPU driver, firmware and CPU governor"
+    elif [ -n "$vm" ] && [ "$vm" != none ]; then
+        info "$vm VM on kernel $(uname -r); the GPU must be passed through to it"
     else
-        fail "no NVIDIA or AMD GPU found on the PCI bus"
-        VENDOR=none
+        info "bare metal, kernel $(uname -r)"
     fi
-fi
+    info "$OS_ID $OS_VERSION"
+
+    # GPUs, from sysfs, which a container sees too.
+    for dev in /sys/bus/pci/devices/*; do
+        class=$(cat "$dev/class" 2>/dev/null)
+        case "$class" in
+            0x0300* | 0x0302* | 0x0380*) ;;
+            *) continue ;;
+        esac
+        case "$(cat "$dev/vendor" 2>/dev/null)" in
+            0x10de) NVIDIA_GPUS+=("$dev") ;;
+            0x1002) AMD_GPUS+=("$dev") ;;
+        esac
+    done
+
+    if [ -z "$VENDOR" ]; then
+        if [ ${#NVIDIA_GPUS[@]} -gt 0 ] && [ ${#AMD_GPUS[@]} -gt 0 ]; then
+            fail "found both NVIDIA and AMD GPUs; pass --vendor nvidia or --vendor amd"
+            VENDOR=none
+        elif [ ${#NVIDIA_GPUS[@]} -gt 0 ]; then
+            VENDOR=nvidia
+        elif [ ${#AMD_GPUS[@]} -gt 0 ]; then
+            VENDOR=amd
+        else
+            fail "no NVIDIA or AMD GPU found on the PCI bus"
+            VENDOR=none
+        fi
+    fi
+}
 
 driver_of() {
     basename "$(readlink "$1/driver" 2>/dev/null)" 2>/dev/null
@@ -191,10 +193,26 @@ amd_integrated() {
     [ -n "$rev" ] && [ "$rev" -ge 2 ]
 }
 
+# amd_integrated_note PCI HAS_DISCRETE
+# What to do in setup-gpu-nodes.sh's integrated list for an integrated GPU.
+# A node with a discrete card stays unticked: ticked, it renders on the
+# integrated GPU and leaves the card unused.
+amd_integrated_note() {
+    if [ "$2" = true ]; then
+        echo "$1 is integrated, and this node has a discrete AMD GPU: leave it unticked in setup-gpu-nodes.sh's integrated list so it renders on the discrete card"
+    else
+        echo "$1 is integrated and the only AMD GPU: tick this node in setup-gpu-nodes.sh's integrated list (5stack-gpu-integrated=true)"
+    fi
+}
+
 check_amd() {
-    local dev pci driver node render integrated bar0 size level
+    local dev pci driver node render integrated bar0 size level has_discrete=false
 
     step "AMD GPU"
+
+    for dev in "${AMD_GPUS[@]}"; do
+        amd_integrated "$dev" || has_discrete=true
+    done
 
     if [ -d /sys/module/amdgpu ]; then
         pass "amdgpu driver loaded"
@@ -231,7 +249,7 @@ check_amd() {
         fi
 
         if [ "$integrated" = true ]; then
-            info "$pci is integrated: select this node in setup-gpu-nodes.sh's integrated list (5stack-gpu-integrated=true)"
+            info "$(amd_integrated_note "$pci" "$has_discrete")"
         else
             # BAR0 is the CPU's window into VRAM. 256 MiB means Above 4G
             # decoding (and Resizable BAR) is off in the firmware.
@@ -239,9 +257,6 @@ check_amd() {
             size=$(( $(echo "$bar0" | awk '{print $2}') - $(echo "$bar0" | awk '{print $1}') + 1 ))
             if [ "$size" -gt 0 ] && [ "$size" -le $((256 * 1024 * 1024)) ]; then
                 warn "$pci: VRAM window is $((size / 1024 / 1024)) MiB; enable Above 4G decoding and Resizable BAR in the firmware"
-            fi
-            if ! cmdline_has amdgpu.runpm=0; then
-                warn "$pci: a headless discrete GPU can drop off the bus in runtime suspend; add amdgpu.runpm=0 to the kernel command line${ON_HOST:+ of the host}"
             fi
         fi
 
@@ -356,6 +371,29 @@ install_nvidia_userspace() {
     fi
 }
 
+# The installer's output goes to /dev/null here, not on the apply_step call,
+# which would swallow apply_step's own result line with it.
+install_nvidia_driver() {
+    DEBIAN_FRONTEND=noninteractive ubuntu-drivers install </dev/null >/dev/null
+}
+
+# nvidia_nodes_hint MISSING
+# The nvidia-modprobe commands that create the MISSING device nodes on a
+# machine that owns the GPU: -c0 makes nvidia0 and nvidiactl, -c0 -u the uvm
+# nodes instead, and only -m makes nvidia-modeset, which a headless node
+# without a display often lacks.
+nvidia_nodes_hint() {
+    local missing="$1" commands=()
+    case "$missing" in *"/dev/nvidia0"* | *"/dev/nvidiactl"*) commands+=("nvidia-modprobe -c0") ;; esac
+    case "$missing" in *"/dev/nvidia-uvm"*) commands+=("nvidia-modprobe -c0 -u") ;; esac
+    case "$missing" in *"/dev/nvidia-modeset"*) commands+=("nvidia-modprobe -m") ;; esac
+    local joined="" command
+    for command in "${commands[@]}"; do
+        joined+="${joined:+; }$command"
+    done
+    echo "Create them with '$joined'. They are gone after a reboot, so run that at boot too (a oneshot systemd unit)."
+}
+
 install_nvidia_container_toolkit() {
     if [ "$OS_ID" != ubuntu ] && [ "$OS_ID" != debian ]; then
         fail "install nvidia-container-toolkit by hand on $OS_ID: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
@@ -401,8 +439,7 @@ check_nvidia() {
     if [ -z "$kernel_version" ]; then
         fail "the NVIDIA kernel module is not loaded"
         if [ "$IN_LXC" = false ] && [ "$APPLY" = true ] && [ "$OS_ID" = ubuntu ] && command -v ubuntu-drivers >/dev/null 2>&1; then
-            apply_step "installed the recommended NVIDIA driver; reboot, then run this again" \
-                env DEBIAN_FRONTEND=noninteractive ubuntu-drivers install </dev/null >/dev/null
+            apply_step "installed the recommended NVIDIA driver; reboot, then run this again" install_nvidia_driver
         elif [ "$IN_LXC" = false ] && [ "$OS_ID" = ubuntu ]; then
             hint "Install it with 'ubuntu-drivers install' (--apply does), then reboot."
         fi
@@ -422,7 +459,7 @@ check_nvidia() {
         if [ "$IN_LXC" = true ]; then
             hint "Bind them into the container (proxmox-gpu-lxc.sh does), and create them on the host first."
         else
-            hint "'nvidia-modprobe -u -c0' creates them; nvidia-persistenced keeps them across boots."
+            hint "$(nvidia_nodes_hint "$missing")"
         fi
     fi
 
@@ -486,23 +523,50 @@ k3s_service() {
     fi
 }
 
-GOVERNOR_UNIT=/etc/systemd/system/cpu-governor-performance.service
-
+# The same script and unit the panel's CPU governor tuning installs, so a
+# node that later gets that tuning keeps one unit, not two.
 install_governor_unit() {
-    cat >"$GOVERNOR_UNIT" <<'UNIT' || return 1
+    local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
+    mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
+    cat >"$GOVERNOR_SCRIPT.5stack-new" <<'SCRIPT' || return 1
+#!/bin/sh
+for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  echo performance > "$governor"
+done
+SCRIPT
+    chmod 0755 "$GOVERNOR_SCRIPT.5stack-new" && mv -f "$GOVERNOR_SCRIPT.5stack-new" "$GOVERNOR_SCRIPT" || return 1
+    cat >"$unit.5stack-new" <<UNIT || return 1
 [Unit]
-Description=Set the CPU frequency governor to performance for game streaming
-After=sysinit.target power-profiles-daemon.service
+Description=Set the CPU governor to performance for game servers
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done'
 RemainAfterExit=yes
+ExecStart=$GOVERNOR_SCRIPT
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-    systemctl daemon-reload && systemctl enable --now cpu-governor-performance.service >/dev/null 2>&1
+    mv -f "$unit.5stack-new" "$unit" || return 1
+    # restart, not enable --now: --now leaves an active unit alone, and the
+    # governor may have been changed since it ran.
+    systemctl daemon-reload &&
+        systemctl enable 5stack-cpu-governor.service >/dev/null 2>&1 &&
+        systemctl restart 5stack-cpu-governor.service >/dev/null 2>&1 || return 1
+    for governor in "$CPU_SYSFS"/cpu*/cpufreq/scaling_governor; do
+        [ -f "$governor" ] || continue
+        if [ "$(cat "$governor")" != performance ]; then
+            hint "$governor is still $(cat "$governor")"
+            return 1
+        fi
+    done
+}
+
+# k3s_join_hint VERSION
+# The panel's join command with the k3s version pinned. sudo drops exported
+# variables, so the pin goes after sudo, where it reaches the k3s installer.
+k3s_join_hint() {
+    echo "curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=$1 sh -s -- join --panel-key <the key the panel shows>"
 }
 
 check_common() {
@@ -528,7 +592,7 @@ check_common() {
     fi
 
     local governor
-    governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)
+    governor=$(cat "$CPU_SYSFS/cpu0/cpufreq/scaling_governor" 2>/dev/null)
     if [ -z "$governor" ]; then
         info "no CPU frequency scaling exposed"
     elif [ "$governor" = performance ]; then
@@ -536,7 +600,7 @@ check_common() {
     elif [ "$IN_LXC" = true ]; then
         warn "CPU governor is '$governor'; set it to performance on the host (proxmox-gpu-lxc.sh --apply does)"
     elif [ "$APPLY" = true ]; then
-        apply_step "CPU governor set to performance, at every boot ($GOVERNOR_UNIT)" install_governor_unit
+        apply_step "CPU governor set to performance, at every boot (5stack-cpu-governor.service)" install_governor_unit
     else
         warn "CPU governor is '$governor'; render pods drop frames on a ramping CPU (--apply sets performance at every boot)"
     fi
@@ -548,7 +612,7 @@ check_common() {
         if [ -n "$K3S_VERSION" ] && [ "$installed" != "$K3S_VERSION" ] &&
             [ "$(printf '%s\n' "$installed" "$K3S_VERSION" | sort -V | tail -1)" = "$installed" ]; then
             warn "k3s $installed is newer than the panel's $K3S_VERSION; a kubelet newer than its API server is unsupported"
-            hint "Re-join with: export INSTALL_K3S_VERSION=$K3S_VERSION, then the panel's node setup command."
+            hint "Re-join with the version pinned: $(k3s_join_hint "$K3S_VERSION")"
         else
             pass "k3s $installed installed"
         fi
@@ -558,12 +622,8 @@ check_common() {
             fail "$service is not running; see 'journalctl -u $service -n 50'"
         fi
     else
-        info "k3s not installed yet. The node setup command installs the latest k3s; to match the panel, first run:"
-        if [ -n "$K3S_VERSION" ]; then
-            hint "export INSTALL_K3S_VERSION=$K3S_VERSION"
-        else
-            hint "export INSTALL_K3S_VERSION=<the Server Version from kubectl version on the panel>"
-        fi
+        info "k3s not installed yet. The join command installs the latest k3s; to match the panel, join with the version pinned:"
+        hint "$(k3s_join_hint "${K3S_VERSION:-<the Server Version from kubectl version on the panel>}")"
     fi
 }
 
@@ -596,10 +656,10 @@ check_lxc() {
         fail "/dev/net/tun missing; Tailscale needs it"
     fi
 
-    if [ -w /proc/sys/net/ipv4/ip_forward ]; then
-        pass "/proc/sys writable"
+    if [ -w "$PROC_SYS_PROBE" ]; then
+        pass "/proc/sys/vm writable"
     else
-        fail "/proc/sys is read-only; set lxc.mount.auto: proc:rw sys:rw"
+        fail "/proc/sys/vm is read-only, so the kubelet cannot set its kernel values; set lxc.mount.auto: proc:rw sys:rw on the host"
     fi
 
     local controllers controller
@@ -638,18 +698,39 @@ check_lxc() {
     fi
 }
 
-[ "$IN_LXC" = true ] && check_lxc
-case "$VENDOR" in
-    amd) check_amd ;;
-    nvidia) check_nvidia ;;
-esac
-check_common
+main() {
+    parse_args "$@"
 
-echo
-if [ "$FAILS" -gt 0 ]; then
-    echo "${C_ERR}$FAILS failed, $WARNS warnings${C_RESET}"
-    [ "$APPLY" = false ] && echo "Run with --apply to fix what this script can, then run it again."
-    exit 1
+    if [ "$APPLY" = true ] && [ "$(id -u)" -ne 0 ]; then
+        echo "--apply must run as root" >&2
+        exit 2
+    fi
+
+    # shellcheck source=/dev/null
+    . /etc/os-release 2>/dev/null
+    OS_ID="${ID:-unknown}"
+    OS_VERSION="${VERSION_ID:-}"
+
+    check_machine
+    [ "$IN_LXC" = true ] && check_lxc
+    case "$VENDOR" in
+        amd) check_amd ;;
+        nvidia) check_nvidia ;;
+    esac
+    check_common
+
+    echo
+    if [ "$FAILS" -gt 0 ]; then
+        echo "${C_ERR}$FAILS failed, $WARNS warnings${C_RESET}"
+        [ "$APPLY" = false ] && echo "Run with --apply to fix what this script can, then run it again."
+        exit 1
+    fi
+    echo "${C_OK}ready for the ${VENDOR} GPU setup ($WARNS warnings)${C_RESET}"
+    echo "Next: join this node from the panel's Game Server Nodes page, then run setup-gpu-nodes.sh on the panel."
+}
+
+# The tests source this file for its functions. Comparing BASH_SOURCE with $0
+# cannot tell that apart from "curl ... | bash", where both differ.
+if [ -z "${GPU_NODE_CHECK_LIB:-}" ]; then
+    main "$@"
 fi
-echo "${C_OK}ready for the ${VENDOR} GPU setup ($WARNS warnings)${C_RESET}"
-echo "Next: run the panel's node setup command here, then setup-gpu-nodes.sh on the panel."

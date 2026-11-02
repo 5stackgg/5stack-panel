@@ -64,3 +64,4 @@ jobs:
       - run: bash tests/scripts/postgres_backup_test.sh
       - run: bash tests/scripts/choose_node_test.sh
       - run: bash tests/scripts/proxmox_gpu_lxc_test.sh
+      - run: bash tests/scripts/gpu_node_check_test.sh

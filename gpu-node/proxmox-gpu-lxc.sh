@@ -15,6 +15,16 @@ CTID=""
 APPLY=false
 VENDOR=""
 PVE_LXC_DIR="${PVE_LXC_DIR:-/etc/pve/lxc}"
+BACKUP_DIR="${BACKUP_DIR:-/root}"
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+GOVERNOR_SCRIPT="${GOVERNOR_SCRIPT:-/usr/local/bin/5stack-cpu-governor.sh}"
+CPU_SYSFS="${CPU_SYSFS:-/sys/devices/system/cpu}"
+PROC_CMDLINE="${PROC_CMDLINE:-/proc/cmdline}"
+
+# The node setup command stops unless / has this much free (df -BG), and the
+# system, k3s and the render images need room on top of it.
+REQUIRED_FREE_GB=120
+SYSTEM_HEADROOM_GB=20
 
 # The kernel modules k3s, flannel and kube-proxy load. A container cannot load
 # modules, so the host loads them, now and at every boot.
@@ -61,17 +71,21 @@ conf_value() {
 }
 
 # size_gb SIZE
-# 128G -> 128, 2T -> 2048, 512M -> 0.
+# A Proxmox disk size in whole GiB, rounded down: 128G -> 128, 2T -> 2048,
+# 131072M -> 128, 512M -> 0. Without a unit the size is in bytes, as
+# pve-common's parse_size reads it.
 size_gb() {
     local size="$1" number unit
     number="${size%[KMGT]}"
     unit="${size#"$number"}"
-    case "$number" in '' | *[!0-9]*) return ;; esac
-    case "$unit" in
-        T) echo $((number * 1024)) ;;
-        G | "") echo "$number" ;;
-        *) echo 0 ;;
+    case "$number" in
+        '' | .* | *. | *.*.* | *[!0-9.]*) return ;;
     esac
+    awk -v n="$number" -v unit="$unit" 'BEGIN {
+        divisor["T"] = 1 / 1024; divisor["G"] = 1; divisor["M"] = 1024
+        divisor["K"] = 1024 * 1024; divisor[""] = 1024 * 1024 * 1024
+        printf "%d\n", n / divisor[unit]
+    }'
 }
 
 # features_with_nesting FEATURES
@@ -135,28 +149,45 @@ missing_lines() {
 
 # add_lxc_lines FILE LINE...
 # Adds the LINEs FILE lacks to the container's own section, which ends where
-# the first snapshot section starts. Prints how many it added.
+# the first snapshot section starts. FILE is either replaced whole or left
+# as it was.
 add_lxc_lines() {
-    local file="$1" missing tmp
+    local file="$1" missing tmp before after added
     shift
-    missing=$(missing_lines "$file" "$@")
-    if [ -n "$missing" ]; then
-        tmp=$(mktemp)
-        # Blank lines are held back until the next line shows whether they
-        # end the container's section.
-        LINES="$missing" awk '
-            !done && /^$/ { blanks = blanks "\n"; next }
-            !done && /^\[/ { print ENVIRON["LINES"]; done = 1 }
-            { printf "%s", blanks; blanks = ""; print }
-            END { if (!done) print ENVIRON["LINES"]; printf "%s", blanks }
-        ' "$file" >"$tmp"
-        # Rewrite in place: /etc/pve is a cluster file system that does not
-        # take renames over an existing file, and is read-only without quorum.
-        if ! cat "$tmp" >"$file"; then
-            rm -f "$tmp"
-            return 1
-        fi
+    missing=$(missing_lines "$file" "$@") || return 1
+    [ -n "$missing" ] || return 0
+
+    # Written the way pve-common's file_set_contents writes a guest config:
+    # a temporary file in the same directory, renamed over the old one, so a
+    # failed write never leaves a cut-off config behind.
+    tmp="$file.tmp.$$"
+    rm -f "$tmp"
+    # Blank lines are held back until the next line shows whether they end
+    # the container's section.
+    if ! ADD_LINES="$missing" awk '
+        !done && /^$/ { blanks = blanks "\n"; next }
+        !done && /^\[/ { print ENVIRON["ADD_LINES"]; done = 1 }
+        { printf "%s", blanks; blanks = ""; print }
+        END { if (!done) print ENVIRON["ADD_LINES"]; printf "%s", blanks }
+    ' "$file" >"$tmp"; then
+        hint "could not write $tmp; $file is unchanged"
         rm -f "$tmp"
+        return 1
+    fi
+
+    # Every old line plus the new ones, or the result is not used.
+    before=$(grep -c '' "$file")
+    after=$(grep -c '' "$tmp")
+    added=$(printf '%s\n' "$missing" | wc -l)
+    if [ ! -s "$tmp" ] || [ "$after" -ne $((before + added)) ]; then
+        hint "the new config came out wrong ($after lines, expected $((before + added))); $file is unchanged"
+        rm -f "$tmp"
+        return 1
+    fi
+    if ! mv -f "$tmp" "$file"; then
+        hint "could not rename $tmp over $file; $file is unchanged"
+        rm -f "$tmp"
+        return 1
     fi
 }
 
@@ -216,13 +247,6 @@ check_host_gpu() {
         fi
     done
 
-    local arg
-    for arg in nomodeset amdgpu.modeset=0 amdgpu.dpm=0; do
-        if tr ' ' '\n' </proc/cmdline | grep -qx "$arg"; then
-            fail "the kernel command line has $arg; remove it"
-        fi
-    done
-
     if [ "$VENDOR" = amd ]; then
         check_host_amd
     else
@@ -231,6 +255,15 @@ check_host_gpu() {
 }
 
 check_host_amd() {
+    # These turn off what amdgpu needs to render. NVIDIA's driver does not
+    # read them, so they are only checked on an AMD host.
+    local arg
+    for arg in nomodeset amdgpu.modeset=0 amdgpu.dpm=0; do
+        if tr ' ' '\n' <"$PROC_CMDLINE" | grep -qx "$arg"; then
+            fail "the kernel command line has $arg; remove it"
+        fi
+    done
+
     if ls /dev/dri/renderD* >/dev/null 2>&1; then
         pass "render nodes: $(cd /dev/dri && echo renderD*)"
     else
@@ -249,7 +282,8 @@ check_host_amd() {
     fi
 }
 
-NVIDIA_UNIT=/etc/systemd/system/5stack-nvidia-devices.service
+NVIDIA_UNIT="$SYSTEMD_DIR/5stack-nvidia-devices.service"
+NVIDIA_NODES="/dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset"
 
 check_host_nvidia() {
     local version
@@ -265,10 +299,8 @@ check_host_nvidia() {
     # something opens the GPU. The container cannot create them, so the host
     # makes them at boot: nvidia-smi the per-GPU nodes and nvidiactl,
     # nvidia-modprobe the uvm and modeset ones.
-    local missing="" node
-    for node in /dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset; do
-        [ -c "$node" ] || missing+=" $node"
-    done
+    local missing
+    missing=$(missing_nvidia_nodes)
     if [ -z "$missing" ] && [ -f "$NVIDIA_UNIT" ]; then
         pass "device nodes present, and created at every boot"
     elif [ "$APPLY" = true ] && command -v nvidia-modprobe >/dev/null 2>&1; then
@@ -280,7 +312,15 @@ check_host_nvidia() {
     fi
 }
 
+missing_nvidia_nodes() {
+    local node
+    for node in $NVIDIA_NODES; do
+        [ -c "$node" ] || printf ' %s' "$node"
+    done
+}
+
 install_nvidia_unit() {
+    local missing
     cat >"$NVIDIA_UNIT" <<'UNIT' || return 1
 [Unit]
 Description=Create the NVIDIA device nodes for 5stack GPU containers
@@ -298,7 +338,15 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-    systemctl daemon-reload && systemctl enable --now 5stack-nvidia-devices.service >/dev/null 2>&1
+    # restart, not enable --now, which leaves an active unit alone.
+    systemctl daemon-reload &&
+        systemctl enable 5stack-nvidia-devices.service >/dev/null 2>&1 &&
+        systemctl restart 5stack-nvidia-devices.service >/dev/null 2>&1 || return 1
+    missing=$(missing_nvidia_nodes)
+    if [ -n "$missing" ]; then
+        hint "still missing:$missing"
+        return 1
+    fi
 }
 
 write_modules_file() {
@@ -334,27 +382,98 @@ check_host_kernel() {
     if [ -z "$governor" ] || [ "$governor" = performance ]; then
         pass "CPU governor ${governor:-not exposed}"
     elif [ "$APPLY" = true ]; then
-        apply_step "CPU governor set to performance, at every boot" install_governor_unit
+        apply_step "CPU governor set to performance, at every boot (5stack-cpu-governor.service)" install_governor_unit
     else
         warn "CPU governor is '$governor'; render pods drop frames on a ramping CPU (--apply sets performance at every boot)"
     fi
 }
 
+# The same script and unit the panel's CPU governor tuning installs on a
+# node, so a machine never ends up with two of them.
 install_governor_unit() {
-    cat >/etc/systemd/system/cpu-governor-performance.service <<'UNIT' || return 1
+    local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
+    mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
+    cat >"$GOVERNOR_SCRIPT.5stack-new" <<'SCRIPT' || return 1
+#!/bin/sh
+for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  echo performance > "$governor"
+done
+SCRIPT
+    chmod 0755 "$GOVERNOR_SCRIPT.5stack-new" && mv -f "$GOVERNOR_SCRIPT.5stack-new" "$GOVERNOR_SCRIPT" || return 1
+    cat >"$unit.5stack-new" <<UNIT || return 1
 [Unit]
-Description=Set the CPU frequency governor to performance for game streaming
-After=sysinit.target
+Description=Set the CPU governor to performance for game servers
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done'
 RemainAfterExit=yes
+ExecStart=$GOVERNOR_SCRIPT
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-    systemctl daemon-reload && systemctl enable --now cpu-governor-performance.service >/dev/null 2>&1
+    mv -f "$unit.5stack-new" "$unit" || return 1
+    # restart, not enable --now: --now leaves an active unit alone, and the
+    # governor may have been changed since it ran.
+    systemctl daemon-reload &&
+        systemctl enable 5stack-cpu-governor.service >/dev/null 2>&1 &&
+        systemctl restart 5stack-cpu-governor.service >/dev/null 2>&1 || return 1
+    for governor in "$CPU_SYSFS"/cpu*/cpufreq/scaling_governor; do
+        [ -f "$governor" ] || continue
+        if [ "$(cat "$governor")" != performance ]; then
+            hint "$governor is still $(cat "$governor")"
+            return 1
+        fi
+    done
+}
+
+# container_free_gb
+# GB free on / inside the container (df -BG, as the node setup reads it), or
+# nothing while the container is not running.
+container_free_gb() {
+    pct status "$CTID" 2>/dev/null | grep -q 'status: running' || return 0
+    pct exec "$CTID" -- df -BG / 2>/dev/null | awk 'NR == 2 { sub(/G$/, "", $4); print $4 }'
+}
+
+# check_disk ROOTFS
+# The node setup needs REQUIRED_FREE_GB free on /, so a running container is
+# judged by its free space, and a stopped one by its size.
+check_disk() {
+    local rootfs="$1" size gb free want
+    size=$(echo "$rootfs" | grep -oE 'size=[0-9.]+[KMGT]?' | cut -d= -f2)
+    gb=$(size_gb "$size")
+    if [ -z "$gb" ]; then
+        warn "could not read the root disk size from '$rootfs'"
+        return
+    fi
+    want=$((REQUIRED_FREE_GB + SYSTEM_HEADROOM_GB))
+    free=$(container_free_gb)
+    case "$free" in *[!0-9]*) free="" ;; esac
+
+    if [ -n "$free" ]; then
+        if [ "$free" -ge "$REQUIRED_FREE_GB" ]; then
+            pass "root disk $size, ${free} GB free"
+        else
+            fail "root disk $size has ${free} GB free; the node setup needs $REQUIRED_FREE_GB GB free"
+            hint "Grow it: pct resize $CTID rootfs +$((REQUIRED_FREE_GB - free + SYSTEM_HEADROOM_GB))G"
+        fi
+    elif [ "$gb" -lt "$REQUIRED_FREE_GB" ]; then
+        fail "root disk is $size; the node setup needs $REQUIRED_FREE_GB GB free on it"
+        hint "Grow it: pct resize $CTID rootfs ${want}G"
+    elif [ "$gb" -lt "$want" ]; then
+        warn "root disk is $size; the node setup needs $REQUIRED_FREE_GB GB free, which leaves little for the system (${want}G is safer)"
+        hint "Start the container and run this again to check its free space."
+    else
+        pass "root disk $size (start the container to check its free space)"
+    fi
+}
+
+# proc:rw is what lets the kubelet change kernel values, and the ones it sets
+# are not namespaced, so they change the Proxmox host itself.
+proc_rw_warning() {
+    warn "lxc.mount.auto: proc:rw lets the kubelet set vm.overcommit_memory=1, kernel.panic=10 and kernel.panic_on_oops=1, which apply to the whole host"
+    hint "The host then reboots 10 seconds after a kernel oops, taking every guest on it down."
+    hint "On a host shared with other guests, decide whether that is acceptable before restarting the container."
 }
 
 check_container() {
@@ -370,21 +489,17 @@ check_container() {
     if [ "$(conf_value "$conf" unprivileged)" = 1 ]; then
         fail "the container is unprivileged; k3s needs a privileged container"
         hint "Back it up and restore it as privileged: vzdump $CTID, then pct restore with --unprivileged 0."
+        if [ "$APPLY" = true ]; then
+            hint "--apply changes nothing in this container until it is privileged."
+            return
+        fi
     else
         pass "privileged container"
     fi
 
-    local rootfs size gb storage
+    local rootfs storage
     rootfs=$(conf_value "$conf" rootfs)
-    size=$(echo "$rootfs" | grep -oE 'size=[0-9]+[KMGT]?' | cut -d= -f2)
-    gb=$(size_gb "$size")
-    if [ -z "$gb" ]; then
-        warn "could not read the root disk size from '$rootfs'"
-    elif [ "$gb" -ge 120 ]; then
-        pass "root disk ${size}"
-    else
-        fail "root disk is ${size}; the node setup needs 120 GB free (pct resize $CTID rootfs 128G)"
-    fi
+    check_disk "$rootfs"
 
     storage=${rootfs%%:*}
     if command -v pvesm >/dev/null 2>&1 && pvesm status 2>/dev/null | awk -v s="$storage" '$1 == s { print $2 }' | grep -qx zfspool; then
@@ -414,7 +529,7 @@ check_container() {
         warn "nesting turns on at the next container restart"
         RESTART_NEEDED=true
     elif [ "$APPLY" = true ]; then
-        backup_conf "$conf"
+        backup_conf "$conf" || return
         apply_step "enabled nesting" pct set "$CTID" --features "$(features_with_nesting "$features")"
         RESTART_NEEDED=true
     else
@@ -428,8 +543,13 @@ check_container() {
     mapfile -t missing < <(missing_lines "$conf" "${lines[@]}")
     if [ ${#missing[@]} -eq 0 ]; then
         pass "LXC settings for k3s and the $VENDOR GPU in place"
-    elif [ "$APPLY" = true ]; then
-        backup_conf "$conf"
+        return
+    fi
+    for line in "${missing[@]}"; do
+        [ "$line" = "lxc.mount.auto: proc:rw sys:rw" ] && proc_rw_warning
+    done
+    if [ "$APPLY" = true ]; then
+        backup_conf "$conf" || return
         apply_step "added ${#missing[@]} LXC lines for k3s and the $VENDOR GPU" locked_add_lxc_lines "$conf" "${lines[@]}"
         RESTART_NEEDED=true
     else
@@ -440,12 +560,21 @@ check_container() {
     fi
 }
 
+# backup_conf FILE
+# Copies FILE to BACKUP_DIR once per run. --apply changes nothing in the
+# container without a backup, so a failed copy fails the run.
 BACKED_UP=false
 backup_conf() {
-    [ "$BACKED_UP" = true ] && return
+    [ "$BACKED_UP" = true ] && return 0
     local backup
-    backup="/root/5stack-lxc-$CTID.conf.$(date +%Y%m%d-%H%M%S)"
-    cp "$1" "$backup" && BACKED_UP=true && info "backed up the container config to $backup"
+    backup="$BACKUP_DIR/5stack-lxc-$CTID.conf.$(date +%Y%m%d-%H%M%S)"
+    if cp "$1" "$backup" 2>/dev/null && cmp -s "$1" "$backup"; then
+        BACKED_UP=true
+        info "backed up the container config to $backup"
+        return 0
+    fi
+    fail "could not back up $1 to $backup, so --apply changes nothing in the container"
+    return 1
 }
 
 main() {
@@ -494,7 +623,7 @@ main() {
         exit 1
     fi
     echo "${C_OK}host and container $CTID ready ($WARNS warnings)${C_RESET}"
-    echo "Next, inside the container: gpu-node-check.sh --apply, then the panel's node setup command."
+    echo "Next, inside the container: gpu-node-check.sh --apply, then join it from the panel's Game Server Nodes page."
 }
 
 # The tests source this file for its functions. Comparing BASH_SOURCE with $0

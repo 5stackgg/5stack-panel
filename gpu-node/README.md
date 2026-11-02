@@ -28,19 +28,26 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
 
 - **k3s version.** The join command installs the latest k3s, and a kubelet
   newer than the panel's API server is unsupported. If the panel runs an older
-  k3s, read its version with `kubectl version` on the panel (`Server Version`)
-  and put it after `sudo` in the join command, since `sudo` drops a variable
-  exported before it:
+  k3s, read its version with `kubectl version` on the panel (`Server Version`).
+  The k3s installer reads `INSTALL_K3S_VERSION`, but the join hands off to the
+  5Stack agent and the panel's node script, so the variable only takes effect
+  if they pass it through to the installer. That is untested. To try it, put
+  it after `sudo`, since `sudo` drops a variable exported before it, and check
+  `k3s --version` afterwards:
 
   ```bash
   curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s -- join --panel-key <key>
   ```
 
-- **Disk.** The join wants 120 GB free on `/`, on top of what the system uses.
+- **Disk.** The join wants 120 GB free on `/` before CS2 is installed and 60 GB
+  once it is, on top of what the system uses. These are the panel's
+  "Required disk space" settings for fresh and existing installs (Settings,
+  Application, Servers).
 - **CPU governor.** Render pods drop frames while the CPU ramps up, so the
   governor is set to `performance` with `5stack-cpu-governor.service`, the
-  unit the panel's CPU governor tuning installs. In an LXC container that
-  happens on the Proxmox host.
+  unit the panel's CPU governor tuning installs, and, where
+  `/etc/default/cpufrequtils` exists, its `GOVERNOR` is set to `performance`
+  too. In an LXC container that happens on the Proxmox host.
 
 ## Dedicated machine or VM
 
@@ -55,8 +62,8 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
 
 3. Join the node: on the panel's **Game Server Nodes** page
    (`/game-server-nodes`), create a node and run the command it shows on this
-   machine, with `INSTALL_K3S_VERSION` after `sudo` as above. Then run the check
-   again: some checks only apply once k3s is there.
+   machine (to try the k3s pin, with `INSTALL_K3S_VERSION` after `sudo` as
+   above). Then run the check again: some checks only apply once k3s is there.
 4. On the panel, run `setup-gpu-nodes.sh` and pick the vendor and nodes: from
    the panel checkout as `./setup-gpu-nodes.sh`, or on a panel that runs as the
    5Stack service, `sudo 5stack run setup-gpu-nodes.sh`. All GPU nodes of a
@@ -111,8 +118,9 @@ the device with the container; do not bind the GPU to `vfio-pci`.
    governor, creates the NVIDIA device nodes at boot, turns on nesting, and adds
    these lines to `/etc/pve/lxc/120.conf`. It backs the config up to `/root`
    first and changes nothing in the container if that fails, writes the new
-   config beside the old one and renames it over, and stops at an unprivileged
-   container:
+   config beside the old one and renames it over. For a missing or
+   unprivileged container it changes nothing, on the host or in the container,
+   and only checks:
 
    ```
    lxc.apparmor.profile: unconfined

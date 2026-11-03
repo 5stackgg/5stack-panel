@@ -18,6 +18,9 @@ on:
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
       - base/kustomization.yaml
+      - base/api/httproute.yaml
+      - "base/rustfs/**"
+      - "overlays/external-s3/**"
       - "base/system-upgrade/**"
       - "base/backups/**"
       - .github/workflows/panel-scripts.yml
@@ -37,6 +40,9 @@ on:
       - base/hasura/deployment.yaml
       - "tests/scripts/**"
       - base/kustomization.yaml
+      - base/api/httproute.yaml
+      - "base/rustfs/**"
+      - "overlays/external-s3/**"
       - "base/system-upgrade/**"
       - "base/backups/**"
       - .github/workflows/panel-scripts.yml

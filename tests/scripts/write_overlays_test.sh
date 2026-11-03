@@ -3,19 +3,94 @@
 # shellcheck source=tests/scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-write() {
+in_panel() {
     (
         export PANEL_DIR="$WORK_DIR/panel"
         mkdir -p "$PANEL_DIR/overlays"
-        cp -R "$TEST_ROOT/overlays/http" "$PANEL_DIR/overlays/http"
+        [ -d "$PANEL_DIR/overlays/http" ] || cp -R "$TEST_ROOT/overlays/http" "$PANEL_DIR/overlays/http"
         # shellcheck source=utils/write_overlays.sh
         source "$TEST_ROOT/utils/write_overlays.sh"
-        write_overlays
+        "$@"
     ) >"$WORK_DIR/output" 2>&1
+}
+
+write() {
+    in_panel write_overlays
 }
 
 overlay() {
     printf '%s' "$WORK_DIR/panel/overlays/$1"
+}
+
+with_s3_endpoint() {
+    mkdir -p "$WORK_DIR/panel"
+    cp -R "$TEST_ROOT/base" "$TEST_ROOT/overlays" "$WORK_DIR/panel/"
+    find "$WORK_DIR/panel/overlays" -name '*.env.example' | while read -r example; do
+        cp "$example" "${example%.example}"
+    done
+    grep -v '^S3_ENDPOINT=' "$TEST_ROOT/overlays/config/s3-config.env.example" >"$(overlay config)/s3-config.env"
+    printf 'S3_ENDPOINT=%s\n' "$1" >>"$(overlay config)/s3-config.env"
+}
+
+builtin() {
+    in_panel s3_storage_is_builtin
+}
+
+kinds_and_names() {
+    awk '/^---/ { kind = ""; next } /^kind: / { kind = $2 } /^  name: / && kind != "" { print kind "/" $2; kind = "" }' <<<"$1"
+}
+
+test_rustfs_is_built_in_storage_by_any_of_its_names() {
+    for endpoint in "" rustfs minio RustFS "http://rustfs:9000" "https://minio:9000/" '"rustfs"' "rustfs:9000"; do
+        with_s3_endpoint "$endpoint"
+        builtin || fail "'$endpoint' was not taken for the built-in RustFS"
+    done
+}
+
+test_without_an_s3_config_storage_is_built_in() {
+    builtin || fail "a panel with no s3-config.env was not taken for the built-in RustFS"
+}
+
+test_any_other_s3_endpoint_is_external() {
+    for endpoint in s3.us-east-005.backblazeb2.com "https://s3.us-east-005.backblazeb2.com" minio.example.com "rustfs.example.com:9000" s3.amazonaws.com; do
+        with_s3_endpoint "$endpoint"
+        builtin && fail "'$endpoint' was taken for the built-in RustFS"
+    done
+    true
+}
+
+test_built_in_storage_keeps_rustfs_in_every_overlay() {
+    with_s3_endpoint ""
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        assert_not_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "external-s3"
+    done
+    manifest="$(kubectl kustomize "$(overlay local-secrets-https)")" || fail "kubectl kustomize failed"
+    rendered="$(kinds_and_names "$manifest")"
+    for object in StatefulSet/rustfs Service/rustfs Service/minio HTTPRoute/s3-console PersistentVolumeClaim/minio-pvc; do
+        assert_contains "$rendered" "$object"
+    done
+}
+
+test_an_external_s3_endpoint_leaves_rustfs_out_of_every_overlay() {
+    with_s3_endpoint s3.us-east-005.backblazeb2.com
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        rendered="$(kinds_and_names "$manifest")"
+        for object in StatefulSet/rustfs Service/rustfs Service/minio HTTPRoute/s3-console PersistentVolume/minio-pv PersistentVolumeClaim/minio-pvc Secret/rustfs-secrets ExternalSecret/rustfs-secrets; do
+            assert_not_contains "$rendered" "$object"
+        done
+        assert_not_contains "$manifest" "name: rustfs"
+        assert_contains "$rendered" "HTTPRoute/demos"
+        assert_contains "$rendered" "Deployment/api"
+        assert_contains "$manifest" "value: /demos"
+        assert_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "- ../external-s3"
+    done
+}
+
+test_update_sh_hands_a_minio_volume_to_rustfs_only_on_built_in_storage() {
+    assert_contains "$(grep 'get statefulset minio' "$TEST_ROOT/update.sh")" "if s3_storage_is_builtin && "
 }
 
 test_a_reverse_proxy_overlay_answers_on_443_with_its_own_certificate() {

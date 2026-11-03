@@ -21,11 +21,26 @@ ensure_reverse_proxy_certificate() {
     }
 }
 
+# Empty, rustfs or minio (base/rustfs/service.yaml's alias), with or without a
+# scheme or port, is the panel's own RustFS.
+s3_storage_is_builtin() {
+    local endpoint
+    endpoint="$(grep -s '^S3_ENDPOINT=' "$PANEL_DIR/overlays/config/s3-config.env" | tail -1 | cut -d= -f2- | tr -d "\"' \t\r" | tr '[:upper:]' '[:lower:]')"
+    endpoint="${endpoint#*://}"
+    endpoint="${endpoint%%/*}"
+    endpoint="${endpoint%%:*}"
+    case "$endpoint" in
+        "" | rustfs | minio) return 0 ;;
+    esac
+    return 1
+}
+
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
 # the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN,
-# GPU_VENDOR, AI_ENABLED and HASURA_REPLICAS.
+# GPU_VENDOR, AI_ENABLED and HASURA_REPLICAS, and S3_ENDPOINT from
+# overlays/config/s3-config.env.
 write_overlays() {
-    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES HASURA_REPLICAS_ENTRY
+    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES HASURA_REPLICAS_ENTRY STORAGE_COMPONENTS
     # How many Hasuras serve the api (HASURA_REPLICAS, default 1). In the api's
     # load lab one is busy from about 3,000 users, and a second halved query and
     # first-data times there. Each keeps its own Postgres pool (the api
@@ -40,6 +55,13 @@ write_overlays() {
         HASURA_REPLICAS_ENTRY="replicas:
 - name: hasura
   count: $HASURA_REPLICAS"
+    fi
+    # Left out of the render only: a RustFS or MinIO already running, and its
+    # volume, stay as they are.
+    STORAGE_COMPONENTS=""
+    if ! s3_storage_is_builtin; then
+        STORAGE_COMPONENTS="components:
+- ../external-s3"
     fi
     for BASE in vault local-secrets; do
         for PROTOCOL in "http" "https"; do
@@ -81,6 +103,7 @@ $STREAMING_RESOURCES
 $AI_RESOURCES
 $(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
 $HASURA_REPLICAS_ENTRY
+$STORAGE_COMPONENTS
 EOF
             if [ "$PROTOCOL" = "https" ]; then
                 cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"

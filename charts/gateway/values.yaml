@@ -80,10 +80,17 @@ traefik:
           readTimeout: 0
           writeTimeout: 0
 
+  # install_traefik binds the host's ports straight to the pod (hostPort):
+  # k3s ServiceLB masquerades, so behind it every request came from its pod.
   service:
     spec:
-      type: LoadBalancer
-      externalTrafficPolicy: Local
+      type: ClusterIP
+
+  # Old and new pods can't hold the same host port at once.
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
 
   resources:
     requests:

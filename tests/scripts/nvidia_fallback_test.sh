@@ -45,6 +45,15 @@ test_the_fallback_runs_only_on_nvidia_gpu_nodes_as_the_fallback() {
     assert_contains "$(cat "$FALLBACK")" "image: ghcr.io/5stackgg/game-server-node-connector:latest"
 }
 
+# Unprivileged containers get /sys/firmware masked, so the Secure Boot check
+# would never fire.
+test_the_fallback_reads_the_host_like_the_connector() {
+    require_fallback
+    assert_contains "$(cat "$FALLBACK")" "hostNetwork: true"
+    assert_contains "$(cat "$FALLBACK")" "privileged: true"
+    assert_contains "$(cat "$FALLBACK")" "serviceAccountName: game-server-node-connector"
+}
+
 test_the_nvidia_overlay_deploys_the_fallback() {
     assert_contains "$(cat "$TEST_ROOT/overlays/nvidia/kustomization.yaml")" "- game-server-node-connector-nvidia-fallback.yaml"
 }

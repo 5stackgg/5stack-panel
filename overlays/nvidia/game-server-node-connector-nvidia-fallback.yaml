@@ -33,6 +33,9 @@ spec:
                   - key: nvidia-gpu
                     operator: In
                     values: ["true"]
+                  - key: 5stack-nvidia-fallback
+                    operator: In
+                    values: ["true"]
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists

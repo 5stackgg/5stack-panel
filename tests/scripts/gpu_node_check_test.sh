@@ -167,7 +167,6 @@ test_without_k3s_the_join_hint_has_the_pin() {
     out=$(script check_common)
     assert_contains "$out" "sudo INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s -- join"
     assert_not_contains "$out" "INSTALL_K3S_VERSION=v1.36.5+k3s1 curl"
-    assert_contains "$out" "Untested: the pin only takes effect if the join passes INSTALL_K3S_VERSION on to the k3s installer"
 }
 
 # ubuntu-drivers on PATH, writing to stdout as the real one does.

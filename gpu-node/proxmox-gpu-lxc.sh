@@ -1,15 +1,9 @@
 #!/bin/bash
 
-# Prepares a Proxmox host and one of its LXC containers to run a 5stack GPU
-# node: k3s inside the container, rendering on the host's NVIDIA or AMD GPU.
-# Run it as root on the Proxmox host. With --apply it also fixes what it can;
-# it backs up the container's config first and never restarts the container.
+# Prepares a Proxmox host and one of its LXC containers to run a 5stack GPU node.
+# Run it as root on the host, then gpu-node-check.sh in the container. See README.md.
 #
 #   proxmox-gpu-lxc.sh CTID [--apply] [--vendor nvidia|amd]
-#
-# Then, inside the container, run gpu-node/gpu-node-check.sh.
-#
-# Exit code: 0 when nothing failed, 1 when a check failed, 2 on bad usage.
 
 CTID=""
 APPLY=false
@@ -23,17 +17,14 @@ CPUFREQUTILS_DEFAULT="${CPUFREQUTILS_DEFAULT:-/etc/default/cpufrequtils}"
 PROC_CMDLINE="${PROC_CMDLINE:-/proc/cmdline}"
 NVIDIA_PROC_VERSION="${NVIDIA_PROC_VERSION:-/proc/driver/nvidia/version}"
 
-# The node setup command stops unless / has this much free (df -BG): the
-# panel's "Required disk space - fresh install" setting before CS2 is
-# installed, "Required disk space - existing install" once it is. These are
-# their defaults. The system, k3s and the render images need room on top.
+# The defaults of the panel's "Required disk space" settings, which the node setup
+# enforces on / (df -BG): fresh install, then with CS2 installed.
 REQUIRED_FREE_GB=120
 REQUIRED_FREE_EXISTING_GB=60
 SYSTEM_HEADROOM_GB=20
 CS2_DIR=/opt/5stack/serverfiles/game/csgo
 
-# The kernel modules k3s, flannel and kube-proxy load. A container cannot load
-# modules, so the host loads them, now and at every boot.
+# A container cannot load modules, so the host loads what k3s, flannel and kube-proxy need.
 K3S_MODULES="overlay br_netfilter nf_conntrack vxlan ip_tables iptable_nat iptable_filter iptable_mangle xt_conntrack xt_mark xt_comment nf_tables tun"
 MODULES_FILE=/etc/modules-load.d/5stack-k3s.conf
 
@@ -58,9 +49,6 @@ usage() {
     exit 2
 }
 
-# apply_step DESCRIPTION COMMAND...
-# Runs an --apply step and reports it as fixed or failed, returning 1 when it
-# failed.
 apply_step() {
     local description="$1"
     shift
@@ -72,16 +60,12 @@ apply_step() {
     fi
 }
 
-# conf_value FILE KEY
-# The KEY's value from the container's own section (snapshots follow it).
+# Reads only the container's own section; snapshot sections follow it.
 conf_value() {
     awk -v key="$2" '/^\[/ { exit } index($0, key ": ") == 1 { print substr($0, length(key) + 3); exit }' "$1"
 }
 
-# size_gb SIZE
-# A Proxmox disk size in whole GiB, rounded down: 128G -> 128, 2T -> 2048,
-# 131072M -> 128, 512M -> 0. Without a unit the size is in bytes, as
-# pve-common's parse_size reads it.
+# Without a unit a Proxmox size is in bytes, as pve-common's parse_size reads it.
 size_gb() {
     local size="$1" number unit
     number="${size%[KMGT]}"
@@ -96,8 +80,6 @@ size_gb() {
     }'
 }
 
-# features_with_nesting FEATURES
-# keyctl=1,fuse=1 -> keyctl=1,fuse=1,nesting=1, keeping every other feature.
 features_with_nesting() {
     local feature out=""
     local IFS=,
@@ -108,8 +90,6 @@ features_with_nesting() {
     echo "${out:+$out,}nesting=1"
 }
 
-# lxc_lines VENDOR
-# The raw LXC lines that let k3s run in the container and reach the GPU.
 lxc_lines() {
     echo "lxc.apparmor.profile: unconfined"
     echo "lxc.cgroup2.devices.allow: a"
@@ -133,9 +113,7 @@ lxc_lines() {
     esac
 }
 
-# conf_has_line FILE LINE
-# True when the container's own section has LINE. Proxmox rewrites the file on
-# every change, so trailing spaces do not count.
+# Proxmox rewrites the file on every change, so trailing spaces do not count.
 conf_has_line() {
     LINE="$2" awk '
         function trim(s) { sub(/[ \t]+$/, "", s); return s }
@@ -145,8 +123,6 @@ conf_has_line() {
     ' "$1"
 }
 
-# missing_lines FILE LINE...
-# Prints the LINEs the container's own section lacks.
 missing_lines() {
     local file="$1" line
     shift
@@ -155,19 +131,13 @@ missing_lines() {
     done
 }
 
-# add_lxc_lines FILE LINE...
-# Adds the LINEs FILE lacks to the container's own section, which ends where
-# the first snapshot section starts. FILE is either replaced whole or left
-# as it was.
 add_lxc_lines() {
     local file="$1" missing tmp before after added
     shift
     missing=$(missing_lines "$file" "$@") || return 1
     [ -n "$missing" ] || return 0
 
-    # Written the way pve-common's file_set_contents writes a guest config:
-    # a temporary file in the same directory, renamed over the old one, so a
-    # failed write never leaves a cut-off config behind.
+    # Like pve-common's file_set_contents: renamed over, so a failed write never cuts the config off.
     tmp="$file.tmp.$$"
     rm -f "$tmp"
     # Blank lines are held back until the next line shows whether they end
@@ -183,7 +153,6 @@ add_lxc_lines() {
         return 1
     fi
 
-    # Every old line plus the new ones, or the result is not used.
     before=$(grep -c '' "$file")
     after=$(grep -c '' "$tmp")
     added=$(printf '%s\n' "$missing" | wc -l)
@@ -199,8 +168,7 @@ add_lxc_lines() {
     fi
 }
 
-# locked_add_lxc_lines FILE LINE...
-# add_lxc_lines under the lock pct and backups take on the container's config.
+# The lock pct and backups take on the container's config.
 locked_add_lxc_lines() {
     local lock="/run/lock/lxc/pve-config-$CTID.lock"
     mkdir -p "${lock%/*}"
@@ -263,8 +231,6 @@ check_host_gpu() {
 }
 
 check_host_amd() {
-    # These turn off what amdgpu needs to render. NVIDIA's driver does not
-    # read them, so they are only checked on an AMD host.
     local arg
     for arg in nomodeset amdgpu.modeset=0 amdgpu.dpm=0; do
         if tr ' ' '\n' <"$PROC_CMDLINE" | grep -qx "$arg"; then
@@ -303,10 +269,8 @@ check_host_nvidia() {
     fi
     pass "NVIDIA driver $version; the container needs the same version's libraries (gpu-node-check.sh --apply installs them)"
 
-    # The NVIDIA module creates no device nodes itself; they appear once
-    # something opens the GPU. The container cannot create them, so the host
-    # makes them at boot: nvidia-smi the per-GPU nodes and nvidiactl,
-    # nvidia-modprobe the uvm and modeset ones.
+    # The module creates no device nodes until something opens the GPU, and the
+    # container cannot create them, so the host makes them at boot.
     local missing
     missing=$(missing_nvidia_nodes)
     if [ -z "$missing" ] && [ -f "$NVIDIA_UNIT" ]; then
@@ -403,9 +367,8 @@ check_host_kernel() {
     fi
 }
 
-# The same script and unit the panel's CPU governor tuning installs on a
-# node, so a machine never ends up with two of them, and the same change to
-# cpufrequtils's settings, whose boot script would set its own governor.
+# Same script and unit as the panel's CPU governor tuning, so a node never has two.
+# cpufrequtils's boot script would otherwise set its own governor.
 install_governor_unit() {
     local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
     mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
@@ -433,8 +396,7 @@ UNIT
         { grep -v '^GOVERNOR=' "$CPUFREQUTILS_DEFAULT" || true; echo 'GOVERNOR="performance"'; } >"$CPUFREQUTILS_DEFAULT.5stack-new" &&
             mv -f "$CPUFREQUTILS_DEFAULT.5stack-new" "$CPUFREQUTILS_DEFAULT" || return 1
     fi
-    # restart, not enable --now: --now leaves an active unit alone, and the
-    # governor may have been changed since it ran.
+    # restart, not enable --now, which leaves an active unit alone.
     systemctl daemon-reload &&
         systemctl enable 5stack-cpu-governor.service >/dev/null 2>&1 &&
         systemctl restart 5stack-cpu-governor.service >/dev/null 2>&1 || return 1
@@ -447,17 +409,11 @@ UNIT
     done
 }
 
-# container_free_gb
-# GB free on / inside the container (df -BG, as the node setup reads it), or
-# nothing while the container is not running.
 container_free_gb() {
     pct status "$CTID" 2>/dev/null | grep -q 'status: running' || return 0
     pct exec "$CTID" -- df -BG / 2>/dev/null | awk 'NR == 2 { sub(/G$/, "", $4); print $4 }'
 }
 
-# container_has_cs2
-# True when CS2 is installed in the running container, where the node setup
-# looks for it.
 container_has_cs2() {
     pct exec "$CTID" -- test -d "$CS2_DIR" 2>/dev/null
 }
@@ -466,10 +422,6 @@ disk_settings_hint() {
     hint "The panel sets both minimums: \"Required disk space - fresh install\" ($REQUIRED_FREE_GB GB by default) and \"Required disk space - existing install\" ($REQUIRED_FREE_EXISTING_GB GB), under Settings, Application, Servers."
 }
 
-# check_disk ROOTFS
-# The node setup needs REQUIRED_FREE_GB free on /, or REQUIRED_FREE_EXISTING_GB
-# once CS2 is installed, so a running container is judged by its free space,
-# and a stopped one by its size.
 check_disk() {
     local rootfs="$1" size gb free want
     size=$(echo "$rootfs" | grep -oE 'size=[0-9.]+[KMGT]?' | cut -d= -f2)
@@ -508,12 +460,9 @@ check_disk() {
     fi
 }
 
-# proc:rw is what lets the kubelet change kernel values, and the ones it sets
-# are not namespaced, so they change the Proxmox host itself.
 proc_rw_warning() {
     warn "lxc.mount.auto: proc:rw lets the kubelet set vm.overcommit_memory=1, kernel.panic=10 and kernel.panic_on_oops=1, which apply to the whole host"
-    hint "The host then reboots 10 seconds after a kernel oops, taking every guest on it down."
-    hint "On a host shared with other guests, decide whether that is acceptable before restarting the container."
+    hint "The host then reboots 10 seconds after a kernel oops, taking every guest down. Decide if that is acceptable before restarting the container."
 }
 
 check_container() {
@@ -529,8 +478,7 @@ check_container() {
     if [ "$(conf_value "$conf" unprivileged)" = 1 ]; then
         fail "the container is unprivileged; k3s needs a privileged container"
         hint "Back it up and restore it as privileged: vzdump $CTID, then pct restore with --unprivileged 0."
-        # Past this point every hint says what --apply would change, and the
-        # pre-flight has already refused --apply for this container.
+        # Every hint past here offers --apply, which this container refuses.
         if [ "$APPLY" = true ] || [ "$APPLY_REFUSED" = true ]; then
             hint "--apply changes nothing in this container until it is privileged."
             return
@@ -602,9 +550,6 @@ check_container() {
     fi
 }
 
-# backup_conf FILE
-# Copies FILE to BACKUP_DIR once per run. --apply changes nothing in the
-# container without a backup, so a failed copy fails the run.
 BACKED_UP=false
 backup_conf() {
     [ "$BACKED_UP" = true ] && return 0
@@ -619,9 +564,7 @@ backup_conf() {
     return 1
 }
 
-# preflight_apply
-# --apply changes the host only for a container it can then finish, so a
-# missing or unprivileged container turns it off before any host step runs.
+# --apply changes the host only for a container it can then finish.
 APPLY_REFUSED=false
 preflight_apply() {
     local conf="$PVE_LXC_DIR/$CTID.conf"

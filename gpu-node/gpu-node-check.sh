@@ -1,19 +1,9 @@
 #!/bin/bash
 
-# Checks that a machine can run 5stack GPU render pods, and with --apply fixes
-# what it safely can. Run it as root on the GPU node itself: a dedicated
-# machine, a VM with the GPU passed through, or a Proxmox LXC container (run
-# gpu-node/proxmox-gpu-lxc.sh on the Proxmox host first).
-#
-# Run it before the panel's node setup command, and again after, since some
-# checks (the k3s container runtime) only mean something once k3s is there.
+# Checks that a GPU node can run 5stack render pods. Run it as root on the node,
+# before the panel's join command and again after it. See README.md.
 #
 #   gpu-node-check.sh [--apply] [--vendor nvidia|amd] [--k3s-version v1.36.5+k3s1]
-#
-# Exit code: 0 when nothing failed, 1 when a check failed, 2 on bad usage.
-#
-# It never touches the GPU's power or clock settings, the desktop session or
-# Tailscale, and it never installs a kernel driver inside a container.
 
 APPLY=false
 VENDOR=""
@@ -101,9 +91,6 @@ apt_install() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold "$@" </dev/null >/dev/null
 }
 
-# apply_step DESCRIPTION COMMAND...
-# Runs an --apply step and reports it as fixed or failed, returning 1 when it
-# failed.
 apply_step() {
     local description="$1"
     shift
@@ -115,7 +102,6 @@ apply_step() {
     fi
 }
 
-# The kernel log, when this machine may read it. A container usually may not.
 kernel_log() {
     dmesg 2>/dev/null || journalctl -k -b 0 --no-pager 2>/dev/null
 }
@@ -147,7 +133,6 @@ check_machine() {
     fi
     info "$OS_ID $OS_VERSION"
 
-    # GPUs, from sysfs, which a container sees too.
     for dev in /sys/bus/pci/devices/*; do
         class=$(cat "$dev/class" 2>/dev/null)
         case "$class" in
@@ -183,8 +168,6 @@ cmdline_has() {
     tr ' ' '\n' </proc/cmdline | grep -qx "$1"
 }
 
-# --- AMD -------------------------------------------------------------------
-
 # Mirrors the connector: the vddnb voltage rail and gpu_metrics revision 2+
 # only exist on APUs.
 amd_integrated() {
@@ -196,10 +179,6 @@ amd_integrated() {
     [ -n "$rev" ] && [ "$rev" -ge 2 ]
 }
 
-# amd_integrated_note PCI HAS_DISCRETE
-# What to do in setup-gpu-nodes.sh's integrated list for an integrated GPU.
-# A node with a discrete card on amdgpu stays unticked: ticked, it renders on
-# the integrated GPU and leaves the card unused.
 amd_integrated_note() {
     if [ "$2" = true ]; then
         echo "$1 is integrated, and this node has a discrete AMD GPU on amdgpu: leave it unticked in setup-gpu-nodes.sh's integrated list so it renders on the discrete card"
@@ -341,8 +320,6 @@ check_amd() {
     fi
 }
 
-# --- NVIDIA ----------------------------------------------------------------
-
 # 595.99.02 from "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  595.99.02  Release Build ..."
 nvidia_kernel_version() {
     head -1 /proc/driver/nvidia/version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
@@ -383,11 +360,7 @@ install_nvidia_driver() {
     DEBIAN_FRONTEND=noninteractive ubuntu-drivers install </dev/null >/dev/null
 }
 
-# nvidia_nodes_hint MISSING
-# The nvidia-modprobe commands that create the MISSING device nodes on a
-# machine that owns the GPU: -c0 makes nvidia0 and nvidiactl, -c0 -u the uvm
-# nodes instead, and only -m makes nvidia-modeset, which a headless node
-# without a display often lacks.
+# -c0 makes nvidia0 and nvidiactl, -c0 -u the uvm nodes, and only -m makes nvidia-modeset.
 nvidia_nodes_hint() {
     local missing="$1" commands=()
     case "$missing" in *"/dev/nvidia0"* | *"/dev/nvidiactl"*) commands+=("nvidia-modprobe -c0") ;; esac
@@ -411,7 +384,6 @@ install_nvidia_container_toolkit() {
         curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list </dev/null |
         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
             >/etc/apt/sources.list.d/nvidia-container-toolkit.list || return 1
-    # The new repository needs its own package list.
     APT_UPDATED=false
     apt_install nvidia-container-toolkit
 }
@@ -517,10 +489,6 @@ check_nvidia() {
     fi
 }
 
-# --- Common ----------------------------------------------------------------
-
-# The k3s unit: k3s-agent on a node that joined the panel, k3s when the GPU
-# node is the panel's server itself.
 k3s_service() {
     if systemctl is-enabled --quiet k3s 2>/dev/null; then
         echo k3s
@@ -529,10 +497,8 @@ k3s_service() {
     fi
 }
 
-# The same script and unit the panel's CPU governor tuning installs, so a
-# node that later gets that tuning keeps one unit, not two, and the same
-# change to cpufrequtils's settings, whose boot script would set its own
-# governor.
+# Same script and unit as the panel's CPU governor tuning, so a node never has two.
+# cpufrequtils's boot script would otherwise set its own governor.
 install_governor_unit() {
     local unit="$SYSTEMD_DIR/5stack-cpu-governor.service" governor
     mkdir -p "${GOVERNOR_SCRIPT%/*}" || return 1
@@ -560,8 +526,7 @@ UNIT
         { grep -v '^GOVERNOR=' "$CPUFREQUTILS_DEFAULT" || true; echo 'GOVERNOR="performance"'; } >"$CPUFREQUTILS_DEFAULT.5stack-new" &&
             mv -f "$CPUFREQUTILS_DEFAULT.5stack-new" "$CPUFREQUTILS_DEFAULT" || return 1
     fi
-    # restart, not enable --now: --now leaves an active unit alone, and the
-    # governor may have been changed since it ran.
+    # restart, not enable --now, which leaves an active unit alone.
     systemctl daemon-reload &&
         systemctl enable 5stack-cpu-governor.service >/dev/null 2>&1 &&
         systemctl restart 5stack-cpu-governor.service >/dev/null 2>&1 || return 1
@@ -574,17 +539,9 @@ UNIT
     done
 }
 
-# k3s_join_hint VERSION
-# The panel's join command with a k3s version pin. sudo drops exported
-# variables, so the pin goes after sudo. The k3s installer reads it, but the
-# join reaches that installer through the 5Stack agent and the panel's node
-# script, and whether they pass it on has not been tested.
+# sudo drops exported variables, so the pin goes after it.
 k3s_join_hint() {
     echo "curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=$1 sh -s -- join --panel-key <the key the panel shows>"
-}
-
-k3s_pin_caveat() {
-    hint "Untested: the pin only takes effect if the join passes INSTALL_K3S_VERSION on to the k3s installer. Check 'k3s --version' afterwards."
 }
 
 check_common() {
@@ -631,7 +588,6 @@ check_common() {
             [ "$(printf '%s\n' "$installed" "$K3S_VERSION" | sort -V | tail -1)" = "$installed" ]; then
             warn "k3s $installed is newer than the panel's $K3S_VERSION; a kubelet newer than its API server is unsupported"
             hint "Re-join with the version pinned: $(k3s_join_hint "$K3S_VERSION")"
-            k3s_pin_caveat
         else
             pass "k3s $installed installed"
         fi
@@ -641,14 +597,11 @@ check_common() {
             fail "$service is not running; see 'journalctl -u $service -n 50'"
         fi
     else
-        info "k3s not installed yet. The join command installs the latest k3s; to try to match the panel, join with the version pinned:"
+        info "k3s not installed yet. The join command installs the latest k3s; to match the panel, join with the version pinned:"
         hint "$(k3s_join_hint "${K3S_VERSION:-<the Server Version from kubectl version on the panel>}")"
-        k3s_pin_caveat
     fi
 }
 
-# k3s in an LXC needs a privileged container with the host's kernel features
-# opened up; proxmox-gpu-lxc.sh sets all of this on the host.
 check_lxc() {
     step "LXC container"
 
@@ -704,10 +657,8 @@ check_lxc() {
         fail "kernel module br_netfilter is not loaded; load it on the host"
     fi
 
-    # The kubelet's static CPU manager finds CPUs through sysfs, which shows
-    # every host CPU even where lxcfs narrows /proc/cpuinfo to the container's
-    # cores, so a container held to fewer cores gets pods pinned to CPUs it
-    # cannot use.
+    # The kubelet's static CPU manager reads sysfs, which shows every host CPU even
+    # where lxcfs narrows /proc/cpuinfo, so it can pin pods to CPUs the container lacks.
     local allowed host_cpus
     allowed=$(nproc 2>/dev/null)
     host_cpus=$(find /sys/devices/system/cpu -maxdepth 1 -name 'cpu[0-9]*' | wc -l)

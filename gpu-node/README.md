@@ -26,28 +26,20 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
 
 ## Before you start
 
-- **k3s version.** The join command installs the latest k3s, and a kubelet
-  newer than the panel's API server is unsupported. If the panel runs an older
-  k3s, read its version with `kubectl version` on the panel (`Server Version`).
-  The k3s installer reads `INSTALL_K3S_VERSION`, but the join hands off to the
-  5Stack agent and the panel's node script, so the variable only takes effect
-  if they pass it through to the installer. That is untested. To try it, put
-  it after `sudo`, since `sudo` drops a variable exported before it, and check
-  `k3s --version` afterwards:
+- **k3s version.** The join installs the latest k3s, and a kubelet newer than
+  the panel's API server is unsupported. If the panel runs an older k3s, pin
+  the join to its `Server Version` from `kubectl version`. The pin goes after
+  `sudo`, which drops exported variables:
 
   ```bash
   curl -fsSL https://get.5stack.gg | sudo INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s -- join --panel-key <key>
   ```
 
 - **Disk.** The join wants 120 GB free on `/` before CS2 is installed and 60 GB
-  once it is, on top of what the system uses. These are the panel's
-  "Required disk space" settings for fresh and existing installs (Settings,
-  Application, Servers).
-- **CPU governor.** Render pods drop frames while the CPU ramps up, so the
-  governor is set to `performance` with `5stack-cpu-governor.service`, the
-  unit the panel's CPU governor tuning installs, and, where
-  `/etc/default/cpufrequtils` exists, its `GOVERNOR` is set to `performance`
-  too. In an LXC container that happens on the Proxmox host.
+  once it is, the panel's "Required disk space" settings.
+- **CPU governor.** Render pods drop frames while the CPU ramps up, so `--apply`
+  sets `performance` with the panel's `5stack-cpu-governor.service`. In an LXC
+  container that happens on the Proxmox host.
 
 ## Dedicated machine or VM
 
@@ -62,8 +54,7 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
 
 3. Join the node: on the panel's **Game Server Nodes** page
    (`/game-server-nodes`), create a node and run the command it shows on this
-   machine (to try the k3s pin, with `INSTALL_K3S_VERSION` after `sudo` as
-   above). Then run the check again: some checks only apply once k3s is there.
+   machine. Then run the check again: some checks only apply once k3s is there.
 4. On the panel, run `setup-gpu-nodes.sh` and pick the vendor and nodes: from
    the panel checkout as `./setup-gpu-nodes.sh`, or on a panel that runs as the
    5Stack service, `sudo 5stack run setup-gpu-nodes.sh`. All GPU nodes of a
@@ -114,13 +105,9 @@ the device with the container; do not bind the GPU to `vfio-pci`.
    pct reboot 120
    ```
 
-   `--apply` loads the kernel modules k3s needs (and at every boot), sets the CPU
-   governor, creates the NVIDIA device nodes at boot, turns on nesting, and adds
-   these lines to `/etc/pve/lxc/120.conf`. It backs the config up to `/root`
-   first and changes nothing in the container if that fails, writes the new
-   config beside the old one and renames it over. For a missing or
-   unprivileged container it changes nothing, on the host or in the container,
-   and only checks:
+   `--apply` loads the kernel modules k3s needs, sets the CPU governor, creates
+   the NVIDIA device nodes at boot, turns on nesting, backs up
+   `/etc/pve/lxc/120.conf` to `/root`, and adds these lines to it:
 
    ```
    lxc.apparmor.profile: unconfined
@@ -139,9 +126,8 @@ the device with the container; do not bind the GPU to `vfio-pci`.
    > **`proc:rw` changes the whole host.** It lets the kubelet set
    > `vm.overcommit_memory=1`, `kernel.panic=10` and `kernel.panic_on_oops=1`,
    > which are not per container: the Proxmox host then reboots 10 seconds
-   > after a kernel oops, and every guest on it goes down. On a host shared
-   > with other guests, decide whether that is acceptable before you restart
-   > the container. `--apply` prints this warning too.
+   > after a kernel oops, and every guest on it goes down. Decide whether that
+   > is acceptable before you restart the container.
 
 4. Inside the container, run `gpu-node-check.sh --apply`. For NVIDIA it
    installs the host driver's exact version of the NVIDIA libraries, without

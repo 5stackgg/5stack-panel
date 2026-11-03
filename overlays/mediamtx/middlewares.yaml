@@ -64,5 +64,5 @@ metadata:
   namespace: 5stack
 spec:
   replacePathRegex:
-    regex: ^/snapshot/(.+)$
+    regex: ^/snapshot/([^/]+)$
     replacement: /game-streamer/$1/snapshot

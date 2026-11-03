@@ -16,11 +16,11 @@ spec:
   hostnames:
     - ${GAME_STREAM_DOMAIN}
   rules:
-    # WHEP/WHIP, and the session URL trickle ICE PATCHes to.
+    # WHEP, and the session URL trickle ICE PATCHes to.
     - matches:
         - path:
             type: RegularExpression
-            value: ^/[^/]+/(whep|whip)(/[^/]+)?$
+            value: ^/[^/]+/whep(/[^/]+)?$
       filters:
         - type: ExtensionRef
           extensionRef:
@@ -72,7 +72,7 @@ spec:
     - matches:
         - path:
             type: RegularExpression
-            value: ^/snapshot/.+$
+            value: ^/snapshot/[^/]+$
       filters:
         - type: ExtensionRef
           extensionRef:

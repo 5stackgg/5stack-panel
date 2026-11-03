@@ -48,7 +48,7 @@ YAML
 # retires ingress-nginx before Tilt has applied them, and a dev cluster has no
 # visitors to keep serving.
 retire_ingress_nginx() {
-    local deadline moved="" http_port="" https_port=""
+    local deadline http_port="" https_port=""
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -70,22 +70,21 @@ retire_ingress_nginx() {
             -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null)"
         echo "Moving ports 80/443 from ingress-nginx to Traefik..."
         output_redirect kubectl "${kc[@]}" delete service ingress-nginx-controller -n ingress-nginx --wait=true
-        moved=1
-    fi
 
-    deadline=$((SECONDS + ${TRAEFIK_ADDRESS_TIMEOUT:-180}))
-    until [ -n "$(kubectl "${kc[@]}" get service traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress}' 2>/dev/null)" ]; do
-        if [ "$SECONDS" -ge "$deadline" ]; then
-            err "Traefik's LoadBalancer Service never got an address:"
-            kubectl "${kc[@]}" get service traefik -n traefik >&2
-            kubectl "${kc[@]}" get pods -A -l svccontroller.k3s.cattle.io/svcname=traefik >&2
-            if [ -n "$moved" ] && restore_ingress_nginx_service "${http_port:-80}" "${https_port:-443}"; then
-                err "ingress-nginx has its ports back and keeps serving the panel; re-run ./update.sh once Traefik's Service can get an address"
+        deadline=$((SECONDS + ${TRAEFIK_ADDRESS_TIMEOUT:-180}))
+        until [ -n "$(kubectl "${kc[@]}" get service traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress}' 2>/dev/null)" ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+                err "Traefik's LoadBalancer Service never got an address:"
+                kubectl "${kc[@]}" get service traefik -n traefik >&2
+                kubectl "${kc[@]}" get pods -A -l svccontroller.k3s.cattle.io/svcname=traefik >&2
+                if restore_ingress_nginx_service "${http_port:-80}" "${https_port:-443}"; then
+                    err "ingress-nginx has its ports back and keeps serving the panel; re-run ./update.sh once Traefik's Service can get an address"
+                fi
+                return 1
             fi
-            return 1
-        fi
-        sleep 2
-    done
+            sleep 2
+        done
+    fi
 
     # Orphaned, not cascaded: on an old install ingress-shim may still own the
     # 5stack-ssl Certificate through one of these.

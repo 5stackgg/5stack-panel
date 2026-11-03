@@ -39,7 +39,7 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd
+    local minor http_port https_port crd binding
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -73,16 +73,26 @@ install_traefik() {
         fi
     done
 
-    # The Service is externalTrafficPolicy: Local, so only the node running
-    # Traefik answers on these ports -- and DNS points at the server node, not
-    # at a game node that joined later.
+    # While ingress-nginx's ServiceLB pods hold the ports, Traefik waits behind
+    # its own until retire_ingress_nginx hands them over, so a stalled handover
+    # can still give them back; move_traefik_to_host_ports finishes the move.
+    if kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller >/dev/null 2>&1; then
+        binding="  ports:
+    web: {exposedPort: $http_port}
+    websecure: {exposedPort: $https_port}
+  service:
+    spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
+    else
+        binding="  ports:
+    web: {exposedPort: $http_port, hostPort: $http_port}
+    websecure: {exposedPort: $https_port, hostPort: $https_port}"
+    fi
+
+    # Only the node running Traefik listens on these ports, and DNS points at
+    # the server node, not at a game node that joined later.
     install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(cat <<EOF
 traefik:
-  ports:
-    web:
-      exposedPort: $http_port
-    websecure:
-      exposedPort: $https_port
+$binding
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -102,6 +112,16 @@ EOF
         kubectl "${kc[@]}" -n traefik get pods >&2
         return 1
     fi
+}
+
+move_traefik_to_host_ports() {
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    if [ "$(kubectl "${kc[@]}" -n traefik get service traefik -o jsonpath='{.spec.type}' 2>/dev/null)" != LoadBalancer ]; then
+        return 0
+    fi
+    install_traefik "$@"
 }
 
 # The cluster-scoped objects a chart's templates define, as kind/name.

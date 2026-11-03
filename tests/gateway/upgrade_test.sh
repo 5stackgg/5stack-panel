@@ -3,7 +3,8 @@
 # An install that is still on ingress-nginx -- the controller, its admission
 # webhook, the panel's Ingresses as they were, and another app's nginx-class
 # Ingress with forward-auth -- taken through update.sh's routing steps:
-# install_traefik, the overlay's Gateway and routes, retire_ingress_nginx.
+# install_traefik, the overlay's Gateway and routes, retire_ingress_nginx,
+# move_traefik_to_host_ports.
 
 # shellcheck source=tests/gateway/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -200,6 +201,7 @@ test_running_the_update_again_changes_nothing() {
     install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" >/dev/null || fail "install_traefik failed"
     routing_layer https || fail "the overlay did not apply"
     retire_ingress_nginx || fail "retire_ingress_nginx failed"
+    move_traefik_to_host_ports "$PANEL_DIR/overlays/config/traefik-config.env" >/dev/null || fail "move_traefik_to_host_ports failed"
     call https "$API" /me
     expect_code 200
     expect_other_app_routes_with_its_auth
@@ -222,6 +224,7 @@ sleep 2
 install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
 routing_layer https || exit 1
 retire_ingress_nginx || exit 1
+move_traefik_to_host_ports "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
 sleep 5
 client touch /tmp/stop
 for _ in $(seq 1 10); do

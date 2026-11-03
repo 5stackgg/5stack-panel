@@ -2,7 +2,7 @@
 
 # k3s in Docker, with the panel's routing layer installed by the same functions
 # update.sh calls, in front of stub backends named like the real Services.
-# Requests come from a separate client container on the same Docker network,
+# Requests come from a separate client container on a second Docker network,
 # so the client IP the backends see is a real peer's. One cluster at a time;
 # everything is named after $PREFIX and removed on exit.
 
@@ -22,7 +22,7 @@ export KUBECONFIG PANEL_DIR DEBUG
 
 cleanup() {
     docker rm -f -v "$PREFIX-k3s" "$PREFIX-client" >/dev/null 2>&1
-    docker network rm "$PREFIX-net" >/dev/null 2>&1
+    docker network rm "$PREFIX-net" "$PREFIX-public" >/dev/null 2>&1
     rm -rf "$WORK_DIR"
 }
 
@@ -70,13 +70,22 @@ start_cluster() {
         sleep 2
     done
     kubectl wait --for=condition=Ready node --all --timeout=5s >/dev/null || return 1
-    NODE_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-net\").IPAddress}}" "$PREFIX-k3s")"
 
     docker run -d --name "$PREFIX-client" --network "$PREFIX-net" "$PYTHON_IMAGE" sleep infinity >/dev/null || return 1
     client apk add --no-cache -q curl jq openssl >/dev/null || return 1
     docker cp "$HERE/client.py" "$PREFIX-client:/client.py" >/dev/null
+
+    # Clients reach the node on an address k3s doesn't know as its InternalIP,
+    # as a server's public one is when k3s runs on a private or VPN address.
+    # kube-proxy answers the InternalIP itself, which hid that ServiceLB
+    # masquerades everything else.
+    docker network create "$PREFIX-public" >/dev/null || return 1
+    docker network connect "$PREFIX-public" "$PREFIX-k3s" || return 1
+    docker network connect "$PREFIX-public" "$PREFIX-client" || return 1
+    NODE_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-public\").IPAddress}}" "$PREFIX-k3s")"
+    [ "$NODE_IP" != "$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')" ] || return 1
     # shellcheck disable=SC2034
-    CLIENT_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-net\").IPAddress}}" "$PREFIX-client")"
+    CLIENT_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-public\").IPAddress}}" "$PREFIX-client")"
 }
 
 set_env() {

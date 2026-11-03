@@ -263,4 +263,57 @@ test_dev_retires_without_waiting_for_routes() {
     assert_not_contains "$(cat "$WORK_DIR/calls")" "wait httproute/api"
 }
 
+test_retiring_with_no_ingress_nginx_waits_for_no_address() {
+    run_retire || fail "retire_ingress_nginx failed: $(cat "$WORK_DIR/output")"
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "loadBalancer.ingress"
+}
+
+run_install() {
+    (
+        export PANEL_DIR="$TEST_ROOT"
+        # shellcheck source=utils/colors.sh
+        source "$TEST_ROOT/utils/colors.sh"
+        # shellcheck source=utils/output_redirect.sh
+        source "$TEST_ROOT/utils/output_redirect.sh"
+        # shellcheck source=utils/update_env_var.sh
+        source "$TEST_ROOT/utils/update_env_var.sh"
+        # shellcheck source=utils/install_traefik.sh
+        source "$TEST_ROOT/utils/install_traefik.sh"
+        "$@" "$WORK_DIR/traefik-config.env"
+    ) >"$WORK_DIR/output" 2>&1 || fail "$1 exited $?: $(cat "$WORK_DIR/output")"
+}
+
+gateway_values() {
+    sed -n '/^  name: gateway$/,$p' "$WORK_DIR/server-side-applied" 2>/dev/null | sed -n '/valuesContent/,$p'
+}
+
+test_traefik_binds_the_host_ports_itself() {
+    ports_file HTTP_PORT=8080 HTTPS_PORT=8443
+    run_install install_traefik
+    assert_contains "$(gateway_values)" "web: {exposedPort: 8080, hostPort: 8080}"
+    assert_contains "$(gateway_values)" "websecure: {exposedPort: 8443, hostPort: 8443}"
+    assert_not_contains "$(gateway_values)" "LoadBalancer"
+}
+
+test_traefik_waits_behind_servicelb_while_ingress_nginx_holds_the_ports() {
+    nginx_ports 80 443
+    ports_file HTTP_PORT=80 HTTPS_PORT=443
+    run_install install_traefik
+    assert_contains "$(gateway_values)" "spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
+    assert_not_contains "$(gateway_values)" "hostPort"
+}
+
+test_traefik_left_behind_servicelb_moves_onto_the_host_ports() {
+    echo LoadBalancer >"$WORK_DIR/traefik-type"
+    ports_file HTTP_PORT=80 HTTPS_PORT=443
+    run_install move_traefik_to_host_ports
+    assert_contains "$(gateway_values)" "web: {exposedPort: 80, hostPort: 80}"
+}
+
+test_traefik_already_on_the_host_ports_is_not_reinstalled() {
+    echo ClusterIP >"$WORK_DIR/traefik-type"
+    run_install move_traefik_to_host_ports
+    [ ! -f "$WORK_DIR/server-side-applied" ] || fail "the gateway chart was applied again"
+}
+
 run_tests

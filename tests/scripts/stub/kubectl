@@ -3,6 +3,7 @@
 echo "$*" >>"$WORK_DIR/calls"
 
 args=" $* "
+file=""
 pod=""
 container=""
 previous=false
@@ -14,13 +15,19 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --previous) previous=true ;;
+        -f)
+            file="$2"
+            shift
+            ;;
     esac
     shift
 done
 
 case "$args" in
-    *" get crd helmcharts.helm.cattle.io "* | *" apply --server-side "*) ;;
+    *" get crd helmcharts.helm.cattle.io "*) ;;
+    *" apply --server-side "*) if [ -n "$file" ]; then cat "$file" >>"$WORK_DIR/server-side-applied"; fi ;;
     *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
+    *" get service traefik "*'{.spec.type}'*) if [ -f "$WORK_DIR/traefik-type" ]; then cat "$WORK_DIR/traefik-type"; fi ;;
     *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
     *" get helmchart "*) echo 1 ;;
     *" get gateway traefik-gateway "*) [ -f "$WORK_DIR/shared-gateway" ] || exit 1 ;;

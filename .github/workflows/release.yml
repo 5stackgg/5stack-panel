@@ -3,7 +3,7 @@ name: Release
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ["**"]
   workflow_run:
     workflows: [Cloudflare workers, Gateway, Gateway chart, Panel scripts, TimescaleDB upgrade]
     types: [completed]
@@ -13,7 +13,10 @@ permissions: {}
 
 jobs:
   dispatch:
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    if: >-
+      github.repository == '5stackgg/5stack-panel' &&
+      (github.event_name != 'push' || !github.event.deleted) &&
+      (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -32,4 +35,10 @@ jobs:
       - name: Start the release in 5stack-service
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: gh workflow run panel-release.yml -R 5stackgg/5stack-service --ref main
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$BRANCH" = main ]; then
+            gh workflow run panel-release.yml -R 5stackgg/5stack-service --ref main
+          else
+            gh workflow run panel-release.yml -R 5stackgg/5stack-service --ref main -f ref="$BRANCH" -f channel="branch/$BRANCH"
+          fi

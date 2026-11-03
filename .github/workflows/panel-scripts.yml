@@ -20,6 +20,8 @@ on:
       - base/kustomization.yaml
       - "base/system-upgrade/**"
       - "base/backups/**"
+      - "base/game-server-node-connector/**"
+      - "overlays/nvidia/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -39,6 +41,8 @@ on:
       - base/kustomization.yaml
       - "base/system-upgrade/**"
       - "base/backups/**"
+      - "base/game-server-node-connector/**"
+      - "overlays/nvidia/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -61,3 +65,4 @@ jobs:
       - run: bash tests/scripts/service_test.sh
       - run: bash tests/scripts/postgres_backup_test.sh
       - run: bash tests/scripts/choose_node_test.sh
+      - run: bash tests/scripts/nvidia_fallback_test.sh

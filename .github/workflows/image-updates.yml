@@ -1,0 +1,201 @@
+name: Image updates
+
+# Moves the third-party images the panel pins to their newest releases; see
+# .github/scripts/image_updates.sh for what counts as one and which pins only
+# move by hand. Minor and patch releases go into one PR that merges itself
+# once its checks pass. Each major release gets a PR of its own, assigned to
+# REVIEWERS to check that the panel still works on it. Closing a major PR skips
+# that release; a newer major release opens a new PR.
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: image-updates
+
+env:
+  REVIEWERS: lukepolo
+  CRANE_VERSION: v0.22.1
+  CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+  GH_REPO: ${{ github.repository }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  update:
+    if: github.repository == '5stackgg/5stack-panel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # GITHUB_TOKEN only reads checks and keeps the labels. Branches and PRs
+    # come from the app's token, because ones from GITHUB_TOKEN start no checks
+    # and no release.
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+      pull-requests: read
+      issues: write
+    steps:
+      - name: Get a token from the 5Stack Ops app
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.OPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OPS_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          fetch-depth: 0
+
+      - name: Install crane
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/crane.tar.gz" \
+            "https://github.com/google/go-containerregistry/releases/download/$CRANE_VERSION/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "$CRANE_SHA256  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+
+      # The steps below switch to branches made from main, so they run a copy
+      # of this commit's script rather than whichever one the branch has.
+      - name: Keep this run's script
+        run: |
+          cp .github/scripts/image_updates.sh "$RUNNER_TEMP/image_updates.sh"
+          echo "SCRIPT=$RUNNER_TEMP/image_updates.sh" >>"$GITHUB_ENV"
+
+      - name: Commit as the app
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id="$(gh api "/users/$APP_SLUG%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "$id+${APP_SLUG}[bot]@users.noreply.github.com"
+
+      - name: Keep the labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create image-update --force --color 0e8a16 \
+            --description "Minor and patch image releases, merged once the checks pass"
+          gh label create image-update:major --force --color d93f0b \
+            --description "A major image release to check before merging"
+
+      - name: Merge the minor and patch releases
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CHECKS_TOKEN: ${{ github.token }}
+        run: |
+          branch=image-updates/minor
+          "$SCRIPT" plan >"$RUNNER_TEMP/plan"
+          cat "$RUNNER_TEMP/plan"
+          awk '$1 == "minor"' "$RUNNER_TEMP/plan" >"$RUNNER_TEMP/minor"
+          pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ ! -s "$RUNNER_TEMP/minor" ]; then
+            if [ -n "$pr" ]; then
+              gh pr close "$pr" --delete-branch --comment "main already has these releases."
+            fi
+            exit 0
+          fi
+
+          git switch -q -C "$branch" origin/main
+          while read -r _ old new <&3; do
+            "$SCRIPT" apply "$old" "$new"
+          done 3<"$RUNNER_TEMP/minor"
+          title="$("$SCRIPT" title <"$RUNNER_TEMP/minor")"
+          git commit -q -am "$title"
+          git push -q --force origin "$branch"
+          head="$(git rev-parse HEAD)"
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" --title "$title" --body "" --label image-update
+            pr="$(gh pr view "$branch" --json number --jq .number)"
+          else
+            gh pr edit "$pr" --title "$title"
+          fi
+
+          # Let the checks the push started register before waiting on them.
+          sleep 90
+          if ! GH_TOKEN="$CHECKS_TOKEN" gh pr checks "$pr" --watch --fail-fast --interval 30; then
+            gh pr edit "$pr" --add-assignee "$REVIEWERS"
+            echo "::error::#$pr's checks failed, so it was left open for $REVIEWERS"
+            exit 1
+          fi
+          if ! gh pr merge "$pr" --squash --match-head-commit "$head"; then
+            gh pr edit "$pr" --add-assignee "$REVIEWERS"
+            echo "::error::#$pr passed its checks but could not be merged, so it was left open for $REVIEWERS"
+            exit 1
+          fi
+
+      - name: Open a PR for each major release
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          # true when origin's $1 changes main the way HEAD does
+          same_change() {
+            [ "$(git diff "origin/main...origin/$1" | git patch-id --stable)" = \
+              "$(git diff origin/main HEAD | git patch-id --stable)" ]
+          }
+
+          # Planned again on main, which may now have the minor releases.
+          git fetch -q origin main
+          git switch -q --discard-changes --detach origin/main
+          "$SCRIPT" plan >"$RUNNER_TEMP/plan"
+          awk '$1 == "major"' "$RUNNER_TEMP/plan" >"$RUNNER_TEMP/major"
+          cat "$RUNNER_TEMP/major"
+
+          while read -r kind old new <&3; do
+            name="${new%%@*}"
+            tag="${name##*:}"
+            name="${name%:*}"
+            old_tag="${old%%@*}"
+            old_tag="${old_tag##*:}"
+            slug="$(printf '%s' "$name" | tr '/:' '--')"
+            branch="image-updates/major/$slug/$tag"
+            state="$(gh pr list --head "$branch" --state all --json state \
+              --jq 'map(.state) | if any(. == "OPEN") then "open" elif length > 0 then "closed" else "" end')"
+            # Merged, or closed to skip this release.
+            if [ "$state" = closed ]; then
+              continue
+            fi
+
+            git switch -q --discard-changes -C "$branch" origin/main
+            "$SCRIPT" apply "$old" "$new"
+            title="$("$SCRIPT" title <<<"$kind $old $new")"
+            git commit -q -am "$title"
+
+            if [ "$state" = open ]; then
+              # main changed this pin since the PR was opened, as a minor
+              # release of the same image does: rebuild it so it still merges.
+              if ! same_change "$branch"; then
+                git push -q --force origin "$branch"
+              fi
+              continue
+            fi
+
+            git push -q --force origin "$branch"
+            label="${title#chore: }"
+            gh pr create --base main --head "$branch" --title "$title" \
+              --label image-update:major --assignee "$REVIEWERS" --reviewer "$REVIEWERS" \
+              --body "$(printf '%s\n' \
+                "$label is a new major release, up from $old_tag, so it waits for a review instead of merging itself. Before merging, check that the panel still works on it:" \
+                "" \
+                "- [ ] Read its release notes from $old_tag up to $tag for breaking changes and migrations." \
+                "- [ ] Try it on a test panel. This branch is published to the \`branch/$branch\` channel: \`sudo ./service.sh --channel branch/$branch\`." \
+                "" \
+                "Closing this PR skips $tag. A newer major release opens a new PR.")"
+            pr="$(gh pr view "$branch" --json number --jq .number)"
+
+            gh pr list --state open --label image-update:major --json number,headRefName \
+              --jq ".[] | select(.headRefName | startswith(\"image-updates/major/$slug/\")) | select(.headRefName != \"$branch\") | .number" |
+              while read -r superseded; do
+                gh pr close "$superseded" --delete-branch --comment "Superseded by #$pr."
+              done
+          done 3<"$RUNNER_TEMP/major"

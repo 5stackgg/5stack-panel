@@ -268,7 +268,7 @@ test_retiring_with_no_ingress_nginx_waits_for_no_address() {
     assert_not_contains "$(cat "$WORK_DIR/calls")" "loadBalancer.ingress"
 }
 
-run_install() {
+try_install() {
     (
         export PANEL_DIR="$TEST_ROOT"
         # shellcheck source=utils/colors.sh
@@ -280,7 +280,15 @@ run_install() {
         # shellcheck source=utils/install_traefik.sh
         source "$TEST_ROOT/utils/install_traefik.sh"
         "$@" "$WORK_DIR/traefik-config.env"
-    ) >"$WORK_DIR/output" 2>&1 || fail "$1 exited $?: $(cat "$WORK_DIR/output")"
+    ) >"$WORK_DIR/output" 2>&1
+}
+
+run_install() {
+    try_install "$@" || fail "$1 exited $?: $(cat "$WORK_DIR/output")"
+}
+
+chart_image() {
+    printf 'docker.io/traefik@%s' "$(sed -n 's/^ *digest: *\(sha256:[0-9a-f]*\).*/\1/p' "$TEST_ROOT/charts/gateway/values.yaml")"
 }
 
 gateway_values() {
@@ -314,6 +322,53 @@ test_traefik_already_on_the_host_ports_is_not_reinstalled() {
     echo ClusterIP >"$WORK_DIR/traefik-type"
     run_install move_traefik_to_host_ports
     [ ! -f "$WORK_DIR/server-side-applied" ] || fail "the gateway chart was applied again"
+}
+
+test_a_failed_service_lookup_fails_the_move() {
+    touch "$WORK_DIR/traefik-service-error"
+    if try_install move_traefik_to_host_ports; then
+        fail "move_traefik_to_host_ports succeeded without knowing where Traefik is"
+    fi
+}
+
+test_a_failed_ingress_nginx_lookup_stops_the_install() {
+    touch "$WORK_DIR/nginx-error"
+    if try_install install_traefik; then
+        fail "install_traefik succeeded without knowing whether ingress-nginx holds the ports"
+    fi
+    assert_eq "$(gateway_values)" ""
+}
+
+test_a_new_image_is_pulled_onto_traefiks_node_before_the_upgrade() {
+    echo docker.io/traefik@sha256:0000 >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    run_install install_traefik
+    assert_contains "$(grep ' run traefik-pull ' "$WORK_DIR/calls")" "--image=$(chart_image) --restart=Never --overrides={\"spec\":{\"nodeName\":\"node-a\""
+    [ "$(grep -n ' run traefik-pull ' "$WORK_DIR/calls" | cut -d: -f1)" -lt "$(grep -n ' apply --server-side ' "$WORK_DIR/calls" | tail -n 1 | cut -d: -f1)" ] ||
+        fail "the image was pulled after the upgrade"
+}
+
+test_a_refused_pull_leaves_traefik_alone() {
+    echo docker.io/traefik@sha256:0000 >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    touch "$WORK_DIR/pull-fails"
+    if try_install install_traefik; then
+        fail "install_traefik succeeded although the image never arrived"
+    fi
+    assert_eq "$(gateway_values)" ""
+    assert_contains "$(cat "$WORK_DIR/output")" "keeps running its current image"
+}
+
+test_traefik_already_on_the_image_pulls_nothing() {
+    chart_image >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    run_install install_traefik
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"
+}
+
+test_a_first_install_pulls_nothing() {
+    run_install install_traefik
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"
 }
 
 run_tests

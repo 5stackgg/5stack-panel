@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# An install whose Traefik still sits behind k3s ServiceLB, as the panel ran it
-# before Traefik bound the host's ports itself, taken through update.sh's
-# install_traefik.
+# An install whose Traefik still sits behind k3s ServiceLB on an older image, as
+# the panel ran it before Traefik bound the host's ports itself, taken through
+# update.sh's install_traefik.
 
 # shellcheck source=tests/gateway/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -20,6 +20,9 @@ install_traefik_behind_servicelb() {
     done
     install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(cat <<'EOF'
 traefik:
+  versionOverride: v3.7.15
+  image:
+    digest: sha256:0f6150202bc1fed72a7bd2107460eaa510e5b8a905f3fdb5b84f2c8619c33368
   service:
     spec: {type: LoadBalancer, externalTrafficPolicy: Local}
   updateStrategy:
@@ -56,6 +59,14 @@ test_the_move_costs_seconds() {
 test_servicelb_no_longer_fronts_traefik() {
     [ "$(kubectl -n traefik get service traefik -o jsonpath='{.spec.type}')" = ClusterIP ] || fail "Traefik's Service is still $(kubectl -n traefik get service traefik -o jsonpath='{.spec.type}')"
     [ -z "$(kubectl -n kube-system get daemonset -l svccontroller.k3s.cattle.io/svcname=traefik -o name)" ] || fail "svclb-traefik is still running"
+}
+
+test_traefik_runs_the_new_image_pulled_beforehand() {
+    local want
+    want="docker.io/traefik@$(sed -n 's/^ *digest: *\(sha256:[0-9a-f]*\).*/\1/p' "$PANEL_DIR/charts/gateway/values.yaml")"
+    [ "$(kubectl -n traefik get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$want" ] ||
+        fail "Traefik runs $(kubectl -n traefik get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].image}')"
+    kubectl -n traefik wait --for=delete pod/traefik-pull --timeout=60s >/dev/null 2>&1 || fail "the pull pod was left behind"
 }
 
 test_the_client_ip_reaches_the_backend() {
@@ -102,6 +113,7 @@ POLL="$(client cat /tmp/poll.json)"
 for name in \
     test_the_move_costs_seconds \
     test_servicelb_no_longer_fronts_traefik \
+    test_traefik_runs_the_new_image_pulled_beforehand \
     test_the_client_ip_reaches_the_backend \
     test_running_the_update_again_changes_nothing; do
     run_test "$name"

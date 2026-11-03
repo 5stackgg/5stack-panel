@@ -39,7 +39,7 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd binding
+    local minor http_port https_port crd binding nginx
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -76,7 +76,8 @@ install_traefik() {
     # While ingress-nginx's ServiceLB pods hold the ports, Traefik waits behind
     # its own until retire_ingress_nginx hands them over, so a stalled handover
     # can still give them back; move_traefik_to_host_ports finishes the move.
-    if kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller >/dev/null 2>&1; then
+    nginx="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller --ignore-not-found -o name)" || return 1
+    if [ -n "$nginx" ]; then
         binding="  ports:
     web: {exposedPort: $http_port}
     websecure: {exposedPort: $https_port}
@@ -87,6 +88,8 @@ install_traefik() {
     web: {exposedPort: $http_port, hostPort: $http_port}
     websecure: {exposedPort: $https_port, hostPort: $https_port}"
     fi
+
+    pull_traefik_image || return 1
 
     # Only the node running Traefik listens on these ports, and DNS points at
     # the server node, not at a game node that joined later.
@@ -114,11 +117,44 @@ EOF
     fi
 }
 
-move_traefik_to_host_ports() {
+# A rollout stops the running pod before its replacement exists, so a new
+# image is pulled onto Traefik's node first: a slow or refused pull would
+# otherwise leave nothing serving.
+pull_traefik_image() {
+    local image node
     local -a kc=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
-    if [ "$(kubectl "${kc[@]}" -n traefik get service traefik -o jsonpath='{.spec.type}' 2>/dev/null)" != LoadBalancer ]; then
+    image="docker.io/traefik@$(sed -n 's/^ *digest: *\(sha256:[0-9a-f]*\).*/\1/p' "$PANEL_DIR/charts/gateway/values.yaml" | head -n 1)"
+    if [ "$(kubectl "${kc[@]}" -n traefik get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)" = "$image" ]; then
+        return 0
+    fi
+    node="$(kubectl "${kc[@]}" -n traefik get pods -l app.kubernetes.io/name=traefik -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)"
+    if [ -z "$node" ]; then
+        return 0
+    fi
+
+    echo "Pulling $image onto $node..."
+    output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --ignore-not-found --wait=true
+    if ! output_redirect kubectl "${kc[@]}" -n traefik run traefik-pull --image="$image" --restart=Never \
+        --overrides="{\"spec\":{\"nodeName\":\"$node\",\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
+        --command -- traefik version ||
+        ! output_redirect kubectl "${kc[@]}" -n traefik wait pod/traefik-pull --timeout=300s \
+            --for=jsonpath='{.status.phase}'=Succeeded; then
+        err "could not pull $image onto $node; Traefik keeps running its current image"
+        output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --ignore-not-found --wait=false
+        return 1
+    fi
+    output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --wait=false
+}
+
+move_traefik_to_host_ports() {
+    local type
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    type="$(kubectl "${kc[@]}" -n traefik get service traefik -o jsonpath='{.spec.type}')" || return 1
+    if [ "$type" != LoadBalancer ]; then
         return 0
     fi
     install_traefik "$@"

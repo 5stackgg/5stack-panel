@@ -117,7 +117,7 @@ if [ "$REVERSE_PROXY" != true ]; then
 fi
 
 retire_ingress_nginx || die "Traefik did not take over ports 80/443"
-move_traefik_to_host_ports || die "Traefik did not take over the host's ports; it is still serving behind ServiceLB"
+move_traefik_to_host_ports || die "Traefik did not take over the host's ports"
 
 if [ "$VAULT_MANAGER" = true ]; then
     step "Syncing Vault secrets"

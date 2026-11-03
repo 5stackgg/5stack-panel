@@ -122,6 +122,28 @@ test_flat_hosts_put_every_address_one_level_deep_beside_the_panel() {
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
+test_the_free_cloudflare_plan_puts_every_address_one_level_deep_and_says_so() {
+    make_panel
+    sed -i.bak 's/^CLOUDFLARE=false$/CLOUDFLARE=true/' "$PANEL/.5stack-env.config"
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    export CLOUDFLARE_PLAN=free
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
+    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Cloudflare's free plan only covers one level below example.com, so the addresses become panel-api.example.com, panel-ws.example.com, panel-tv.example.com, panel-demos.example.com, panel-hls.example.com, panel-console.example.com, panel-search.example.com."
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Other sites on example.com will receive the panel's sign-in cookie."
+}
+
+test_a_paid_cloudflare_plan_keeps_every_address_under_the_panel() {
+    make_panel
+    sed -i.bak 's/^CLOUDFLARE=false$/CLOUDFLARE=true/' "$PANEL/.5stack-env.config"
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    export CLOUDFLARE_PLAN=paid
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.panel.example.com"
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "sign-in cookie"
+}
+
 test_a_root_domain_keeps_its_addresses_under_it() {
     make_panel
     set_env overlays/config/api-config.env WEB_DOMAIN example.com

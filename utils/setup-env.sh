@@ -165,8 +165,29 @@ panel_host() {
     fi
 }
 
+ask_cloudflare_plan() {
+    local answer
+    while true; do
+        read -p "Which Cloudflare plan is ${WEB_DOMAIN#*.} on? Free or Pro or Higher (f/p): " answer
+        case "$answer" in
+            f) CLOUDFLARE_PLAN=free; return ;;
+            p) CLOUDFLARE_PLAN=paid; return ;;
+        esac
+        echo "Please enter 'f' or 'p'"
+    done
+}
+
+flat_hosts_alert() {
+    local parent="${WEB_DOMAIN#*.}" sub names=""
+    for sub in api ws tv demos hls console search; do
+        names="${names:+$names, }$(flat_host "$sub")"
+    done
+    warn "Cloudflare's free plan only covers one level below $parent, so the addresses become $names."
+    warn "Other sites on $parent will receive the panel's sign-in cookie."
+}
+
 ask_flat_hosts() {
-    local parent="${WEB_DOMAIN#*.}"
+    local parent="${WEB_DOMAIN#*.}" interactive=true
     if [[ "$parent" != *.* ]]; then
         FLAT_HOSTS=false
         return
@@ -174,8 +195,25 @@ ask_flat_hosts() {
     if [ -n "$FLAT_HOSTS" ] || [ -n "$API_DOMAIN$WS_DOMAIN$RELAY_DOMAIN$DEMOS_DOMAIN$GAME_STREAM_DOMAIN$S3_CONSOLE_HOST$TYPESENSE_HOST" ]; then
         return
     fi
-    FLAT_HOSTS=false
     if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
+        interactive=false
+    fi
+    FLAT_HOSTS=false
+    if [ "$CLOUDFLARE" = true ]; then
+        if [ -z "$CLOUDFLARE_PLAN" ] && [ "$interactive" = true ]; then
+            ask_cloudflare_plan
+        fi
+        if [ "$CLOUDFLARE_PLAN" != free ]; then
+            return
+        fi
+        FLAT_HOSTS=true
+        flat_hosts_alert
+        if [ "$interactive" = true ] && ! ask_yes_no "Keep every address one level deep? n keeps them under the panel, straight to this server"; then
+            FLAT_HOSTS=false
+        fi
+        return
+    fi
+    if [ "$interactive" != true ]; then
         return
     fi
     echo "Sign-in then covers all of $parent, so other sites on $parent get the panel's sign-in cookie."

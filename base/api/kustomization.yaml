@@ -13,3 +13,4 @@ resources:
   - rbac/cluster-role.yaml
   - rbac/role-binding.yaml
   - rbac/role.yaml
+  - network-policy-chat-video-faststart.yaml

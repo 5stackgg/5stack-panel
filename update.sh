@@ -160,6 +160,10 @@ fi
 if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$SSL_OK" = true ]; then
     step "Putting Cloudflare in front of the panel"
     cloudflare_sync_proxy
+    if [ "$CLOUDFLARE_STREAM_RELAY" = true ]; then
+        step "Putting the stream relay Worker in front of streams"
+        cloudflare_sync_stream_relay
+    fi
 fi
 
 if [ "$SSL_OK" != true ]; then

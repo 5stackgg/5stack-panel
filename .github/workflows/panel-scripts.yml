@@ -26,6 +26,8 @@ on:
       - "base/game-server-node-connector/**"
       - "overlays/nvidia/**"
       - cloudflare.sh
+      - stream-relay.sh
+      - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/vault-cloudflare/**"
       - overlays/local-secrets/kustomization.yaml
@@ -54,6 +56,8 @@ on:
       - "base/game-server-node-connector/**"
       - "overlays/nvidia/**"
       - cloudflare.sh
+      - stream-relay.sh
+      - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/vault-cloudflare/**"
       - overlays/local-secrets/kustomization.yaml
@@ -64,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x cloudflare.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x cloudflare.sh stream-relay.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh tests/scripts/*.sh tests/scripts/stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/apply_overlay_test.sh
       - run: bash tests/scripts/debug_test.sh

@@ -6,11 +6,13 @@ on:
     paths:
       - "cloudflare-workers/**"
       - "backblaze-proxy.sh"
+      - "stream-relay.sh"
       - "utils/signed_clip_links.sh"
   pull_request:
     paths:
       - "cloudflare-workers/**"
       - "backblaze-proxy.sh"
+      - "stream-relay.sh"
       - "utils/signed_clip_links.sh"
 
 jobs:

@@ -128,6 +128,12 @@ if rest == ["bot_management"]:
     reply({"fight_mode": state.get("bot_fight", {}).get(zone, False)})
 if rest == ["ssl", "universal", "settings"]:
     reply({"enabled": True})
+if rest == ["argo", "tiered_caching"]:
+    argo = state.setdefault("argo", {})
+    if method == "PATCH":
+        argo[zone] = json.loads(data)["value"]
+        save()
+    reply({"value": argo.get(zone, "off")})
 if rest == ["cache", "tiered_cache_smart_topology_enable"]:
     tiered = state.setdefault("tiered", {})
     if method == "PATCH":

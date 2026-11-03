@@ -431,6 +431,7 @@ cf_fix() {
 cf_tiered_cache() {
     local zone
     for zone in $(cf_plan | awk '$5 == "yes" { print $3 }' | sort -u); do
+        cfa PATCH "/zones/$zone/argo/tiered_caching" '{"value": "on"}' | cfa_ok || return 1
         cfa PATCH "/zones/$zone/cache/tiered_cache_smart_topology_enable" '{"value": "on"}' | cfa_ok || return 1
     done
 }

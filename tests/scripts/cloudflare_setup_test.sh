@@ -225,7 +225,7 @@ test_status_names_a_moved_record_and_fix_puts_it_back() {
     cf fix hls.example.gg >/dev/null 2>&1 || fail "fix"
     assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
     cf tiered-cache || fail "tiered cache"
-    assert_eq "$(jq -r '.tiered.z1' "$WORK_DIR/cf-state.json")" on
+    assert_eq "$(jq -r '"\(.argo.z1) \(.tiered.z1)"' "$WORK_DIR/cf-state.json")" "on on"
 }
 
 run_tests

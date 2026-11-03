@@ -37,8 +37,8 @@ state() {
 cf() {
     (
         export PANEL_DIR="$WORK_DIR/panel" PATH="$STUB_PATH"
-        unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ORIGIN_IPV4 CLOUDFLARE_ORIGIN_IPV6 HTTPS_PORT TURN_DOMAIN CLOUDFLARE_WORKER_DOMAIN
-        CF_RELAY_WAIT=2 CF_RELAY_PAUSE=0 bash "$TEST_ROOT/utils/cloudflare_setup.sh" "$@"
+        unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ORIGIN_IPV4 CLOUDFLARE_ORIGIN_IPV6 HTTPS_PORT TURN_DOMAIN CLOUDFLARE_WORKER_DOMAIN VAULT_MANAGER
+        CF_RELAY_WAIT=2 CF_RELAY_PAUSE=0 CF_PROBE_WAIT=2 CF_PROBE_PAUSE=0 bash "$TEST_ROOT/utils/cloudflare_setup.sh" "$@" </dev/null
     )
 }
 
@@ -158,13 +158,179 @@ test_rules_are_added_by_ref_and_an_entrypoint_is_never_replaced() {
     cf records >/dev/null 2>&1
     cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
     cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy again: $(cat "$WORK_DIR/out")"
-    assert_eq "$(jq -r '[.rulesets.z1.http_config_settings.rules[].ref] | join(",")' "$WORK_DIR/cf-state.json")" "their_rule,5stack_panel"
+    assert_eq "$(jq -r '[.rulesets.z1.http_config_settings.rules[].ref] | join(",")' "$WORK_DIR/cf-state.json")" "their_rule,5stack_panel,5stack_panel_acme"
     assert_eq "$(jq -r '.rulesets.z1.http_config_settings.rules[1].action_parameters | "\(.ssl) \(.rocket_loader) \(.email_obfuscation) \(.disable_zaraz) \(.bic)"' "$WORK_DIR/cf-state.json")" "strict false false true false"
     assert_eq "$(jq -r '.rulesets.z1.http_request_cache_settings.rules | length' "$WORK_DIR/cf-state.json")" 1
     assert_contains "$(jq -r '.rulesets.z1.http_request_cache_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"api.example.gg"'
     assert_not_contains "$(jq -r '.rulesets.z1.http_request_cache_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"example.gg"'
     assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PUT-OVER-EXISTING"
-    assert_eq "$(grep -c 'PATCH /zones/z1/rulesets/rs9/rules/' "$WORK_DIR/cf-calls")" 1
+    assert_eq "$(grep -c 'PATCH /zones/z1/rulesets/rs9/rules/' "$WORK_DIR/cf-calls")" 2
+}
+
+through_cloudflare() {
+    PATH="$STUB_PATH" curl -sS -o /dev/null -D - "http://$1$2" | tr -d '\r'
+}
+
+redirect_rule() {
+    jq -c '.rulesets.z1.http_request_dynamic_redirect.rules[] | select(.ref == "5stack_panel_https")' "$WORK_DIR/cf-state.json"
+}
+
+test_always_use_https_goes_off_and_a_rule_redirects_everything_but_the_challenge_path() {
+    panel_at example.gg
+    zone example.gg
+    state '.settings.z1.always_use_https = "on"'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_eq "$(jq -r '.settings.z1.always_use_https' "$WORK_DIR/cf-state.json")" off
+    assert_eq "$(redirect_rule | jq -r '.expression')" '(not ssl and not starts_with(http.request.uri.path, "/.well-known/acme-challenge/"))'
+    assert_eq "$(redirect_rule | jq -r '"\(.action) \(.enabled) \(.action_parameters.from_value.status_code) \(.action_parameters.from_value.preserve_query_string)"')" "redirect true 301 true"
+    assert_eq "$(redirect_rule | jq -r '.action_parameters.from_value.target_url.expression')" 'concat("https://", http.host, http.request.uri.path)'
+    rule_at="$(grep -n 'POST /zones/z1/rulesets/.*5stack_panel_https\|PUT /zones/z1/rulesets/phases/http_request_dynamic_redirect' "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
+    off_at="$(grep -n 'PATCH /zones/z1/settings/always_use_https' "$WORK_DIR/cf-calls" | cut -d: -f1)"
+    [ -n "$rule_at" ] && [ -n "$off_at" ] && [ "$rule_at" -lt "$off_at" ] || fail "Always Use HTTPS went off before the rule was in"
+    assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "x-5stack-check: acme-path"
+    assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "cf-ray:"
+    assert_contains "$(through_cloudflare api.example.gg /login)" "HTTP/1.1 301"
+    assert_contains "$(through_cloudflare example.gg /login)" "location: https://example.gg/login"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "(y/n)"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "other sites"
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+        assert_eq "$(record "$host")" "203.0.113.40 true"
+        assert_contains "$(cat "$WORK_DIR/cf-calls")" "HTTP $host/.well-known/acme-challenge/5stack-check cloudflare"
+    done
+    if grep -E 'HTTP (demos|hls)\.example\.gg' "$WORK_DIR/cf-calls"; then
+        fail "probed a host that stays straight to this server"
+    fi
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy again: $(cat "$WORK_DIR/out")"
+    assert_eq "$(jq '[.rulesets.z1.http_request_dynamic_redirect.rules[] | select(.ref == "5stack_panel_https")] | length' "$WORK_DIR/cf-state.json")" 1
+    assert_eq "$(redirect_rule | jq -r '.expression')" '(not ssl and not starts_with(http.request.uri.path, "/.well-known/acme-challenge/"))'
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PUT-OVER-EXISTING"
+}
+
+test_with_always_use_https_off_the_rule_covers_only_the_panel() {
+    panel_at example.gg
+    zone example.gg
+    state '.rulesets.z1.http_request_dynamic_redirect = {id: "rs7", phase: "http_request_dynamic_redirect", rules: [{id: "theirs", ref: "their_shop", action: "redirect", expression: "(http.host in {\"shop.example.gg\"} and not ssl)", action_parameters: {from_value: {status_code: 301}}}]}'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    expression="$(redirect_rule | jq -r '.expression')"
+    assert_contains "$expression" '(http.host in {"example.gg" "api.example.gg"'
+    assert_contains "$expression" 'and (not ssl and not starts_with(http.request.uri.path, "/.well-known/acme-challenge/"))'
+    assert_not_contains "$expression" "demos.example.gg"
+    assert_not_contains "$expression" "hls.example.gg"
+    assert_eq "$(jq -r '[.rulesets.z1.http_request_dynamic_redirect.rules[].ref] | join(",")' "$WORK_DIR/cf-state.json")" "their_shop,5stack_panel_https"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PATCH /zones/z1/settings/always_use_https"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "their_shop"
+}
+
+test_the_challenge_path_is_kept_off_security_challenges() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    rule="$(jq -c '.rulesets.z1.http_config_settings.rules[] | select(.ref == "5stack_panel_acme")' "$WORK_DIR/cf-state.json")"
+    assert_eq "$(jq -r '"\(.action) \(.action_parameters.security_level) \(.action_parameters.bic)"' <<<"$rule")" "set_config essentially_off false"
+    assert_contains "$(jq -r '.expression' <<<"$rule")" '"api.example.gg"'
+    assert_contains "$(jq -r '.expression' <<<"$rule")" 'and starts_with(http.request.uri.path, "/.well-known/acme-challenge/")'
+}
+
+test_a_page_rule_that_redirects_the_check_keeps_the_panel_straight_to_this_server() {
+    panel_at example.gg
+    zone example.gg
+    state '.pagerules.z1 = [{id: "pr1", status: "active", targets: [{target: "url", constraint: {operator: "matches", value: "http://*example.gg/*"}}], actions: [{id: "always_use_https"}]}]'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "The Page Rule for http://*example.gg/* (always_use_https) sends Let's Encrypt's check to HTTPS"
+    assert_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt can't reach api.example.gg through Cloudflare: Cloudflare redirects http://api.example.gg/.well-known/acme-challenge/5stack-check to https://api.example.gg/.well-known/acme-challenge/5stack-check"
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+        assert_eq "$(record "$host")" "203.0.113.40 false"
+    done
+}
+
+test_someone_elses_redirect_rule_is_named_and_only_its_host_stays_straight() {
+    panel_at example.gg
+    zone example.gg
+    state '.rulesets.z1.http_request_dynamic_redirect = {id: "rs7", phase: "http_request_dynamic_redirect", rules: [{id: "theirs", ref: "their_api", description: "API to HTTPS", action: "redirect", expression: "(http.host in {\"api.example.gg\"} and not ssl)", action_parameters: {from_value: {status_code: 308}}}, {id: "fine", ref: "their_fine", description: "Fine", action: "redirect", expression: "(not ssl and not starts_with(http.request.uri.path, \"/.well-known/acme-challenge/\"))", action_parameters: {from_value: {status_code: 301}}}]}'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" 'The Redirect Rule "API to HTTPS" can send Let'"'"'s Encrypt'"'"'s check to HTTPS. Leave /.well-known/acme-challenge/ out of it.'
+    assert_not_contains "$(cat "$WORK_DIR/out")" '"Fine"'
+    assert_eq "$(record api.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+    status="$(cf status --json)"
+    assert_contains "$(jq -r '.zones[0].blockers[0]' <<<"$status")" 'The Redirect Rule "API to HTTPS"'
+    assert_eq "$(jq -r '.zones[0] | "\(.always_https) \(.https_rule)"' <<<"$status")" "off true"
+}
+
+test_a_security_challenge_or_a_panel_without_the_check_keeps_the_host_straight() {
+    panel_at example.gg
+    zone example.gg
+    state '.challenge = ["ws.example.gg"]'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt can't reach ws.example.gg through Cloudflare: Cloudflare answers http://ws.example.gg/.well-known/acme-challenge/5stack-check with a security challenge"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+    state '.challenge = [] | .no_acme_route = true'
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_eq "$(record api.example.gg)" "203.0.113.40 false"
+}
+
+test_a_check_that_never_goes_through_cloudflare_is_named_and_the_host_kept() {
+    panel_at example.gg
+    zone example.gg
+    state '.stale_dns = true'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_contains "$(cat "$WORK_DIR/out")" "http://example.gg/.well-known/acme-challenge/5stack-check didn't answer through Cloudflare yet"
+    assert_eq "$(record example.gg)" "203.0.113.40 true"
+    assert_eq "$(grep -c 'HTTP example.gg/.well-known/acme-challenge/5stack-check' "$WORK_DIR/cf-calls")" 2
+}
+
+test_a_key_without_redirect_rules_is_named_before_anything_changes() {
+    panel_at example.gg
+    zone example.gg
+    state '.rulesets.z1.http_request_dynamic_redirect = {id: "rs7", phase: "http_request_dynamic_redirect", rules: []} | .no_redirect_rules = true'
+    assert_contains "$(cf check)" "redirect_rules: The Cloudflare key can't manage Redirect Rules for example.gg"
+}
+
+test_the_key_comes_from_the_file_or_vault_and_never_a_kubernetes_secret() {
+    panel_at example.gg
+    zone example.gg
+    printf 'CLOUDFLARE_API_TOKEN=VAULT\n' >"$WORK_DIR/panel/overlays/local-secrets/cloudflare-secrets.env"
+    mkdir -p "$WORK_DIR/bin"
+    FAKE_SECRET="$(printf %s "$TOKEN" | base64)"
+    FAKE_TOKEN="$TOKEN"
+    export FAKE_SECRET FAKE_TOKEN
+    cat >"$WORK_DIR/bin/kubectl" <<'STUB'
+#!/bin/bash
+echo "$*" >>"$WORK_DIR/kubectl-calls"
+printf %s "$FAKE_SECRET"
+STUB
+    chmod +x "$WORK_DIR/bin/kubectl"
+    STUB_PATH="$WORK_DIR/bin:$STUB_PATH"
+    cf plan >"$WORK_DIR/out" 2>&1 && fail "read the key from somewhere other than the file or Vault"
+    assert_contains "$(cat "$WORK_DIR/out")" "No Cloudflare API token"
+    [ ! -e "$WORK_DIR/kubectl-calls" ] || fail "asked Kubernetes for the key: $(cat "$WORK_DIR/kubectl-calls")"
+    cat >"$WORK_DIR/bin/vault" <<'STUB'
+#!/bin/bash
+[ "$*" = "kv get -field=CLOUDFLARE_API_TOKEN kv/cloudflare" ] && printf %s "$FAKE_TOKEN"
+STUB
+    chmod +x "$WORK_DIR/bin/vault"
+    cf plan >"$WORK_DIR/out" 2>&1 || fail "plan with the key in Vault: $(cat "$WORK_DIR/out")"
+    assert_contains "$(cat "$WORK_DIR/out")" "api.example.gg"
+    [ ! -e "$WORK_DIR/kubectl-calls" ] || fail "asked Kubernetes for the key"
+}
+
+test_only_the_selected_zone_is_used() {
+    panel_at example.gg
+    zone example.gg
+    assert_eq "$(CLOUDFLARE_ZONE=other.gg plan_of api.example.gg)" "skip not_in_account"
+    assert_eq "$(CLOUDFLARE_ZONE=example.gg plan_of api.example.gg)" "yes -"
 }
 
 test_bot_fight_mode_stops_the_proxy_before_anything_changes() {

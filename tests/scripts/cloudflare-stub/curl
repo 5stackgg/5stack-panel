@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import sys
 import urllib.parse
 
@@ -10,6 +11,7 @@ state = json.load(open(state_path))
 args = sys.argv[1:]
 
 method, data, url, out_null, write_out, from_stdin = "GET", None, None, False, None, False
+dump_headers, resolve = False, None
 forms = {}
 i = 0
 while i < len(args):
@@ -29,6 +31,12 @@ while i < len(args):
     elif a == "-K":
         from_stdin = args[i + 1] == "-"
         i += 1
+    elif a == "-D":
+        dump_headers = args[i + 1] == "-"
+        i += 1
+    elif a == "--resolve":
+        resolve = args[i + 1].rsplit(":", 1)[1]
+        i += 1
     elif a == "-F":
         name, _, value = args[i + 1].partition("=")
         value = value.split(";type=")[0]
@@ -36,7 +44,7 @@ while i < len(args):
             value = open(value[1:]).read()
         forms[name] = value
         i += 1
-    elif a in ("-H", "--max-time", "--resolve"):
+    elif a in ("-H", "--max-time"):
         if a == "-H" and "authorization" in args[i + 1].lower():
             open(os.path.join(work, "cf-calls"), "a").write("TOKEN-IN-ARGS\n")
         i += 1
@@ -64,9 +72,89 @@ def reply(result=None, success=True, errors=None, code=None):
     sys.exit(0)
 
 
+EDGE = "104.21.0.1"
+
+
+def proxied(host):
+    return any(r["name"] == host and r.get("proxied") and r["type"] == "A" for r in state.get("records", []))
+
+
+def zone_of(host):
+    for z in state.get("zones", []):
+        if host == z["name"] or host.endswith("." + z["name"]):
+            return z["id"]
+    return None
+
+
+def rule_matches(expr, host, path):
+    hosts = re.search(r"http\.host in \{([^}]*)\}", expr)
+    if hosts and host not in re.findall(r'"([^"]+)"', hosts.group(1)):
+        return False
+    for neg, prefix in re.findall(r'(not )?starts_with\(http\.request\.uri\.path, "([^"]+)"\)', expr):
+        if bool(neg) == path.startswith(prefix):
+            return False
+    return True
+
+
+def page_rule_matches(target, host):
+    if target.startswith("https://"):
+        return False
+    pattern = target.split("://", 1)[-1].split("/", 1)[0]
+    return re.fullmatch(re.escape(pattern).replace("\\*", ".*"), host) is not None
+
+
+def answer(code, headers):
+    if dump_headers:
+        sys.stdout.write("HTTP/1.1 %d X\r\n" % code)
+        for k, v in headers.items():
+            sys.stdout.write("%s: %s\r\n" % (k, v))
+        sys.stdout.write("\r\n")
+    if write_out:
+        sys.stdout.write(str(code))
+    sys.exit(0)
+
+
+def plain_http(host, path):
+    through = proxied(host) and (resolve == EDGE or (resolve is None and not state.get("stale_dns")))
+    log("HTTP %s%s%s" % (host, path, " cloudflare" if through else ""))
+    edge = {"server": "cloudflare", "cf-ray": "8f00-AMS"}
+    https = {"location": "https://%s%s" % (host, path)}
+    if through:
+        zone = zone_of(host)
+        if state.get("settings", {}).get(zone, {}).get("always_use_https") == "on":
+            answer(301, dict(edge, **https))
+        for pr in state.get("pagerules", {}).get(zone, []):
+            ids = [a["id"] for a in pr.get("actions", [])]
+            if pr.get("status", "active") == "active" and ("always_use_https" in ids or "forwarding_url" in ids) and page_rule_matches(pr["targets"][0]["constraint"]["value"], host):
+                answer(301, dict(edge, **https))
+        for rule in state.get("rulesets", {}).get(zone, {}).get("http_request_dynamic_redirect", {}).get("rules", []):
+            if rule.get("enabled", True) and rule.get("action") == "redirect" and rule_matches(rule["expression"], host, path):
+                answer(rule["action_parameters"]["from_value"]["status_code"], dict(edge, **https))
+        if host in state.get("challenge", []):
+            answer(403, dict(edge, **{"cf-mitigated": "challenge"}))
+        code = state.get("origin", {}).get(host, 200)
+        if code >= 520:
+            answer(code, edge)
+    else:
+        edge = {}
+    if path == "/.well-known/acme-challenge/5stack-check" and not state.get("no_acme_route"):
+        answer(404, dict(edge, **{"x-5stack-check": "acme-path"}))
+    answer(308, dict(edge, **https))
+
+
 if url.startswith("https://1.1.1.1/cdn-cgi/trace"):
     sys.stdout.write("fl=1\nip=%s\nts=1\n" % state.get("ip", "203.0.113.40"))
     sys.exit(0)
+
+if url.startswith("https://1.1.1.1/dns-query"):
+    name = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["name"][0]
+    ip = EDGE if proxied(name) and not state.get("stale_dns") else state.get("ip", "203.0.113.40")
+    sys.stdout.write(json.dumps({"Status": 0, "Answer": [{"name": name, "type": 1, "data": ip}]}))
+    sys.exit(0)
+
+if url.startswith("http://"):
+    parsed = urllib.parse.urlparse(url)
+    plain_http(parsed.hostname, parsed.path or "/")
 
 parsed = urllib.parse.urlparse(url)
 if not parsed.path.startswith("/client/v4"):
@@ -165,7 +253,15 @@ if rest[:2] == ["workers", "routes"]:
         reply(body)
     reply(routes)
 if rest[:1] == ["settings"]:
-    reply({"id": rest[1], "value": state.get("settings", {}).get(zone, {}).get(rest[1], "on")})
+    settings = state.setdefault("settings", {}).setdefault(zone, {})
+    if method == "PATCH":
+        settings[rest[1]] = json.loads(data)["value"]
+        save()
+    reply({"id": rest[1], "value": settings.get(rest[1], "off" if rest[1] == "always_use_https" else "on")})
+if rest == ["pagerules"]:
+    if state.get("no_pagerules_read"):
+        reply(None, False, [{"code": 10000, "message": "Authentication error"}])
+    reply(state.get("pagerules", {}).get(zone, []))
 if rest == ["bot_management"]:
     reply({"fight_mode": state.get("bot_fight", {}).get(zone, False)})
 if rest == ["ssl", "universal", "settings"]:
@@ -186,6 +282,8 @@ if rest == ["cache", "tiered_cache_smart_topology_enable"]:
 rulesets = state.setdefault("rulesets", {}).setdefault(zone, {})
 if rest[:2] == ["rulesets", "phases"]:
     phase = rest[2]
+    if phase == "http_request_dynamic_redirect" and state.get("no_redirect_rules"):
+        reply(None, False, [{"code": 10000, "message": "Authentication error"}])
     if method == "GET":
         if phase not in rulesets:
             reply(None, False, code=10003)

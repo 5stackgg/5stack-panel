@@ -252,7 +252,7 @@ test_the_token_page_asks_for_exactly_what_setup_uses() {
     assert_contains "$url" "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys="
     assert_contains "$url" "&accountId=*&zoneId=all&name=5Stack%20panel"
     keys="$(python3 -c 'import sys, urllib.parse, json; q = urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query); print(" ".join(k["key"] + ":" + k["type"] for k in json.loads(q["permissionGroupKeys"][0])))' "$url")"
-    assert_eq "$keys" "zone:read dns:edit zone_settings:edit ssl_and_certificates:read config_settings:edit cache_settings:edit workers_routes:edit workers_scripts:edit bot_management:read"
+    assert_eq "$keys" "zone:read dns:edit zone_settings:edit ssl_and_certificates:read config_settings:edit cache_settings:edit workers_routes:edit workers_scripts:edit bot_management:read dynamic_url_redirects:edit page_rules:read"
 }
 
 run_tests

@@ -29,8 +29,7 @@ on:
       - stream-relay.sh
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
-      - "overlays/vault-cloudflare/**"
-      - overlays/local-secrets/kustomization.yaml
+      - "overlays/http/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -59,8 +58,7 @@ on:
       - stream-relay.sh
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
-      - "overlays/vault-cloudflare/**"
-      - overlays/local-secrets/kustomization.yaml
+      - "overlays/http/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:

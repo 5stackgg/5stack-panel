@@ -4,7 +4,8 @@
 #
 #   cloudflare_setup.sh plan [--json]           what each hostname gets; changes nothing
 #   cloudflare_setup.sh records [--replace a,b] DNS records, DNS-only until the proxy step
-#   cloudflare_setup.sh proxy                   rules, then the orange cloud, host by host
+#   cloudflare_setup.sh proxy                   rules, then the orange cloud, host by host, each
+#                                               kept only if Let's Encrypt's check gets through
 #   cloudflare_setup.sh status --json           records and settings against what setup left
 #   cloudflare_setup.sh fix <host>              puts one record back
 #   cloudflare_setup.sh tiered-cache            turns on Smart Tiered Cache
@@ -16,7 +17,10 @@
 # and hosts a Workers route answers are never touched. A proxied name must be
 # the zone, one label below it, or covered by one of the zone's certificate
 # packs: Cloudflare's free certificate covers nothing deeper. Nothing is
-# proxied when HTTPS_PORT isn't 443.
+# proxied when HTTPS_PORT isn't 443. Certificates stay with cert-manager's
+# HTTP-01 check, so plain HTTP on /.well-known/acme-challenge/ must reach the
+# panel: Always Use HTTPS goes off and a redirect rule sends everything else to
+# HTTPS. With CLOUDFLARE_ZONE set, only that zone is used.
 
 CF_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${PANEL_DIR:=$(cd "$CF_SETUP_DIR/.." && pwd)}"
@@ -28,6 +32,10 @@ source "$CF_SETUP_DIR/cloudflare_api.sh"
 CF_COMMENT="5stack-panel (managed by update.sh)"
 CF_CONFIG_REF="5stack_panel"
 CF_CACHE_REF="5stack_panel_no_cache"
+CF_REDIRECT_REF="5stack_panel_https"
+CF_ACME_REF="5stack_panel_acme"
+CF_ACME_PATH="/.well-known/acme-challenge/"
+CF_ACME_CHECK="/.well-known/acme-challenge/5stack-check"
 CF_PROXIED_KEYS="WEB_DOMAIN API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN S3_CONSOLE_HOST"
 CF_DIRECT_KEYS="DEMOS_DOMAIN GAME_STREAM_DOMAIN TURN_DOMAIN"
 CF_NO_CACHE_KEYS="API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN GAME_STREAM_DOMAIN"
@@ -35,6 +43,9 @@ CF_RELAY_WORKER="5stack-stream-relay"
 : "${CF_RELAY_WAIT:=12}"
 : "${CF_RELAY_PAUSE:=5}"
 : "${CF_TRACE_URL:=https://1.1.1.1/cdn-cgi/trace}"
+: "${CF_DOH_URL:=https://1.1.1.1/dns-query}"
+: "${CF_PROBE_WAIT:=12}"
+: "${CF_PROBE_PAUSE:=5}"
 : "${CLOUDFLARE_ORIGIN_IPV6:=}"
 
 cf_env_value() {
@@ -61,9 +72,11 @@ cf_load_token() {
         return 0
     fi
     CLOUDFLARE_API_TOKEN="$(cf_env_value "$PANEL_DIR/overlays/local-secrets/cloudflare-secrets.env" CLOUDFLARE_API_TOKEN)"
-    if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$CLOUDFLARE_API_TOKEN" = VAULT ]; then
-        CLOUDFLARE_API_TOKEN="$(kubectl --kubeconfig="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}" -n 5stack get secret cloudflare-secrets \
-            -o jsonpath='{.data.CLOUDFLARE_API_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)"
+    if [ "$CLOUDFLARE_API_TOKEN" = VAULT ] || { [ -z "$CLOUDFLARE_API_TOKEN" ] && [ "$VAULT_MANAGER" = true ]; }; then
+        CLOUDFLARE_API_TOKEN=""
+        if command -v vault >/dev/null 2>&1; then
+            CLOUDFLARE_API_TOKEN="$(vault kv get -field=CLOUDFLARE_API_TOKEN kv/cloudflare 2>/dev/null)"
+        fi
     fi
     [ -n "$CLOUDFLARE_API_TOKEN" ]
 }
@@ -77,10 +90,12 @@ cf_zone() {
     host="$(cf_lower "$1")"
     candidate="$host"
     while [[ "$candidate" == *.* ]]; do
-        response="$(cfa GET "/zones?name=$candidate&status=active")" || return 1
-        if jq -e '.result | length > 0' >/dev/null 2>&1 <<<"$response"; then
-            jq -r '.result[0] | "\(.id) \(.name) \(.plan.name // "unknown")"' <<<"$response"
-            return 0
+        if [ -z "$CLOUDFLARE_ZONE" ] || [ "$candidate" = "$(cf_lower "$CLOUDFLARE_ZONE")" ]; then
+            response="$(cfa GET "/zones?name=$candidate&status=active")" || return 1
+            if jq -e '.result | length > 0' >/dev/null 2>&1 <<<"$response"; then
+                jq -r '.result[0] | "\(.id) \(.name) \(.plan.name // "unknown")"' <<<"$response"
+                return 0
+            fi
         fi
         candidate="${candidate#*.}"
     done
@@ -202,10 +217,14 @@ cf_check() {
         fi
         cfa GET "/zones/$zone_id/ssl/universal/settings" | jq -e '.result.enabled != false' >/dev/null 2>&1 ||
             echo "universal_ssl: $zone_name has Universal SSL off, so Cloudflare has no certificate for the proxied names."
-        for phase in http_config_settings http_request_cache_settings; do
+        for phase in http_config_settings http_request_cache_settings http_request_dynamic_redirect; do
             response="$(cfa GET "/zones/$zone_id/rulesets/phases/$phase/entrypoint")"
             if ! cfa_ok <<<"$response" && ! jq -e 'any(.errors[]?; .code == 10003)' >/dev/null 2>&1 <<<"$response"; then
-                echo "rules: $zone_name: $phase: $(cfa_errors <<<"$response")"
+                if [ "$phase" = http_request_dynamic_redirect ]; then
+                    echo "redirect_rules: The Cloudflare key can't manage Redirect Rules for $zone_name, which keep Let's Encrypt's check reaching this server. Connect Cloudflare again, or make a new key with ./cloudflare.sh."
+                else
+                    echo "rules: $zone_name: $phase: $(cfa_errors <<<"$response")"
+                fi
             fi
         done
     done <<<"$ids"
@@ -320,9 +339,8 @@ cf_host_expression() {
 }
 
 cf_rule() {
-    local zone_id="$1" phase="$2" ref="$3" description="$4" action="$5" params="$6" response rule ruleset_id rule_id
-    shift 6
-    rule="$(jq -nc --arg ref "$ref" --arg d "$description" --arg a "$action" --argjson p "$params" --arg e "$(cf_host_expression "$@")" \
+    local zone_id="$1" phase="$2" ref="$3" description="$4" action="$5" params="$6" expression="$7" response rule ruleset_id rule_id
+    rule="$(jq -nc --arg ref "$ref" --arg d "$description" --arg a "$action" --argjson p "$params" --arg e "$expression" \
         '{ref: $ref, description: $d, expression: $e, action: $a, action_parameters: $p, enabled: true}')"
     response="$(cfa GET "/zones/$zone_id/rulesets/phases/$phase/entrypoint")"
     if ! cfa_ok <<<"$response"; then
@@ -336,6 +354,141 @@ cf_rule() {
     else
         cfa POST "/zones/$zone_id/rulesets/$ruleset_id/rules" "$rule" | cfa_ok
     fi
+}
+
+cf_acme_expression() {
+    printf '%s and starts_with(http.request.uri.path, "%s")' "$(cf_host_expression "$@")" "$CF_ACME_PATH"
+}
+
+cf_https_expression() {
+    printf '(not ssl and not starts_with(http.request.uri.path, "%s"))' "$CF_ACME_PATH"
+}
+
+cf_https() {
+    local zone_id="$1" wide=false expression params
+    shift
+    if cfa GET "/zones/$zone_id/settings/always_use_https" | jq -e '.result.value == "on"' >/dev/null 2>&1; then
+        wide=true
+    fi
+    if cfa GET "/zones/$zone_id/rulesets/phases/http_request_dynamic_redirect/entrypoint" |
+        jq -e --arg ref "$CF_REDIRECT_REF" 'any(.result.rules[]?; .ref == $ref and (.expression | startswith("(http.host in") | not))' >/dev/null 2>&1; then
+        wide=true
+    fi
+    expression="$(cf_https_expression)"
+    if [ "$wide" != true ]; then
+        expression="$(cf_host_expression "$@") and $expression"
+    fi
+    params='{"from_value": {"status_code": 301, "target_url": {"expression": "concat(\"https://\", http.host, http.request.uri.path)"}, "preserve_query_string": true}}'
+    cf_rule "$zone_id" http_request_dynamic_redirect "$CF_REDIRECT_REF" "5Stack panel: HTTPS, except Let's Encrypt's check" redirect "$params" "$expression" || {
+        err "Could not save the 5Stack rule that sends plain HTTP to HTTPS"
+        return 1
+    }
+    if [ "$wide" = true ]; then
+        cfa PATCH "/zones/$zone_id/settings/always_use_https" '{"value": "off"}' | cfa_ok || {
+            err "Could not turn off Always Use HTTPS, which sends Let's Encrypt's check to HTTPS"
+            return 1
+        }
+    fi
+}
+
+cf_challenge_blockers() {
+    local zone_id="$1" response target pattern host rule
+    shift
+    response="$(cfa GET "/zones/$zone_id/rulesets/phases/http_request_dynamic_redirect/entrypoint")"
+    if cfa_ok <<<"$response"; then
+        while read -r rule; do
+            echo "redirect_rule: The Redirect Rule \"$rule\" can send Let's Encrypt's check to HTTPS. Leave $CF_ACME_PATH out of it."
+        done < <(jq -r --arg ref "$CF_REDIRECT_REF" --argjson hosts "$(jq -nc '$ARGS.positional' --args "$@")" '
+            .result.rules[]?
+            | select(.ref != $ref and .enabled != false and .action == "redirect")
+            | select(.expression | contains("acme-challenge") | not)
+            | . as $r
+            | select(($r.expression | contains("http.host") | not) or any($hosts[]; . as $h | $r.expression | contains("\"" + $h + "\"")))
+            | .description // .ref // .id' <<<"$response")
+    fi
+    response="$(cfa GET "/zones/$zone_id/pagerules?status=active")"
+    cfa_ok <<<"$response" || return 0
+    while IFS=$'\t' read -r rule target; do
+        [ -n "$target" ] || continue
+        if [[ "$target" == https://* ]]; then
+            continue
+        fi
+        pattern="${target#http://}"
+        pattern="${pattern%%/*}"
+        pattern="${pattern//./\\.}"
+        pattern="^${pattern//\*/.*}$"
+        for host in "$@"; do
+            if [[ "$host" =~ $pattern ]]; then
+                echo "page_rule: The Page Rule for $target ($rule) sends Let's Encrypt's check to HTTPS, and a Page Rule can't leave one path out. Replace it with a Redirect Rule that leaves $CF_ACME_PATH out."
+                break
+            fi
+        done
+    done < <(jq -r '.result[]? | select(any(.actions[]?; .id == "always_use_https" or .id == "forwarding_url")) | [([.actions[].id] | join(",")), (.targets[0].constraint.value // "")] | @tsv' <<<"$response")
+}
+
+cf_edge_ip() {
+    curl -sS --max-time 10 -H 'accept: application/dns-json' "$CF_DOH_URL?name=$1&type=A" 2>/dev/null |
+        jq -r --arg o "$CLOUDFLARE_ORIGIN_IPV4" '[.Answer[]? | select(.type == 1 and .data != $o) | .data][0] // empty' 2>/dev/null
+}
+
+cf_acme_probe() {
+    local host="$1" edge headers code args
+    args=(-sS -o /dev/null -D - --max-time 20)
+    edge="$(cf_edge_ip "$host")"
+    if [ -n "$edge" ]; then
+        args+=(--resolve "$host:80:$edge")
+    fi
+    headers="$(curl "${args[@]}" "http://$host$CF_ACME_CHECK" 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+    code="$(awk 'NR == 1 { print $2 }' <<<"$headers")"
+    if grep -q '^x-5stack-check:' <<<"$headers"; then
+        if grep -q '^cf-ray:' <<<"$headers"; then
+            echo ok
+        else
+            echo direct
+        fi
+        return
+    fi
+    case "$code" in
+        "") echo none ;;
+        52[0-6] | 530) echo "unreachable $code" ;;
+        3[0-9][0-9]) echo "redirect $code $(sed -n 's/^location: *//p' <<<"$headers" | head -n 1)" ;;
+        *)
+            if grep -q '^cf-mitigated:' <<<"$headers" || { [[ "$code" =~ ^(403|429|503)$ ]] && grep -q '^server: cloudflare' <<<"$headers"; }; then
+                echo "challenge $code"
+            else
+                echo "other $code"
+            fi
+            ;;
+    esac
+}
+
+cf_acme_blocked() {
+    local host="$1" i result
+    for ((i = 0; i < CF_PROBE_WAIT; i++)); do
+        result="$(cf_acme_probe "$host")"
+        case "$result" in
+            ok) return 1 ;;
+            redirect*)
+                echo "Cloudflare redirects http://$host$CF_ACME_CHECK to ${result#redirect * }"
+                return 0
+                ;;
+            challenge*)
+                echo "Cloudflare answers http://$host$CF_ACME_CHECK with a security challenge"
+                return 0
+                ;;
+            unreachable*)
+                echo "Cloudflare can't reach this server for http://$host$CF_ACME_CHECK (HTTP ${result#unreachable })"
+                return 0
+                ;;
+            other*)
+                echo "http://$host$CF_ACME_CHECK answers HTTP ${result#other } instead of the panel"
+                return 0
+                ;;
+        esac
+        sleep "$CF_PROBE_PAUSE"
+    done
+    warn "http://$host$CF_ACME_CHECK didn't answer through Cloudflare yet, so Let's Encrypt's path wasn't checked. The next update checks it again." >&2
+    return 1
 }
 
 cf_origin_status() {
@@ -371,25 +524,47 @@ cf_rules() {
             fi
         done < <(cf_plan | cf_ruled | awk -v z="$zone" '$3 == z')
         cf_rule "$zone" http_config_settings "$CF_CONFIG_REF" "5Stack panel" set_config \
-            '{"ssl": "strict", "rocket_loader": false, "email_obfuscation": false, "disable_zaraz": true, "bic": false}' "${hosts[@]}" || {
+            '{"ssl": "strict", "rocket_loader": false, "email_obfuscation": false, "disable_zaraz": true, "bic": false}' "$(cf_host_expression "${hosts[@]}")" || {
             err "Could not save the 5Stack configuration rule"
+            return 1
+        }
+        cf_rule "$zone" http_config_settings "$CF_ACME_REF" "5Stack panel: Let's Encrypt's check" set_config \
+            '{"security_level": "essentially_off", "bic": false}' "$(cf_acme_expression "${hosts[@]}")" || {
+            err "Could not save the 5Stack rule that keeps challenges off Let's Encrypt's check"
             return 1
         }
         if [ "${#nocache[@]}" -gt 0 ]; then
             cf_rule "$zone" http_request_cache_settings "$CF_CACHE_REF" "5Stack panel: live data" set_cache_settings \
-                '{"cache": false}' "${nocache[@]}" || {
+                '{"cache": false}' "$(cf_host_expression "${nocache[@]}")" || {
                 err "Could not save the 5Stack cache rule"
                 return 1
             }
         fi
+        cf_https "$zone" "${hosts[@]}" || return 1
+    done
+}
+
+cf_zone_blockers() {
+    local hosts
+    mapfile -t hosts < <(cf_plan | cf_ruled | awk -v z="$1" '$3 == z { print $2 }')
+    cf_challenge_blockers "$1" "${hosts[@]}"
+}
+
+cf_blockers() {
+    local zone
+    for zone in $(cf_plan | cf_ruled | awk '{ print $3 }' | sort -u); do
+        cf_zone_blockers "$zone"
     done
 }
 
 cf_proxy() {
-    local key host zone_id zone_name proxied why status code
+    local key host zone_id zone_name proxied why status code blocked line
     cf_ready || return 1
     cf_public_ip || return 1
     cf_rules || return 1
+    while read -r line; do
+        [ -n "$line" ] && warn "${line#*: }"
+    done < <(cf_blockers)
     status=0
     while read -r key host zone_id zone_name proxied why; do
         [ "$proxied" = yes ] || continue
@@ -400,11 +575,16 @@ cf_proxy() {
                 warn "Cloudflare can't reach the panel on $host (HTTP $code), so it goes straight to this server again."
                 cf_sync_host "$zone_id" "$host" false false >/dev/null
                 status=3
-                ;;
-            *)
-                ok "$host through Cloudflare"
+                continue
                 ;;
         esac
+        if blocked="$(cf_acme_blocked "$host")"; then
+            warn "Let's Encrypt can't reach $host through Cloudflare: $blocked. It goes straight to this server again, so its certificate keeps renewing."
+            cf_sync_host "$zone_id" "$host" false false >/dev/null
+            status=3
+            continue
+        fi
+        ok "$host through Cloudflare"
     done < <(cf_plan)
     return "$status"
 }
@@ -438,7 +618,10 @@ cf_status_json() {
             --argjson bot "$(cfa GET "/zones/$zone_id/bot_management" | jq -c '.result | if type == "object" and has("fight_mode") then .fight_mode else null end')" \
             --argjson tiered "$(cfa GET "/zones/$zone_id/cache/tiered_cache_smart_topology_enable" | jq -c '.result.value // null')" \
             --argjson rule "$(cfa GET "/zones/$zone_id/rulesets/phases/http_config_settings/entrypoint" | jq -c --arg ref "$CF_CONFIG_REF" '[.result.rules[]? | select(.ref == $ref)][0].action_parameters.ssl // null')" \
-            '{id: $id, name: $name, websockets: $ws, bot_fight: $bot, tiered_cache: $tiered, ssl: $rule}'
+            --argjson always "$(cfa GET "/zones/$zone_id/settings/always_use_https" | jq -c '.result.value // null')" \
+            --argjson redirect "$(cfa GET "/zones/$zone_id/rulesets/phases/http_request_dynamic_redirect/entrypoint" | jq -c --arg ref "$CF_REDIRECT_REF" --arg p "$CF_ACME_PATH" '[.result.rules[]? | select(.ref == $ref and .enabled != false and (.expression | contains("not starts_with(http.request.uri.path, \"" + $p + "\")")))] | length > 0')" \
+            --argjson blockers "$(cf_zone_blockers "$zone_id" | sed 's/^[a-z_]*: //' | jq -Rsc 'split("\n") | map(select(length > 0))')" \
+            '{id: $id, name: $name, websockets: $ws, bot_fight: $bot, tiered_cache: $tiered, ssl: $rule, always_https: $always, https_rule: $redirect, blockers: $blockers}'
     done <<<"$zones" | jq -sc .)" '{zones: $zones, hosts: .}'
 }
 
@@ -518,7 +701,7 @@ cf_relay_answers() {
 }
 
 cf_stream_relay() {
-    local host zone zone_id zone_name account out
+    local host zone zone_id zone_name account out blocked
     host="$(cf_lower "$GAME_STREAM_DOMAIN")"
     if [ -z "$host" ]; then
         err "The panel has no stream address (GAME_STREAM_DOMAIN), so there is nothing to relay."
@@ -557,6 +740,11 @@ cf_stream_relay() {
     fi
     if ! cf_relay_answers "$host"; then
         warn "The stream relay Worker isn't answering on $host, so streams go straight to this server again."
+        cf_sync_host "$zone_id" "$host" false false >/dev/null
+        return 3
+    fi
+    if blocked="$(cf_acme_blocked "$host")"; then
+        warn "Let's Encrypt can't reach $host through Cloudflare: $blocked. Streams go straight to this server again."
         cf_sync_host "$zone_id" "$host" false false >/dev/null
         return 3
     fi
@@ -612,7 +800,7 @@ cloudflare_setup() {
 }
 
 cloudflare_sync_records() {
-    local zones out status hosts answer
+    local out status hosts answer
     out="$(cloudflare_setup records)"
     status=$?
     grep -v '^conflict: ' <<<"$out"
@@ -627,11 +815,6 @@ cloudflare_sync_records() {
     fi
     if [ "$status" != 0 ]; then
         warn "Not every Cloudflare record was updated; the panel carries on with them as they are."
-    fi
-    zones="$(cf_plan 2>/dev/null | awk '$4 != "-" { print $4 }' | sort -u | paste -sd, -)"
-    if [ -n "$zones" ]; then
-        export CLOUDFLARE_ZONES="$zones"
-        update_env_var "$PANEL_DIR/.5stack-env.config" CLOUDFLARE_ZONES "$zones"
     fi
 }
 

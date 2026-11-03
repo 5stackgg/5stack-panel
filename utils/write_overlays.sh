@@ -35,34 +35,12 @@ s3_storage_is_builtin() {
     return 1
 }
 
-# overlays/cert-manager with a Cloudflare DNS-01 solver ahead of HTTP-01, for
-# the zones in CLOUDFLARE_ZONES. Names outside them still use HTTP-01.
-write_cloudflare_issuer() {
-    local dir="$PANEL_DIR/overlays/cert-manager-cloudflare" zone
-    mkdir -p "$dir"
-    printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../cert-manager\npatches:\n  - path: issuer-dns01.yaml\n' >"$dir/kustomization.yaml"
-    {
-        printf 'apiVersion: cert-manager.io/v1\nkind: Issuer\nmetadata:\n  namespace: 5stack\n  name: 5stack-issuer\nspec:\n  acme:\n    solvers:\n      - selector:\n          dnsZones:\n'
-        for zone in ${CLOUDFLARE_ZONES//,/ }; do
-            printf '            - %s\n' "$zone"
-        done
-        printf '        dns01:\n          cloudflare:\n            apiTokenSecretRef:\n              name: cloudflare-secrets\n              key: CLOUDFLARE_API_TOKEN\n'
-        sed -n '/^      - http01:/,$p' "$PANEL_DIR/overlays/cert-manager/issuer.yaml"
-    } >"$dir/issuer-dns01.yaml"
-}
-
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
 # the one REVERSE_PROXY and VAULT_MANAGER select. Reads TURN_DOMAIN,
-# GPU_VENDOR, AI_ENABLED, HASURA_REPLICAS, CLOUDFLARE_MANAGED and
-# CLOUDFLARE_ZONES, and S3_ENDPOINT from
+# GPU_VENDOR, AI_ENABLED and HASURA_REPLICAS, and S3_ENDPOINT from
 # overlays/config/s3-config.env.
 write_overlays() {
-    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES HASURA_REPLICAS_ENTRY STORAGE_COMPONENTS CERT_MANAGER CLOUDFLARE_RESOURCES
-    CERT_MANAGER="../cert-manager"
-    if [ "$CLOUDFLARE_MANAGED" = true ] && [ -n "$CLOUDFLARE_ZONES" ]; then
-        write_cloudflare_issuer
-        CERT_MANAGER="../cert-manager-cloudflare"
-    fi
+    local BASE PROTOCOL OVERLAY STREAMING_RESOURCES AI_RESOURCES HASURA_REPLICAS_ENTRY STORAGE_COMPONENTS
     # How many Hasuras serve the api (HASURA_REPLICAS, default 1). In the api's
     # load lab one is busy from about 3,000 users, and a second halved query and
     # first-data times there. Each keeps its own Postgres pool (the api
@@ -113,10 +91,6 @@ $STREAMING_RESOURCES"
             if [ "$AI_ENABLED" = true ] && [ "$BASE" = "vault" ]; then
                 AI_RESOURCES="- ../ai"
             fi
-            CLOUDFLARE_RESOURCES=""
-            if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$BASE" = "vault" ]; then
-                CLOUDFLARE_RESOURCES="- ../vault-cloudflare"
-            fi
 
             cat > "$OVERLAY/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -127,13 +101,12 @@ resources:
 - ../config
 $STREAMING_RESOURCES
 $AI_RESOURCES
-$CLOUDFLARE_RESOURCES
-$(if [[ "$PROTOCOL" == "https" ]]; then echo "- $CERT_MANAGER"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; echo "- acme-check.yaml"; else echo "- gateway-tls.yaml"; fi)
 $HASURA_REPLICAS_ENTRY
 $STORAGE_COMPONENTS
 EOF
             if [ "$PROTOCOL" = "https" ]; then
-                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"
+                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$PANEL_DIR/overlays/http/acme-check.yaml" "$OVERLAY/"
                 cat "$PANEL_DIR/overlays/http/https-replacements.yaml" >> "$OVERLAY/kustomization.yaml"
             else
                 ensure_reverse_proxy_certificate "$OVERLAY" || return 1

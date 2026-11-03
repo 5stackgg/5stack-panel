@@ -130,7 +130,7 @@ ask_cloudflare() {
 }
 
 cloudflare_token_url() {
-    local keys='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"read"},{"key":"config_settings","type":"edit"},{"key":"cache_settings","type":"edit"},{"key":"workers_routes","type":"edit"},{"key":"workers_scripts","type":"edit"},{"key":"bot_management","type":"read"}]'
+    local keys='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"read"},{"key":"config_settings","type":"edit"},{"key":"cache_settings","type":"edit"},{"key":"workers_routes","type":"edit"},{"key":"workers_scripts","type":"edit"},{"key":"bot_management","type":"read"},{"key":"dynamic_url_redirects","type":"edit"},{"key":"page_rules","type":"read"}]'
     printf 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%s&accountId=*&zoneId=all&name=5Stack%%20panel\n' "$(jq -rn --arg k "$keys" '$k | @uri')"
 }
 

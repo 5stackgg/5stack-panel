@@ -187,7 +187,9 @@ test_always_use_https_goes_off_and_a_rule_redirects_everything_but_the_challenge
     assert_eq "$(redirect_rule | jq -r '.action_parameters.from_value.target_url.expression')" 'concat("https://", http.host, http.request.uri.path)'
     rule_at="$(grep -n 'POST /zones/z1/rulesets/.*5stack_panel_https\|PUT /zones/z1/rulesets/phases/http_request_dynamic_redirect' "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
     off_at="$(grep -n 'PATCH /zones/z1/settings/always_use_https' "$WORK_DIR/cf-calls" | cut -d: -f1)"
-    [ -n "$rule_at" ] && [ -n "$off_at" ] && [ "$rule_at" -lt "$off_at" ] || fail "Always Use HTTPS went off before the rule was in"
+    if [ -z "$rule_at" ] || [ -z "$off_at" ] || [ "$rule_at" -ge "$off_at" ]; then
+        fail "Always Use HTTPS went off before the rule was in"
+    fi
     assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "x-5stack-check: acme-path"
     assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "cf-ray:"
     assert_contains "$(through_cloudflare api.example.gg /login)" "HTTP/1.1 301"

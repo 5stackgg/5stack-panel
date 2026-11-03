@@ -59,6 +59,11 @@ step "Installing Traefik"
 install_traefik || die "failed to install Traefik"
 ok "Traefik is ready"
 
+if [ "$CLOUDFLARE_MANAGED" = true ]; then
+    step "Updating the panel's Cloudflare records"
+    cloudflare_sync_records
+fi
+
 step "Building overlay manifests"
 # Whether an operator has asked for a TURN relay at all. Read straight from
 # coturn's own env file rather than the environment: this is the same file the
@@ -150,6 +155,11 @@ fi
 SSL_OK=true
 if [ "$REVERSE_PROXY" != true ]; then
     watch_ssl_status || SSL_OK=false
+fi
+
+if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$SSL_OK" = true ]; then
+    step "Putting Cloudflare in front of the panel"
+    cloudflare_sync_proxy
 fi
 
 if [ "$SSL_OK" != true ]; then

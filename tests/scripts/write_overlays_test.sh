@@ -210,4 +210,38 @@ test_the_api_only_takes_the_shared_secret_from_ai_secrets() {
     fi
 }
 
+test_managed_cloudflare_proves_its_zones_through_dns_first() {
+    with_s3_endpoint ""
+    (
+        export CLOUDFLARE_MANAGED=true CLOUDFLARE_ZONES=example.gg,example.net
+        write
+    ) || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    assert_contains "$(cat "$(overlay local-secrets-https)/kustomization.yaml")" "- ../cert-manager-cloudflare"
+    assert_contains "$(cat "$(overlay vault-https)/kustomization.yaml")" "- ../vault-cloudflare"
+    assert_not_contains "$(cat "$(overlay local-secrets-https)/kustomization.yaml")" "vault-cloudflare"
+    manifest="$(kubectl kustomize "$(overlay local-secrets-https)")" || fail "kubectl kustomize failed"
+    issuer="$(awk '/^kind: Issuer/,/^---/' <<<"$manifest")"
+    solvers="$(awk '/solvers:/,0' <<<"$issuer")"
+    [ "$(grep -n 'dns01:' <<<"$solvers" | cut -d: -f1)" -lt "$(grep -n 'http01:' <<<"$solvers" | cut -d: -f1)" ] ||
+        fail "HTTP-01 comes before DNS-01: $solvers"
+    assert_contains "$solvers" "- example.gg"
+    assert_contains "$solvers" "- example.net"
+    assert_contains "$solvers" "name: cloudflare-secrets"
+    assert_contains "$solvers" "http01:"
+    assert_contains "$solvers" "traefik.ingress.kubernetes.io/router.priority: \"1000000\""
+    assert_contains "$(kinds_and_names "$manifest")" "Secret/cloudflare-secrets"
+    vault="$(kubectl kustomize "$(overlay vault-https)")" || fail "kubectl kustomize vault-https failed"
+    assert_contains "$(kinds_and_names "$vault")" "ExternalSecret/cloudflare-secrets"
+}
+
+test_without_managed_cloudflare_the_issuer_is_http01_only() {
+    with_s3_endpoint ""
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    assert_contains "$(cat "$(overlay local-secrets-https)/kustomization.yaml")" "- ../cert-manager"
+    assert_not_contains "$(cat "$(overlay local-secrets-https)/kustomization.yaml")" "cert-manager-cloudflare"
+    vault="$(kubectl kustomize "$(overlay vault-https)")" || fail "kubectl kustomize vault-https failed"
+    assert_not_contains "$vault" "dns01"
+    assert_not_contains "$(kinds_and_names "$vault")" "ExternalSecret/cloudflare-secrets"
+}
+
 run_tests

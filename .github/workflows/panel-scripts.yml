@@ -25,6 +25,10 @@ on:
       - "base/backups/**"
       - "base/game-server-node-connector/**"
       - "overlays/nvidia/**"
+      - cloudflare.sh
+      - "overlays/cert-manager/**"
+      - "overlays/vault-cloudflare/**"
+      - overlays/local-secrets/kustomization.yaml
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -49,6 +53,10 @@ on:
       - "base/backups/**"
       - "base/game-server-node-connector/**"
       - "overlays/nvidia/**"
+      - cloudflare.sh
+      - "overlays/cert-manager/**"
+      - "overlays/vault-cloudflare/**"
+      - overlays/local-secrets/kustomization.yaml
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -56,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x cloudflare.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh tests/scripts/*.sh tests/scripts/stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/apply_overlay_test.sh
       - run: bash tests/scripts/debug_test.sh
@@ -66,6 +74,7 @@ jobs:
       - run: bash tests/scripts/node_ip_test.sh
       - run: bash tests/scripts/traefik_install_test.sh
       - run: bash tests/scripts/write_overlays_test.sh
+      - run: bash tests/scripts/cloudflare_setup_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh
       - run: bash tests/scripts/gpu_nodes_test.sh
       - run: bash tests/scripts/service_test.sh

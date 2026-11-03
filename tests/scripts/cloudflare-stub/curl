@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+import urllib.parse
+
+work = os.environ["WORK_DIR"]
+state_path = os.path.join(work, "cf-state.json")
+state = json.load(open(state_path))
+args = sys.argv[1:]
+
+method, data, url, out_null, write_out, from_stdin = "GET", None, None, False, None, False
+i = 0
+while i < len(args):
+    a = args[i]
+    if a == "-X":
+        method = args[i + 1]
+        i += 1
+    elif a in ("--data-binary", "--data", "-d"):
+        data = args[i + 1]
+        i += 1
+    elif a == "-o":
+        out_null = args[i + 1] == "/dev/null"
+        i += 1
+    elif a == "-w":
+        write_out = args[i + 1]
+        i += 1
+    elif a == "-K":
+        from_stdin = args[i + 1] == "-"
+        i += 1
+    elif a in ("-H", "--max-time", "--resolve"):
+        if a == "-H" and "authorization" in args[i + 1].lower():
+            open(os.path.join(work, "cf-calls"), "a").write("TOKEN-IN-ARGS\n")
+        i += 1
+    elif not a.startswith("-"):
+        url = a
+    i += 1
+
+auth = sys.stdin.read() if from_stdin else ""
+
+
+def log(line):
+    with open(os.path.join(work, "cf-calls"), "a") as f:
+        f.write(line + "\n")
+
+
+def save():
+    json.dump(state, open(state_path, "w"))
+
+
+def reply(result=None, success=True, errors=None, code=None):
+    body = {"success": success, "errors": errors or [], "result": result}
+    if code is not None:
+        body["errors"] = [{"code": code, "message": "not found"}]
+    sys.stdout.write(json.dumps(body))
+    sys.exit(0)
+
+
+if url.startswith("https://1.1.1.1/cdn-cgi/trace"):
+    sys.stdout.write("fl=1\nip=%s\nts=1\n" % state.get("ip", "203.0.113.40"))
+    sys.exit(0)
+
+parsed = urllib.parse.urlparse(url)
+if not parsed.path.startswith("/client/v4"):
+    log("ORIGIN %s" % parsed.hostname)
+    code = state.get("origin", {}).get(parsed.hostname, 200)
+    if write_out:
+        sys.stdout.write(str(code))
+    sys.exit(0)
+
+if "Bearer %s" % state.get("token", "") not in auth:
+    reply(None, False, [{"code": 9109, "message": "Invalid access token"}])
+
+path = parsed.path[len("/client/v4"):]
+query = urllib.parse.parse_qs(parsed.query)
+log("%s %s%s" % (method, path, (" " + data) if data else ""))
+parts = path.strip("/").split("/")
+zones = state.setdefault("zones", [])
+records = state.setdefault("records", [])
+
+if parts == ["zones"]:
+    name = query.get("name", [""])[0]
+    reply([z for z in zones if z["name"] == name])
+if parts == ["user", "tokens", "verify"]:
+    reply({"status": "active"})
+if parts[0] != "zones":
+    reply(None, False, [{"code": 7003, "message": "no route"}])
+zone = parts[1]
+rest = parts[2:]
+
+if rest[:1] == ["dns_records"]:
+    if method == "GET":
+        out = [r for r in records if r["zone"] == zone]
+        if "name" in query:
+            out = [r for r in out if r["name"] == query["name"][0]]
+        if "type" in query:
+            out = [r for r in out if r["type"] == query["type"][0]]
+        reply(out)
+    if method == "POST":
+        body = json.loads(data)
+        if body["type"] == "TXT" and state.get("no_dns_edit"):
+            reply(None, False, [{"code": 10000, "message": "Authentication error"}])
+        state["next"] = state.get("next", 0) + 1
+        body.update({"id": "r%d" % state["next"], "zone": zone, "modified_on": "2026-11-03T12:00:00Z"})
+        records.append(body)
+        save()
+        reply(body)
+    rid = rest[1]
+    rec = next((r for r in records if r["id"] == rid), None)
+    if rec is None:
+        reply(None, False, [{"code": 81044, "message": "record not found"}])
+    if method == "DELETE":
+        records.remove(rec)
+        save()
+        reply({"id": rid})
+    if method in ("PATCH", "PUT"):
+        rec.update(json.loads(data))
+        save()
+        reply(rec)
+
+if rest == ["ssl", "certificate_packs"]:
+    reply(state.get("packs", {}).get(zone, []))
+if rest == ["workers", "routes"]:
+    reply(state.get("routes", {}).get(zone, []))
+if rest[:1] == ["settings"]:
+    reply({"id": rest[1], "value": state.get("settings", {}).get(zone, {}).get(rest[1], "on")})
+if rest == ["bot_management"]:
+    reply({"fight_mode": state.get("bot_fight", {}).get(zone, False)})
+if rest == ["ssl", "universal", "settings"]:
+    reply({"enabled": True})
+if rest == ["cache", "tiered_cache_smart_topology_enable"]:
+    tiered = state.setdefault("tiered", {})
+    if method == "PATCH":
+        tiered[zone] = json.loads(data)["value"]
+        save()
+    reply({"value": tiered.get(zone, "off")})
+
+rulesets = state.setdefault("rulesets", {}).setdefault(zone, {})
+if rest[:2] == ["rulesets", "phases"]:
+    phase = rest[2]
+    if method == "GET":
+        if phase not in rulesets:
+            reply(None, False, code=10003)
+        reply(rulesets[phase])
+    if method == "PUT":
+        if phase in rulesets:
+            log("PUT-OVER-EXISTING %s" % phase)
+        state["next"] = state.get("next", 0) + 1
+        rs = {"id": "rs%d" % state["next"], "phase": phase, "rules": []}
+        for rule in json.loads(data)["rules"]:
+            state["next"] += 1
+            rule["id"] = "rule%d" % state["next"]
+            rs["rules"].append(rule)
+        rulesets[phase] = rs
+        save()
+        reply(rs)
+if rest[:1] == ["rulesets"]:
+    rs = next((r for r in rulesets.values() if r["id"] == rest[1]), None)
+    rule = json.loads(data)
+    if method == "POST":
+        state["next"] = state.get("next", 0) + 1
+        rule["id"] = "rule%d" % state["next"]
+        rs["rules"].append(rule)
+    if method == "PATCH":
+        for j, r in enumerate(rs["rules"]):
+            if r["id"] == rest[3]:
+                rule["id"] = r["id"]
+                rs["rules"][j] = rule
+    save()
+    reply(rs)
+
+reply(None, False, [{"code": 7003, "message": "no route for %s" % path}])

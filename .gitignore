@@ -17,6 +17,7 @@ overlays/vault-http
 overlays/vault-https
 overlays/local-secrets-http
 overlays/local-secrets-https
+overlays/cert-manager-cloudflare
 
 overlays/dev/certs/*.pem
 overlays/dev/secrets/*.env

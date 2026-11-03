@@ -227,4 +227,32 @@ test_update_sh_on_a_vault_install_still_checks_the_vault_login() {
     assert_contains "$(cat "$WORK_DIR/setup-output")" "Not logged into vault"
 }
 
+test_managed_cloudflare_keeps_the_panel_off_reverse_proxy_mode() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    printf 'REVERSE_PROXY=true\nCLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\nVAULT_MANAGER=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
+    run_setup_env
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "no API token yet"
+    assert_eq "$(env_lines overlays/local-secrets/cloudflare-secrets.env CLOUDFLARE_API_TOKEN)" "CLOUDFLARE_API_TOKEN="
+    assert_eq "$(bash -c 'source "$1/utils/utils.sh" >/dev/null 2>&1; echo "$REVERSE_PROXY $CLOUDFLARE"' _ "$PANEL" </dev/null)" "false true"
+}
+
+test_the_cloudflare_flag_saves_managed_mode() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    bash -c 'source "$1/utils/utils.sh" --cloudflare-managed' _ "$PANEL" </dev/null >"$WORK_DIR/setup-output" 2>&1 || fail "$(tail -n 20 "$WORK_DIR/setup-output")"
+    assert_eq "$(env_lines .5stack-env.config CLOUDFLARE_MANAGED)" "CLOUDFLARE_MANAGED=true"
+    assert_eq "$(env_lines .5stack-env.config REVERSE_PROXY)" "REVERSE_PROXY=false"
+}
+
+test_the_token_page_asks_for_exactly_what_setup_uses() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    url="$(bash -c 'source "$1/utils/utils.sh" >/dev/null 2>&1; cloudflare_token_url' _ "$PANEL" </dev/null)"
+    assert_contains "$url" "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys="
+    assert_contains "$url" "&accountId=*&zoneId=all&name=5Stack%20panel"
+    keys="$(python3 -c 'import sys, urllib.parse, json; q = urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query); print(" ".join(k["key"] + ":" + k["type"] for k in json.loads(q["permissionGroupKeys"][0])))' "$url")"
+    assert_eq "$keys" "zone:read dns:edit zone_settings:edit ssl_and_certificates:read config_settings:edit cache_settings:edit workers_routes:read bot_management:read"
+}
+
 run_tests

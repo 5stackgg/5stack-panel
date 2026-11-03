@@ -11,6 +11,7 @@ DEBUG=false
 FIVE_STACK_ENV_SETUP=true
 REVERSE_PROXY=""
 CLOUDFLARE=""
+CLOUDFLARE_MANAGED=""
 
 CLOUDFLARE_DOCS="https://docs.5stack.gg/install/cloudflare/"
 
@@ -71,6 +72,12 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --cloudflare-managed)
+            CLOUDFLARE=true
+            CLOUDFLARE_MANAGED=true
+            REVERSE_PROXY=false
+            shift
+            ;;
         --cloudflare=*)
             CLOUDFLARE="${1#*=}"
             if [ "$CLOUDFLARE" = "0" ] || [ "$CLOUDFLARE" = "n" ]; then
@@ -110,11 +117,40 @@ ask_cloudflare() {
         return
     fi
 
+    if ask_yes_no "Set up DNS, proxy and SSL automatically?"; then
+        CLOUDFLARE_MANAGED=true
+        REVERSE_PROXY=false
+        return
+    fi
+
     step "Cloudflare Setup"
-    warn "Cloudflare needs a few 5Stack specific settings — SSL/TLS mode, an ACME"
-    warn "challenge rule, and tunnel routes. Follow the guide before continuing:"
+    warn "Cloudflare needs a few 5Stack specific settings. Follow the guide before continuing:"
     open_docs "$CLOUDFLARE_DOCS" "Cloudflare"
     echo
+}
+
+cloudflare_token_url() {
+    local keys='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"read"},{"key":"config_settings","type":"edit"},{"key":"cache_settings","type":"edit"},{"key":"workers_routes","type":"read"},{"key":"bot_management","type":"read"}]'
+    printf 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%s&accountId=*&zoneId=all&name=5Stack%%20panel\n' "$(jq -rn --arg k "$keys" '$k | @uri')"
+}
+
+ask_cloudflare_token() {
+    local file="overlays/local-secrets/cloudflare-secrets.env" token
+    if grep -qs '^CLOUDFLARE_API_TOKEN=..*' "$file"; then
+        return
+    fi
+    if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
+        warn "Cloudflare is managed for this panel but it has no API token yet. Run ./cloudflare.sh to add one."
+        return
+    fi
+    step "Cloudflare API token"
+    echo "    Make a token on Cloudflare's page; the permissions 5Stack needs are filled in:"
+    echo "    $(cloudflare_token_url)"
+    read -rs -p "    Paste the token: " token
+    echo
+    if [ -n "$token" ]; then
+        update_env_var "$file" CLOUDFLARE_API_TOKEN "$token"
+    fi
 }
 
 ask_reverse_proxy() {
@@ -195,7 +231,18 @@ if [ -z "$REVERSE_PROXY" ]; then
     if [ -z "$CLOUDFLARE" ]; then
         ask_cloudflare
     fi
-    ask_reverse_proxy
+    if [ "$CLOUDFLARE_MANAGED" != true ]; then
+        ask_reverse_proxy
+    fi
+fi
+
+if [ "$CLOUDFLARE_MANAGED" = true ]; then
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "Error: managing Cloudflare needs jq. Install it with: apt-get install -y jq"
+        exit 1
+    fi
+    REVERSE_PROXY=false
+    CLOUDFLARE=true
 fi
 
 if [ ! -f .5stack-env.config ]; then
@@ -207,6 +254,12 @@ REVERSE_PROXY=$REVERSE_PROXY
 CLOUDFLARE=$CLOUDFLARE
 KUBECONFIG=$KUBECONFIG
 EOF
+fi
+
+if [ "$CLOUDFLARE_MANAGED" = true ] && ! grep -qs '^CLOUDFLARE_MANAGED=true' .5stack-env.config; then
+    update_env_var .5stack-env.config CLOUDFLARE_MANAGED true
+    update_env_var .5stack-env.config CLOUDFLARE true
+    update_env_var .5stack-env.config REVERSE_PROXY false
 fi
 
 if [ -d "base/secrets" ]; then
@@ -235,6 +288,10 @@ copy_config_or_secrets "overlays/local-secrets" "overlays/local-secrets"
 copy_config_or_secrets "overlays/config" "overlays/config"
 copy_config_or_secrets "overlays/mediamtx" "overlays/mediamtx"
 copy_config_or_secrets "overlays/coturn" "overlays/coturn"
+
+if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$VAULT_MANAGER" != true ]; then
+    ask_cloudflare_token
+fi
 
 # Replace $(RAND32) with a random base64 encoded string in all non-example env files
 replace_rand32_in_env_files "overlays/local-secrets"

@@ -39,5 +39,6 @@ source "$SCRIPT_DIR/tailscale-api.sh"
 source "$SCRIPT_DIR/interactive_select.sh"
 source "$SCRIPT_DIR/open_docs.sh"
 source "$SCRIPT_DIR/print_domains_and_hosts.sh"
+source "$SCRIPT_DIR/cloudflare_setup.sh"
 
 source "$SCRIPT_DIR/setup-env.sh" "$@"

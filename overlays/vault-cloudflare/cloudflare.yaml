@@ -1,0 +1,17 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudflare-secrets
+  namespace: 5stack
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: secretstore-5stack
+    kind: SecretStore
+  target:
+    name: cloudflare-secrets
+  data:
+    - secretKey: CLOUDFLARE_API_TOKEN
+      remoteRef:
+        key: cloudflare
+        property: CLOUDFLARE_API_TOKEN

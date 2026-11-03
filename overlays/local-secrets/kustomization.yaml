@@ -72,4 +72,11 @@ secretGenerator:
     type: Opaque
     namespace: 5stack
     envs:
-      - faceit-secrets.env 
+      - faceit-secrets.env
+  - name: cloudflare-secrets
+    type: Opaque
+    namespace: 5stack
+    envs:
+      - cloudflare-secrets.env
+    options:
+      disableNameSuffixHash: true

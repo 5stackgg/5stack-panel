@@ -82,6 +82,29 @@ test_one_level_below_the_zone_is_covered_and_deeper_names_are_not() {
     assert_eq "$(plan_of ws.panel.example.gg)" "no depth"
 }
 
+test_flat_names_beside_the_panel_are_covered_by_the_free_certificate() {
+    panel_at panel.example.gg
+    local key sub
+    for key in API_DOMAIN:api WS_DOMAIN:ws RELAY_DOMAIN:tv DEMOS_DOMAIN:demos GAME_STREAM_DOMAIN:hls; do
+        sub="${key#*:}"
+        sed -i.bak "s/^${key%%:*}=.*/${key%%:*}=panel-$sub.example.gg/" "$WORK_DIR/panel/overlays/config/api-config.env"
+    done
+    printf 'S3_CONSOLE_HOST=panel-console.example.gg\n' >"$WORK_DIR/panel/overlays/config/s3-config.env"
+    printf 'TYPESENSE_HOST=panel-search.example.gg\n' >"$WORK_DIR/panel/overlays/config/typesense-config.env"
+    zone example.gg
+    for host in panel.example.gg panel-api.example.gg panel-ws.example.gg panel-tv.example.gg panel-search.example.gg panel-console.example.gg; do
+        assert_eq "$(plan_of "$host")" "yes -"
+    done
+    assert_eq "$(plan_of panel-demos.example.gg)" "no uploads"
+    assert_eq "$(plan_of panel-hls.example.gg)" "no video"
+    assert_eq "$(plan_of api.panel.example.gg)" ""
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_eq "$(record panel-api.example.gg)" "203.0.113.40 true"
+    assert_eq "$(record panel-ws.example.gg)" "203.0.113.40 true"
+    assert_eq "$(record panel-demos.example.gg)" "203.0.113.40 false"
+}
+
 test_two_levels_deep_nothing_is_proxied() {
     panel_at cs.panel.example.gg
     zone example.gg

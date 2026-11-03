@@ -153,6 +153,37 @@ ask_cloudflare_token() {
     fi
 }
 
+flat_host() {
+    printf '%s-%s.%s' "${WEB_DOMAIN%%.*}" "$1" "${WEB_DOMAIN#*.}"
+}
+
+panel_host() {
+    if [ "$FLAT_HOSTS" = true ]; then
+        flat_host "$1"
+    else
+        printf '%s.%s' "$1" "$WEB_DOMAIN"
+    fi
+}
+
+ask_flat_hosts() {
+    local parent="${WEB_DOMAIN#*.}"
+    if [[ "$parent" != *.* ]]; then
+        FLAT_HOSTS=false
+        return
+    fi
+    if [ -n "$FLAT_HOSTS" ] || [ -n "$API_DOMAIN$WS_DOMAIN$RELAY_DOMAIN$DEMOS_DOMAIN$GAME_STREAM_DOMAIN$S3_CONSOLE_HOST$TYPESENSE_HOST" ]; then
+        return
+    fi
+    FLAT_HOSTS=false
+    if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
+        return
+    fi
+    echo "Sign-in then covers all of $parent, so other sites on $parent get the panel's sign-in cookie."
+    if ask_yes_no "Keep every address one level deep ($(flat_host api) instead of api.$WEB_DOMAIN)?"; then
+        FLAT_HOSTS=true
+    fi
+}
+
 ask_reverse_proxy() {
     if [ "$CLOUDFLARE" = true ]; then
         if ask_yes_no "Are you using the Cloudflare proxy (orange cloud) or a Cloudflare Tunnel?"; then
@@ -352,29 +383,30 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     
     echo "WEB_DOMAIN: $WEB_DOMAIN"
     update_env_var "overlays/config/api-config.env" "WEB_DOMAIN" "$WEB_DOMAIN"
+    ask_flat_hosts
 
     if [ -z "$WS_DOMAIN" ]; then
-        WS_DOMAIN="ws.$WEB_DOMAIN"
+        WS_DOMAIN="$(panel_host ws)"
         update_env_var "overlays/config/api-config.env" "WS_DOMAIN" "$WS_DOMAIN"
     fi
 
     if [ -z "$API_DOMAIN" ]; then
-        API_DOMAIN="api.$WEB_DOMAIN"
+        API_DOMAIN="$(panel_host api)"
         update_env_var "overlays/config/api-config.env" "API_DOMAIN" "$API_DOMAIN"
     fi
 
     if [ -z "$RELAY_DOMAIN" ]; then
-        RELAY_DOMAIN="tv.$WEB_DOMAIN"
+        RELAY_DOMAIN="$(panel_host tv)"
         update_env_var "overlays/config/api-config.env" "RELAY_DOMAIN" "$RELAY_DOMAIN"
     fi
 
     if [ -z "$DEMOS_DOMAIN" ]; then
-        DEMOS_DOMAIN="demos.$WEB_DOMAIN"
+        DEMOS_DOMAIN="$(panel_host demos)"
         update_env_var "overlays/config/api-config.env" "DEMOS_DOMAIN" "$DEMOS_DOMAIN"
     fi
 
     if [ -z "$GAME_STREAM_DOMAIN" ]; then
-        GAME_STREAM_DOMAIN="hls.$WEB_DOMAIN"
+        GAME_STREAM_DOMAIN="$(panel_host hls)"
         update_env_var "overlays/config/api-config.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"
     fi
 
@@ -389,12 +421,12 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     fi
 
     if [ -z "$S3_CONSOLE_HOST" ]; then
-        S3_CONSOLE_HOST="console.$WEB_DOMAIN"
+        S3_CONSOLE_HOST="$(panel_host console)"
         update_env_var "overlays/config/s3-config.env" "S3_CONSOLE_HOST" "$S3_CONSOLE_HOST"
     fi
 
     if [ -z "$TYPESENSE_HOST" ]; then
-        TYPESENSE_HOST="search.$WEB_DOMAIN"
+        TYPESENSE_HOST="$(panel_host search)"
         update_env_var "overlays/config/typesense-config.env" "TYPESENSE_HOST" "$TYPESENSE_HOST"
     fi
 fi

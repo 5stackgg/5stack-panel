@@ -107,6 +107,30 @@ test_hosts_under_the_web_domain_leave_the_cookie_domain_alone() {
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
 }
 
+test_flat_hosts_put_every_address_one_level_deep_beside_the_panel() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    export FLAT_HOSTS=true
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env WS_DOMAIN)" "WS_DOMAIN=panel-ws.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env RELAY_DOMAIN)" "RELAY_DOMAIN=panel-tv.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env DEMOS_DOMAIN)" "DEMOS_DOMAIN=panel-demos.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env GAME_STREAM_DOMAIN)" "GAME_STREAM_DOMAIN=panel-hls.example.com"
+    assert_eq "$(env_lines overlays/config/s3-config.env S3_CONSOLE_HOST)" "S3_CONSOLE_HOST=panel-console.example.com"
+    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+}
+
+test_a_root_domain_keeps_its_addresses_under_it() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    export FLAT_HOSTS=true
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.example.com"
+    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=search.example.com"
+}
+
 test_an_operator_cookie_domain_that_covers_the_hosts_is_kept() {
     make_panel
     set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com

@@ -5,6 +5,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CF_STUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/cloudflare-stub" && pwd)"
 TOKEN="cf-test-token-0123456789"
+STUB_PATH="$CF_STUB:$PATH"
 
 panel_at() {
     local domain="$1"
@@ -35,9 +36,9 @@ state() {
 
 cf() {
     (
-        export PANEL_DIR="$WORK_DIR/panel" PATH="$CF_STUB:$PATH"
+        export PANEL_DIR="$WORK_DIR/panel" PATH="$STUB_PATH"
         unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ORIGIN_IPV4 CLOUDFLARE_ORIGIN_IPV6 HTTPS_PORT TURN_DOMAIN CLOUDFLARE_WORKER_DOMAIN
-        bash "$TEST_ROOT/utils/cloudflare_setup.sh" "$@"
+        CF_RELAY_WAIT=2 CF_RELAY_PAUSE=0 bash "$TEST_ROOT/utils/cloudflare_setup.sh" "$@"
     )
 }
 
@@ -235,6 +236,87 @@ test_status_names_a_moved_record_and_fix_puts_it_back() {
     assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
     cf tiered-cache || fail "tiered cache"
     assert_eq "$(jq -r '"\(.argo.z1) \(.tiered.z1)"' "$WORK_DIR/cf-state.json")" "on on"
+}
+
+test_the_stream_relay_puts_a_worker_in_front_of_streams_and_records_stay_its_own() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >/dev/null 2>&1 || fail "proxy"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
+    cf stream-relay >"$WORK_DIR/out" 2>&1 || fail "stream-relay: $(cat "$WORK_DIR/out")"
+    assert_eq "$(jq -r '.workers["5stack-stream-relay"] | "\(.account) \(.metadata.main_module) \(.metadata.bindings[0].name)=\(.metadata.bindings[0].text)"' "$WORK_DIR/cf-state.json")" "acct1 worker.js WEB_ORIGIN=https://example.gg"
+    assert_contains "$(jq -r '.workers["5stack-stream-relay"].module' "$WORK_DIR/cf-state.json")" "5stack-stream-relay"
+    assert_eq "$(jq -r '.routes.z1[] | "\(.pattern) \(.script) \(.request_limit_fail_open)"' "$WORK_DIR/cf-state.json")" "hls.example.gg/* 5stack-stream-relay false"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
+    assert_eq "$(plan_of hls.example.gg)" "skip worker"
+    assert_contains "$(jq -r '.rulesets.z1.http_config_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"hls.example.gg"'
+    assert_contains "$(jq -r '.rulesets.z1.http_request_cache_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"hls.example.gg"'
+    : >"$WORK_DIR/cf-calls"
+    cf records >/dev/null 2>&1 || fail "records again"
+    cf proxy >/dev/null 2>&1 || fail "proxy again"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
+    if grep -E '(POST|PATCH|DELETE) /zones/z1/dns_records.*hls\.example\.gg' "$WORK_DIR/cf-calls"; then
+        fail "an update changed the stream relay's record"
+    fi
+    cf stream-relay >/dev/null 2>&1 || fail "stream-relay again"
+    assert_eq "$(jq '.routes.z1 | length' "$WORK_DIR/cf-state.json")" 1
+}
+
+test_an_unreadable_route_list_leaves_every_host_alone() {
+    panel_at example.gg
+    zone example.gg
+    state '.no_routes_read = true'
+    assert_eq "$(plan_of hls.example.gg)" "skip routes"
+    assert_eq "$(plan_of api.example.gg)" "skip routes"
+    cf records >/dev/null 2>&1
+    assert_eq "$(jq '.records | length' "$WORK_DIR/cf-state.json")" 0
+}
+
+test_a_stream_relay_that_never_answers_puts_streams_back_straight_to_the_server() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    state '.worker_down = true'
+    cf stream-relay >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "isn't answering on hls.example.gg"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
+}
+
+test_the_stream_relay_stops_on_a_token_that_cannot_deploy_workers() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    state '.no_workers_write = true'
+    cf stream-relay >"$WORK_DIR/out" 2>&1 && fail "deployed without Workers Scripts write"
+    assert_contains "$(cat "$WORK_DIR/out")" "refused the stream relay Worker"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
+    assert_eq "$(jq '.routes.z1 // [] | length' "$WORK_DIR/cf-state.json")" 0
+}
+
+test_the_stream_relay_needs_a_name_the_free_certificate_covers() {
+    panel_at panel.example.gg
+    zone example.gg
+    cf stream-relay >"$WORK_DIR/out" 2>&1 && fail "relayed a name too deep for the certificate"
+    assert_contains "$(cat "$WORK_DIR/out")" "deeper than Cloudflare's free certificate"
+    assert_eq "$(jq '.workers // {} | length' "$WORK_DIR/cf-state.json")" 0
+}
+
+test_stream_relay_sh_uses_the_managed_key_and_keeps_the_worker_through_updates() {
+    panel_at example.gg
+    zone example.gg
+    cp -R "$TEST_ROOT/utils" "$TEST_ROOT/stream-relay.sh" "$WORK_DIR/panel/"
+    mkdir -p "$WORK_DIR/panel/cloudflare-workers"
+    cp -R "$TEST_ROOT/cloudflare-workers/stream-relay" "$WORK_DIR/panel/cloudflare-workers/"
+    printf 'CLOUDFLARE_MANAGED=true\n' >"$WORK_DIR/panel/.5stack-env.config"
+    cf records >/dev/null 2>&1 || fail "records"
+    env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ORIGIN_IPV4 -u HTTPS_PORT PATH="$STUB_PATH" CF_RELAY_WAIT=2 CF_RELAY_PAUSE=0 \
+        bash "$WORK_DIR/panel/stream-relay.sh" </dev/null >"$WORK_DIR/out" 2>&1 || fail "stream-relay.sh: $(cat "$WORK_DIR/out")"
+    assert_contains "$(cat "$WORK_DIR/out")" "Workers Paid"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
+    assert_contains "$(cat "$WORK_DIR/panel/.5stack-env.config")" "CLOUDFLARE_STREAM_RELAY=true"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "npx"
 }
 
 run_tests

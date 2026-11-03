@@ -8,6 +8,7 @@
 #   cloudflare_setup.sh status --json           records and settings against what setup left
 #   cloudflare_setup.sh fix <host>              puts one record back
 #   cloudflare_setup.sh tiered-cache            turns on Smart Tiered Cache
+#   cloudflare_setup.sh stream-relay            the stream relay Worker on GAME_STREAM_DOMAIN
 #
 # Every hostname goes through Cloudflare except demo uploads (DEMOS_DOMAIN,
 # over Cloudflare's 100 MB request limit), streams (GAME_STREAM_DOMAIN: the CDN
@@ -30,6 +31,9 @@ CF_CACHE_REF="5stack_panel_no_cache"
 CF_PROXIED_KEYS="WEB_DOMAIN API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN S3_CONSOLE_HOST"
 CF_DIRECT_KEYS="DEMOS_DOMAIN GAME_STREAM_DOMAIN TURN_DOMAIN"
 CF_NO_CACHE_KEYS="API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN GAME_STREAM_DOMAIN"
+CF_RELAY_WORKER="5stack-stream-relay"
+: "${CF_RELAY_WAIT:=12}"
+: "${CF_RELAY_PAUSE:=5}"
 : "${CF_TRACE_URL:=https://1.1.1.1/cdn-cgi/trace}"
 : "${CLOUDFLARE_ORIGIN_IPV6:=}"
 
@@ -101,9 +105,13 @@ cf_covered() {
 }
 
 cf_worker_routed() {
-    local host="$1" zone_id="$2"
-    cfa GET "/zones/$zone_id/workers/routes" |
-        jq -e --arg h "$host" 'any(.result[]?; (.pattern | split("/")[0]) == $h)' >/dev/null 2>&1
+    local host="$1" zone_id="$2" routes
+    routes="$(cfa GET "/zones/$zone_id/workers/routes")"
+    if ! cfa_ok <<<"$routes"; then
+        echo routes
+        return 0
+    fi
+    jq -e --arg h "$host" 'any(.result[]?; (.pattern | split("/")[0]) == $h)' >/dev/null 2>&1 <<<"$routes" && echo worker
 }
 
 cf_keyed_hosts() {
@@ -116,7 +124,7 @@ cf_keyed_hosts() {
 }
 
 cf_plan() {
-    local key host zone zone_id zone_name proxied why
+    local key host zone zone_id zone_name proxied why routed
     while read -r key host; do
         if [ -n "$CLOUDFLARE_WORKER_DOMAIN" ] && [ "$host" = "$(cf_lower "$CLOUDFLARE_WORKER_DOMAIN")" ]; then
             continue
@@ -142,9 +150,10 @@ cf_plan() {
             proxied=no
             why=depth
         fi
-        if cf_worker_routed "$host" "$zone_id"; then
+        routed="$(cf_worker_routed "$host" "$zone_id")"
+        if [ -n "$routed" ]; then
             proxied=skip
-            why=worker
+            why="$routed"
         fi
         printf '%s %s %s %s %s %s\n' "$key" "$host" "$zone_id" "$zone_name" "$proxied" "$why"
     done < <(cf_keyed_hosts)
@@ -334,8 +343,8 @@ cf_origin_status() {
     curl -s -o /dev/null --max-time 20 -w '%{http_code}' "https://$host/"
 }
 
-cf_proxy() {
-    local problems line key host zone_id zone_name proxied why zone hosts nocache status code
+cf_ready() {
+    local problems line
     problems="$(cf_check)"
     if [ -n "$problems" ]; then
         err "Cloudflare isn't ready for the panel:"
@@ -344,8 +353,15 @@ cf_proxy() {
         done <<<"$problems"
         return 1
     fi
-    cf_public_ip || return 1
-    for zone in $(cf_plan | awk '$5 == "yes" { print $3 }' | sort -u); do
+}
+
+cf_ruled() {
+    awk '$5 == "yes" || ($1 == "GAME_STREAM_DOMAIN" && $6 == "worker")'
+}
+
+cf_rules() {
+    local key host zone_id zone_name proxied why zone hosts nocache
+    for zone in $(cf_plan | cf_ruled | awk '{ print $3 }' | sort -u); do
         hosts=()
         nocache=()
         while read -r key host zone_id zone_name proxied why; do
@@ -353,7 +369,7 @@ cf_proxy() {
             if [[ " $CF_NO_CACHE_KEYS " == *" $key "* ]]; then
                 nocache+=("$host")
             fi
-        done < <(cf_plan | awk -v z="$zone" '$3 == z && $5 == "yes"')
+        done < <(cf_plan | cf_ruled | awk -v z="$zone" '$3 == z')
         cf_rule "$zone" http_config_settings "$CF_CONFIG_REF" "5Stack panel" set_config \
             '{"ssl": "strict", "rocket_loader": false, "email_obfuscation": false, "disable_zaraz": true, "bic": false}' "${hosts[@]}" || {
             err "Could not save the 5Stack configuration rule"
@@ -367,6 +383,13 @@ cf_proxy() {
             }
         fi
     done
+}
+
+cf_proxy() {
+    local key host zone_id zone_name proxied why status code
+    cf_ready || return 1
+    cf_public_ip || return 1
+    cf_rules || return 1
     status=0
     while read -r key host zone_id zone_name proxied why; do
         [ "$proxied" = yes ] || continue
@@ -441,6 +464,105 @@ cf_tiered_cache() {
     done
 }
 
+cf_upload_worker() {
+    local account="$1" dir response
+    dir="$(mktemp -d)"
+    jq -nc --arg web "https://$(cf_lower "$WEB_DOMAIN")" \
+        '{main_module: "worker.js", compatibility_date: "2025-04-29", bindings: [{type: "plain_text", name: "WEB_ORIGIN", text: $web}]}' >"$dir/metadata.json"
+    response="$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" |
+        curl -K - -sS --max-time 60 -X PUT \
+            -F "metadata=<$dir/metadata.json;type=application/json" \
+            -F "worker.js=@$CF_SETUP_DIR/../cloudflare-workers/stream-relay/worker.js;type=application/javascript+module" \
+            "$CLOUDFLARE_API/accounts/$account/workers/scripts/$CF_RELAY_WORKER")"
+    rm -rf "$dir"
+    if ! cfa_ok <<<"$response"; then
+        err "Cloudflare refused the stream relay Worker: $(cfa_errors <<<"$response")"
+        return 1
+    fi
+}
+
+cf_relay_route() {
+    local zone_id="$1" pattern="$2" routes id owner body response
+    routes="$(cfa GET "/zones/$zone_id/workers/routes")"
+    cfa_ok <<<"$routes" || {
+        err "Could not read the zone's Worker routes: $(cfa_errors <<<"$routes")"
+        return 1
+    }
+    id="$(jq -r --arg p "$pattern" '[.result[]? | select(.pattern == $p)][0].id // empty' <<<"$routes")"
+    owner="$(jq -r --arg p "$pattern" '[.result[]? | select(.pattern == $p)][0].script // empty' <<<"$routes")"
+    if [ -n "$owner" ] && [ "$owner" != "$CF_RELAY_WORKER" ]; then
+        err "The route $pattern already sends requests to the Worker \"$owner\". Remove it in Cloudflare first."
+        return 1
+    fi
+    body="$(jq -nc --arg p "$pattern" --arg s "$CF_RELAY_WORKER" '{pattern: $p, script: $s, request_limit_fail_open: false}')"
+    if [ -z "$id" ]; then
+        response="$(cfa POST "/zones/$zone_id/workers/routes" "$body")"
+    else
+        response="$(cfa PUT "/zones/$zone_id/workers/routes/$id" "$body")"
+    fi
+    cfa_ok <<<"$response" || {
+        err "Could not route $pattern to the stream relay Worker: $(cfa_errors <<<"$response")"
+        return 1
+    }
+}
+
+cf_relay_answers() {
+    local host="$1" i
+    for ((i = 0; i < CF_RELAY_WAIT; i++)); do
+        if curl -fsS --max-time 10 "https://$host/health" 2>/dev/null | grep -q "\"worker\":\"$CF_RELAY_WORKER\""; then
+            return 0
+        fi
+        sleep "$CF_RELAY_PAUSE"
+    done
+    return 1
+}
+
+cf_stream_relay() {
+    local host zone zone_id zone_name account out
+    host="$(cf_lower "$GAME_STREAM_DOMAIN")"
+    if [ -z "$host" ]; then
+        err "The panel has no stream address (GAME_STREAM_DOMAIN), so there is nothing to relay."
+        return 1
+    fi
+    if [ -n "$HTTPS_PORT" ] && [ "$HTTPS_PORT" != 443 ]; then
+        err "The panel serves HTTPS on port $HTTPS_PORT, and a Cloudflare Worker only reaches port 443."
+        return 1
+    fi
+    zone="$(cf_zone "$host")" || {
+        err "$host isn't in a Cloudflare zone this token can read."
+        return 1
+    }
+    read -r zone_id zone_name _ <<<"$zone"
+    if ! cf_covered "$host" "$zone_name" "$zone_id"; then
+        err "$host is deeper than Cloudflare's free certificate covers, so a Worker can't serve it."
+        return 1
+    fi
+    cf_ready || return 1
+    cf_public_ip || return 1
+    account="$(cfa GET "/zones/$zone_id" | jq -r '.result.account.id // empty')"
+    if [ -z "$account" ]; then
+        err "Could not read which Cloudflare account $zone_name is in."
+        return 1
+    fi
+    cf_upload_worker "$account" || return 1
+    ok "Worker $CF_RELAY_WORKER deployed"
+    cf_relay_route "$zone_id" "$host/*" || return 1
+    ok "Route $host/* → $CF_RELAY_WORKER"
+    cf_rules || return 1
+    out="$(cf_sync_host "$zone_id" "$host" true false)" || return 1
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+        err "$host has a record that isn't 5Stack's, so its proxy wasn't turned on. Run ./cloudflare.sh to replace it."
+        return 1
+    fi
+    if ! cf_relay_answers "$host"; then
+        warn "The stream relay Worker isn't answering on $host, so streams go straight to this server again."
+        cf_sync_host "$zone_id" "$host" false false >/dev/null
+        return 3
+    fi
+    ok "Streams on $host go through the stream relay Worker"
+}
+
 cf_plan_json() {
     cf_plan | jq -Rsc '
         split("\n") | map(select(length > 0) | split(" ")
@@ -481,6 +603,7 @@ cloudflare_setup() {
         status) cf_status_json ;;
         fix) cf_fix "$1" ;;
         tiered-cache) cf_tiered_cache ;;
+        stream-relay) cf_stream_relay ;;
         *)
             err "Unknown step: $command"
             return 1
@@ -515,6 +638,12 @@ cloudflare_sync_records() {
 cloudflare_sync_proxy() {
     if ! cloudflare_setup proxy; then
         warn "Cloudflare isn't in front of every panel hostname yet. Run ./cloudflare.sh to see why."
+    fi
+}
+
+cloudflare_sync_stream_relay() {
+    if ! cloudflare_setup stream-relay; then
+        warn "The stream relay Worker isn't set up, so streams go straight to this server. Run ./stream-relay.sh to see why."
     fi
 }
 

@@ -10,6 +10,7 @@ state = json.load(open(state_path))
 args = sys.argv[1:]
 
 method, data, url, out_null, write_out, from_stdin = "GET", None, None, False, None, False
+forms = {}
 i = 0
 while i < len(args):
     a = args[i]
@@ -27,6 +28,13 @@ while i < len(args):
         i += 1
     elif a == "-K":
         from_stdin = args[i + 1] == "-"
+        i += 1
+    elif a == "-F":
+        name, _, value = args[i + 1].partition("=")
+        value = value.split(";type=")[0]
+        if value[:1] in ("<", "@"):
+            value = open(value[1:]).read()
+        forms[name] = value
         i += 1
     elif a in ("-H", "--max-time", "--resolve"):
         if a == "-H" and "authorization" in args[i + 1].lower():
@@ -62,7 +70,15 @@ if url.startswith("https://1.1.1.1/cdn-cgi/trace"):
 
 parsed = urllib.parse.urlparse(url)
 if not parsed.path.startswith("/client/v4"):
-    log("ORIGIN %s" % parsed.hostname)
+    log("ORIGIN %s%s" % (parsed.hostname, parsed.path if parsed.path not in ("", "/") else ""))
+    if parsed.path == "/health":
+        worker = next((r["script"] for z in state.get("routes", {}).values() for r in z
+                       if r["pattern"] == parsed.hostname + "/*" and state.get("workers", {}).get(r["script"])), None)
+        proxied = any(r["name"] == parsed.hostname and r.get("proxied") for r in state.get("records", []))
+        if worker and proxied and not state.get("worker_down"):
+            sys.stdout.write(json.dumps({"ok": True, "worker": worker}, separators=(",", ":")))
+            sys.exit(0)
+        sys.exit(22)
     code = state.get("origin", {}).get(parsed.hostname, 200)
     if write_out:
         sys.stdout.write(str(code))
@@ -83,10 +99,18 @@ if parts == ["zones"]:
     reply([z for z in zones if z["name"] == name])
 if parts == ["user", "tokens", "verify"]:
     reply({"status": "active"})
+if parts[:1] == ["accounts"] and parts[2:4] == ["workers", "scripts"] and method == "PUT":
+    if state.get("no_workers_write"):
+        reply(None, False, [{"code": 10000, "message": "Authentication error"}])
+    state.setdefault("workers", {})[parts[4]] = {"account": parts[1], "metadata": json.loads(forms["metadata"]), "module": forms.get("worker.js", "")}
+    save()
+    reply({"id": parts[4]})
 if parts[0] != "zones":
     reply(None, False, [{"code": 7003, "message": "no route"}])
 zone = parts[1]
 rest = parts[2:]
+if rest == [] and method == "GET":
+    reply({"id": zone, "account": {"id": "acct1"}})
 
 if rest[:1] == ["dns_records"]:
     if method == "GET":
@@ -120,8 +144,26 @@ if rest[:1] == ["dns_records"]:
 
 if rest == ["ssl", "certificate_packs"]:
     reply(state.get("packs", {}).get(zone, []))
-if rest == ["workers", "routes"]:
-    reply(state.get("routes", {}).get(zone, []))
+if rest[:2] == ["workers", "routes"]:
+    if state.get("no_routes_read"):
+        reply(None, False, [{"code": 10000, "message": "Authentication error"}])
+    routes = state.setdefault("routes", {}).setdefault(zone, [])
+    if method == "POST":
+        body = json.loads(data)
+        state["next"] = state.get("next", 0) + 1
+        body["id"] = "route%d" % state["next"]
+        routes.append(body)
+        save()
+        reply(body)
+    if method == "PUT":
+        body = json.loads(data)
+        for j, r in enumerate(routes):
+            if r["id"] == rest[2]:
+                body["id"] = r["id"]
+                routes[j] = body
+        save()
+        reply(body)
+    reply(routes)
 if rest[:1] == ["settings"]:
     reply({"id": rest[1], "value": state.get("settings", {}).get(zone, {}).get(rest[1], "on")})
 if rest == ["bot_management"]:

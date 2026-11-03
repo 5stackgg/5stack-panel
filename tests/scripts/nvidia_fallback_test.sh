@@ -54,6 +54,35 @@ test_the_fallback_reads_the_host_like_the_connector() {
     assert_contains "$(cat "$FALLBACK")" "serviceAccountName: game-server-node-connector"
 }
 
+rendered_fallback() {
+    kubectl kustomize "$TEST_ROOT/overlays/nvidia" | awk '
+        function emit() {
+            if (doc ~ /\nkind: DaemonSet\n/ && doc ~ /\n  name: game-server-node-connector-nvidia-fallback\n/) {
+                print doc
+            }
+            doc = ""
+        }
+        /^---$/ { emit(); next }
+        { doc = doc "\n" $0 }
+        END { doc = doc "\n"; emit() }
+    '
+}
+
+test_the_fallback_runs_only_on_gpu_nodes_the_api_labels_for_it() {
+    require_fallback
+    rendered="$(rendered_fallback)"
+    [ -n "$rendered" ] || fail "kubectl kustomize overlays/nvidia rendered no fallback DaemonSet"
+    assert_contains "$rendered" '- matchExpressions:
+              - key: nvidia-gpu
+                operator: In
+                values:
+                - "true"
+              - key: 5stack-nvidia-fallback
+                operator: In
+                values:
+                - "true"'
+}
+
 test_the_nvidia_overlay_deploys_the_fallback() {
     assert_contains "$(cat "$TEST_ROOT/overlays/nvidia/kustomization.yaml")" "- game-server-node-connector-nvidia-fallback.yaml"
 }

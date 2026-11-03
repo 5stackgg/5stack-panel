@@ -84,7 +84,7 @@ test_another_update_changes_nothing() {
     wait_for 200 http "$API" /me
 }
 
-start_cluster "$K3S_BEFORE_GATEWAY_API" || exit 1
+K3S_IMAGE="$K3S_BEFORE_GATEWAY_API" start_cluster || exit 1
 make_panel || exit 1
 update_panel >/dev/null || exit 1
 deploy_panel_stubs || exit 1

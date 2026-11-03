@@ -59,7 +59,7 @@ client() {
     docker exec "$PREFIX-client" "$@"
 }
 
-# A cluster on k3s $1 (K3S_IMAGE by default) with the client container.
+# A cluster on K3S_IMAGE, with the client container.
 start_cluster() {
     cleanup
     mkdir -p "$WORK_DIR"
@@ -69,7 +69,7 @@ start_cluster() {
     # kube-proxy answers the InternalIP itself, which hid that ServiceLB
     # masquerades everything else.
     docker network create "$PREFIX-public" >/dev/null || return 1
-    run_k3s "${1:-$K3S_IMAGE}" || return 1
+    run_k3s "$K3S_IMAGE" || return 1
 
     docker run -d --name "$PREFIX-client" --network "$PREFIX-net" "$PYTHON_IMAGE" sleep infinity >/dev/null || return 1
     client apk add --no-cache -q curl jq openssl >/dev/null || return 1

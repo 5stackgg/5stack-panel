@@ -209,7 +209,7 @@ test_running_the_update_again_changes_nothing() {
 
 # k3s's Traefik only held the Gateway API CRDs before 1.37, when k3s began
 # installing them as a chart of their own.
-start_cluster "$K3S_BEFORE_GATEWAY_API" || exit 1
+K3S_IMAGE="$K3S_BEFORE_GATEWAY_API" start_cluster || exit 1
 make_panel || exit 1
 install_ingress_nginx || exit 1
 deploy_panel_stubs || exit 1

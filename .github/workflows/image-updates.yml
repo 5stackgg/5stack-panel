@@ -10,12 +10,6 @@ on:
   schedule:
     - cron: "0 13 * * 1"
   workflow_dispatch:
-  # TEMPORARY: tests this workflow from its own PR, short of merging. Drop
-  # before merging.
-  pull_request:
-    paths:
-      - .github/workflows/image-updates.yml
-      - .github/scripts/image_updates.sh
 
 permissions: {}
 
@@ -133,11 +127,6 @@ jobs:
             gh pr edit "$pr" --add-assignee "$REVIEWERS"
             echo "::error::#$pr's checks failed, so it was left open for $REVIEWERS"
             exit 1
-          fi
-          # TEMPORARY: the test run from this workflow's own PR stops here.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            echo "::notice::#$pr passed its checks; a test run leaves it unmerged"
-            exit 0
           fi
           if ! gh pr merge "$pr" --squash --match-head-commit "$head"; then
             gh pr edit "$pr" --add-assignee "$REVIEWERS"

@@ -120,6 +120,32 @@ test_nvidia_lines_bind_the_nvidia_devices() {
     assert_not_contains "$(lxc_lines nvidia)" "/dev/kfd"
 }
 
+test_proxmox_device_passthrough_counts_for_the_amd_binds() {
+    load
+    write_conf
+    sed -i '/^unprivileged: 0$/a dev0: /dev/kfd,gid=993\ndev1: path=/dev/dri/renderD128,gid=993\ndev2: /dev/dri/card1,gid=44' "$WORK_DIR/100.conf"
+    local lines
+    mapfile -t lines < <(lxc_lines amd)
+    assert_not_contains "$(missing_lines "$WORK_DIR/100.conf" "${lines[@]}")" "/dev/dri"
+    assert_not_contains "$(missing_lines "$WORK_DIR/100.conf" "${lines[@]}")" "/dev/kfd"
+    add_lxc_lines "$WORK_DIR/100.conf" "${lines[@]}"
+    assert_eq "$(grep -c '^lxc.mount.entry: /dev/kfd' "$WORK_DIR/100.conf")" "0"
+}
+
+test_a_card_node_alone_does_not_count_for_dri() {
+    load
+    write_conf
+    sed -i '/^unprivileged: 0$/a dev0: /dev/dri/card1,gid=44' "$WORK_DIR/100.conf"
+    assert_eq "$(missing_lines "$WORK_DIR/100.conf" "lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir")" "lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir"
+}
+
+test_device_passthrough_in_a_snapshot_does_not_count() {
+    load
+    write_conf
+    echo "dev0: /dev/kfd,gid=993" >>"$WORK_DIR/100.conf"
+    assert_eq "$(missing_lines "$WORK_DIR/100.conf" "lxc.mount.entry: /dev/kfd dev/kfd none bind,optional,create=file")" "lxc.mount.entry: /dev/kfd dev/kfd none bind,optional,create=file"
+}
+
 # An awk that fails only for the rewrite in add_lxc_lines, the one call that
 # passes ADD_LINES. MODE is fail (writes half the file, exits 1, as on a full
 # disk), empty (writes nothing, exits 0) or short (writes 2 lines, exits 0).

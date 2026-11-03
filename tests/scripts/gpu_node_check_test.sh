@@ -303,4 +303,12 @@ test_the_governor_fix_fails_when_the_governor_did_not_change() {
     assert_not_contains "$out" "[FIX ]"
 }
 
+test_k3s_is_found_in_usr_local_bin_when_path_leaves_it_out() {
+    (
+        PATH=/usr/bin:/bin
+        load
+        assert_contains ":$PATH:" ":/usr/local/bin:"
+    )
+}
+
 run_tests

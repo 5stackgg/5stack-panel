@@ -123,11 +123,34 @@ conf_has_line() {
     ' "$1"
 }
 
+# Proxmox's own passthrough (devN: /dev/kfd,gid=993) gives the container the
+# device too; for /dev/dri a render node is the one the GPU needs.
+conf_passes_device() {
+    DEVICE="$2" awk '
+        /^\[/ { exit }
+        /^dev[0-9]+: / {
+            path = substr($0, index($0, " ") + 1)
+            sub(/^path=/, "", path)
+            sub(/,.*/, "", path)
+            want = ENVIRON["DEVICE"]
+            if (path == want || (want == "/dev/dri" && index(path, "/dev/dri/renderD") == 1)) { found = 1; exit }
+        }
+        END { exit !found }
+    ' "$1"
+}
+
 missing_lines() {
-    local file="$1" line
+    local file="$1" line device
     shift
     for line in "$@"; do
-        conf_has_line "$file" "$line" || echo "$line"
+        conf_has_line "$file" "$line" && continue
+        case "$line" in
+            "lxc.mount.entry: /dev/"*)
+                device=${line#lxc.mount.entry: }
+                conf_passes_device "$file" "${device%% *}" && continue
+                ;;
+        esac
+        echo "$line"
     done
 }
 

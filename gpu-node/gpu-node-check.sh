@@ -19,6 +19,13 @@ CPUFREQUTILS_DEFAULT="${CPUFREQUTILS_DEFAULT:-/etc/default/cpufrequtils}"
 # LXC's proc:mixed leaves /proc/sys/net writable but not /proc/sys/vm, and
 # the kubelet writes to /proc/sys/vm, so that is what is tested.
 PROC_SYS_PROBE="${PROC_SYS_PROBE:-/proc/sys/vm/overcommit_memory}"
+# The k3s installer puts k3s in /usr/local/bin, which pct exec and some sudo
+# setups leave off PATH.
+K3S_BIN_DIR="${K3S_BIN_DIR-/usr/local/bin}"
+case ":$PATH:" in
+    *":$K3S_BIN_DIR:"*) ;;
+    *) [ -n "$K3S_BIN_DIR" ] && PATH="$PATH:$K3S_BIN_DIR" ;;
+esac
 
 usage() {
     echo "usage: gpu-node-check.sh [--apply] [--vendor nvidia|amd] [--k3s-version v1.36.5+k3s1]" >&2

@@ -87,6 +87,10 @@ spec:
             - name: host-dpkg
               mountPath: /host-dpkg
               readOnly: true
+            - name: host-5stack
+              mountPath: /host-5stack
+              readOnly: true
+              mountPropagation: HostToContainer
       volumes:
         - name: server-files
           hostPath:
@@ -129,4 +133,8 @@ spec:
         - name: host-dpkg
           hostPath:
             path: /var/lib/dpkg
+            type: DirectoryOrCreate
+        - name: host-5stack
+          hostPath:
+            path: /opt/5stack
             type: DirectoryOrCreate

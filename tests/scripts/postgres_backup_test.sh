@@ -34,8 +34,23 @@ while [ $# -gt 0 ]; do
     shift
 done
 EOF
+    cat >"$WORK_DIR/bin/pg_dumpall" <<'EOF'
+#!/bin/bash
+echo "$*" >>"$WORK_DIR/pg_dumpall-calls"
+if [ -f "$WORK_DIR/pg_dumpall-fails" ]; then
+    echo "pg_dumpall: error: connection to server failed" >&2
+    exit 1
+fi
+while [ $# -gt 0 ]; do
+    if [ "$1" = "-f" ]; then
+        printf 'CREATE ROLE hasura;\nALTER ROLE hasura WITH SUPERUSER LOGIN;\n' >"$2"
+    fi
+    shift
+done
+EOF
     cat >"$WORK_DIR/bin/zip" <<'EOF'
 #!/bin/bash
+echo "$*" >>"$WORK_DIR/zip-calls"
 cp "$3" "$2"
 EOF
     cat >"$WORK_DIR/bin/aws" <<'EOF'
@@ -70,7 +85,7 @@ case "$1 $2" in
     "s3api list-objects-v2") if [ -f "$WORK_DIR/objects" ]; then cat "$WORK_DIR/objects"; fi ;;
 esac
 EOF
-    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws"
+    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/pg_dumpall" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws"
 }
 
 buckets() {
@@ -219,6 +234,25 @@ test_the_in_cluster_store_uploads_without_listing_buckets() {
         assert_not_contains "$(aws_calls)" "list-buckets"
         assert_not_contains "$(aws_calls)" "--expected-bucket-owner"
     done
+}
+
+test_the_roles_go_beside_the_dump_without_passwords() {
+    eight_backups
+    run_backup rustfs
+    assert_succeeded
+    assert_eq "$(cat "$WORK_DIR/pg_dumpall-calls")" "-h timescaledb -p 5432 -U hasura -l hasura --roles-only --no-role-passwords -f $WORK_DIR/roles.sql"
+    assert_contains "$(sed -n 1p "$WORK_DIR/zip-calls")" ".dump"
+    assert_eq "$(sed -n 2p "$WORK_DIR/zip-calls" | awk '{ print $1, $NF }')" "-j $WORK_DIR/roles.sql"
+    assert_contains "$(calls_to "s3 cp ")" "s3://5stack-db-backups/backup-"
+}
+
+test_a_backup_still_uploads_when_the_roles_cannot_be_saved() {
+    touch "$WORK_DIR/pg_dumpall-fails"
+    run_backup rustfs
+    assert_succeeded
+    assert_contains "$(cat "$WORK_DIR/output")" "could not save the database roles, so this backup holds the database only"
+    assert_not_contains "$(cat "$WORK_DIR/zip-calls")" "roles.sql"
+    assert_contains "$(calls_to "s3 cp ")" "s3://5stack-db-backups/backup-"
 }
 
 run_tests

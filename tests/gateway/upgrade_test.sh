@@ -39,7 +39,7 @@ install_ingress_nginx() {
 # traefik-crd release, which is gone.
 leave_k3s_traefik_crds() {
     local -a crds
-    kubectl apply --server-side -f "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml" >/dev/null || return 1
+    grep -v "^{{" "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml" | kubectl apply --server-side -f - >/dev/null || return 1
     kubectl delete validatingadmissionpolicybinding,validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io >/dev/null || return 1
     mapfile -t crds < <(kubectl get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
     kubectl annotate --overwrite "${crds[@]}" meta.helm.sh/release-name=traefik-crd meta.helm.sh/release-namespace=kube-system >/dev/null || return 1
@@ -207,7 +207,9 @@ test_running_the_update_again_changes_nothing() {
     expect_other_app_routes_with_its_auth
 }
 
-start_cluster || exit 1
+# k3s's Traefik only held the Gateway API CRDs before 1.37, when k3s began
+# installing them as a chart of their own.
+start_cluster "$K3S_BEFORE_GATEWAY_API" || exit 1
 make_panel || exit 1
 install_ingress_nginx || exit 1
 deploy_panel_stubs || exit 1

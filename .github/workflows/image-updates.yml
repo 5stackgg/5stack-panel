@@ -95,6 +95,7 @@ jobs:
             --description "A major image release to check before merging"
 
       - name: Merge the minor and patch releases
+        id: minor
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           CHECKS_TOKEN: ${{ github.token }}
@@ -145,7 +146,8 @@ jobs:
           fi
 
       - name: Open a PR for each major release
-        if: ${{ !cancelled() }}
+        # Also after the minor releases' PR fails, but not when the setup did.
+        if: ${{ !cancelled() && steps.minor.outcome != 'skipped' }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |

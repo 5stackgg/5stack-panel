@@ -49,22 +49,27 @@ record() {
     jq -r --arg n "$1" --arg t "${2:-A}" '[.records[] | select(.name == $n and .type == $t)][0] | "\(.content) \(.proxied)"' "$WORK_DIR/cf-state.json"
 }
 
-test_everything_but_demo_uploads_and_turn_goes_through_cloudflare() {
+test_everything_but_demo_uploads_streams_and_turn_goes_through_cloudflare() {
     panel_at example.gg
     zone example.gg
     printf 'TURN_DOMAIN=turn.example.gg\n' >"$WORK_DIR/panel/overlays/coturn/coturn.env"
-    for host in example.gg api.example.gg ws.example.gg tv.example.gg hls.example.gg search.example.gg console.example.gg; do
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
         assert_eq "$(plan_of "$host")" "yes -"
     done
     assert_eq "$(plan_of demos.example.gg)" "no uploads"
+    assert_eq "$(plan_of hls.example.gg)" "no video"
     assert_eq "$(plan_of turn.example.gg)" "no udp"
     cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
     cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
     assert_eq "$(record api.example.gg)" "203.0.113.40 true"
     assert_eq "$(record demos.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
     assert_eq "$(record turn.example.gg)" "203.0.113.40 false"
-    if grep -E '"name":"(demos|turn)\.example\.gg"[^}]*"proxied":true' "$WORK_DIR/cf-calls"; then
-        fail "demos or turn was sent with proxied:true"
+    if grep -E '"name":"(demos|hls|turn)\.example\.gg"[^}]*"proxied":true' "$WORK_DIR/cf-calls"; then
+        fail "demos, hls or turn was sent with proxied:true"
+    fi
+    if grep -E 'ORIGIN (demos|hls|turn)\.example\.gg' "$WORK_DIR/cf-calls"; then
+        fail "the proxy step checked a host that stays straight to this server"
     fi
 }
 
@@ -217,13 +222,17 @@ test_status_names_a_moved_record_and_fix_puts_it_back() {
     zone example.gg
     cf records >/dev/null 2>&1
     cf proxy >/dev/null 2>&1
-    state '(.records[] | select(.name == "hls.example.gg" and .type == "A")) |= (.content = "192.0.2.10")'
+    state '(.records[] | select(.name == "ws.example.gg" and .type == "A")) |= (.content = "192.0.2.10")'
+    state '(.records[] | select(.name == "hls.example.gg" and .type == "A")) |= (.proxied = true)'
     status="$(cf status --json)"
-    assert_eq "$(jq -r '.hosts[] | select(.host == "hls.example.gg") | .state' <<<"$status")" elsewhere
+    assert_eq "$(jq -r '.hosts[] | select(.host == "ws.example.gg") | .state' <<<"$status")" elsewhere
+    assert_eq "$(jq -r '.hosts[] | select(.host == "hls.example.gg") | "\(.state) \(.want_proxied) \(.why)"' <<<"$status")" "cloud false video"
     assert_eq "$(jq -r '.hosts[] | select(.host == "demos.example.gg") | "\(.state) \(.want_proxied)"' <<<"$status")" "ok false"
     assert_eq "$(jq -r '.zones[0] | "\(.name) \(.ssl) \(.websockets) \(.bot_fight) \(.tiered_cache)"' <<<"$status")" "example.gg strict on false off"
-    cf fix hls.example.gg >/dev/null 2>&1 || fail "fix"
-    assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
+    cf fix ws.example.gg >/dev/null 2>&1 || fail "fix"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+    cf fix hls.example.gg >/dev/null 2>&1 || fail "fix hls"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 false"
     cf tiered-cache || fail "tiered cache"
     assert_eq "$(jq -r '"\(.argo.z1) \(.tiered.z1)"' "$WORK_DIR/cf-state.json")" "on on"
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Lets 5Stack manage this panel's hostnames on Cloudflare: the DNS records, the
-# proxy on every hostname but demo uploads, HTTPS Full (strict) and
+# proxy on every hostname but demo uploads and streams, HTTPS Full (strict) and
 # certificates proved through Cloudflare DNS. Then applies the panel.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

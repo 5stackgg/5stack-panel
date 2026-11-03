@@ -10,7 +10,8 @@
 #   cloudflare_setup.sh tiered-cache            turns on Smart Tiered Cache
 #
 # Every hostname goes through Cloudflare except demo uploads (DEMOS_DOMAIN,
-# over Cloudflare's 100 MB request limit) and TURN (UDP). The Worker hostname
+# over Cloudflare's 100 MB request limit), streams (GAME_STREAM_DOMAIN: the CDN
+# terms keep video off the plain proxy) and TURN (UDP). The Worker hostname
 # and hosts a Workers route answers are never touched. A proxied name must be
 # the zone, one label below it, or covered by one of the zone's certificate
 # packs: Cloudflare's free certificate covers nothing deeper. Nothing is
@@ -26,8 +27,8 @@ source "$CF_SETUP_DIR/cloudflare_api.sh"
 CF_COMMENT="5stack-panel (managed by update.sh)"
 CF_CONFIG_REF="5stack_panel"
 CF_CACHE_REF="5stack_panel_no_cache"
-CF_PROXIED_KEYS="WEB_DOMAIN API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN GAME_STREAM_DOMAIN S3_CONSOLE_HOST"
-CF_DIRECT_KEYS="DEMOS_DOMAIN TURN_DOMAIN"
+CF_PROXIED_KEYS="WEB_DOMAIN API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN S3_CONSOLE_HOST"
+CF_DIRECT_KEYS="DEMOS_DOMAIN GAME_STREAM_DOMAIN TURN_DOMAIN"
 CF_NO_CACHE_KEYS="API_DOMAIN WS_DOMAIN TYPESENSE_HOST RELAY_DOMAIN GAME_STREAM_DOMAIN"
 : "${CF_TRACE_URL:=https://1.1.1.1/cdn-cgi/trace}"
 : "${CLOUDFLARE_ORIGIN_IPV6:=}"
@@ -129,7 +130,11 @@ cf_plan() {
         why=-
         if [[ " $CF_DIRECT_KEYS " == *" $key "* ]]; then
             proxied=no
-            why="$([ "$key" = TURN_DOMAIN ] && echo udp || echo uploads)"
+            case "$key" in
+                TURN_DOMAIN) why=udp ;;
+                GAME_STREAM_DOMAIN) why=video ;;
+                *) why=uploads ;;
+            esac
         elif [ -n "$HTTPS_PORT" ] && [ "$HTTPS_PORT" != 443 ]; then
             proxied=no
             why=port

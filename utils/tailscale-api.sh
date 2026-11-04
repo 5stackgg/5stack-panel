@@ -4,6 +4,39 @@
 # Documentation: https://tailscale.com/api
 
 TAILSCALE_API_BASE="https://api.tailscale.com/api/v2"
+TAILSCALE_SHARED_TAG="tag:fivestack"
+TAILSCALE_SHARED_PODS="10.42.0.0/16"
+
+# The shared 10.42 lines would route a panel with its own pod range into
+# another panel's pods, so such a cluster is refused rather than guessed at.
+tailnet_pod_range() {
+    local cidr
+    if [ -n "${PANEL_POD_RANGE:-}" ]; then
+        echo "$PANEL_POD_RANGE"
+        return 0
+    fi
+    for cidr in $(kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}' 2>/dev/null); do
+        if [[ "$cidr" != 10.42.* ]]; then
+            echo "Error: this panel's pods are on $cidr, outside $TAILSCALE_SHARED_PODS. Set PANEL_POD_RANGE and PANEL_TAILSCALE_TAG in .5stack-env.config to the panel's own range and tag" >&2
+            return 1
+        fi
+    done
+    echo "$TAILSCALE_SHARED_PODS"
+}
+
+tailnet_tag() {
+    echo "${PANEL_TAILSCALE_TAG:-$TAILSCALE_SHARED_TAG}"
+}
+
+tailnet_key_tags() {
+    local tag
+    tag="$(tailnet_tag)"
+    if [ "$tag" = "$TAILSCALE_SHARED_TAG" ]; then
+        jq -nc --arg s "$TAILSCALE_SHARED_TAG" '[$s]'
+    else
+        jq -nc --arg s "$TAILSCALE_SHARED_TAG" --arg t "$tag" '[$s, $t]'
+    fi
+}
 
 get_oauth_token() {
     local client_id=$1
@@ -36,30 +69,22 @@ get_oauth_token() {
 }
 
 create_auth_key() {
-    local access_token=$1
+    local access_token=$1 tags
 
     if [ -z "$access_token" ]; then
         echo "Error: Access token is required" >&2
         return 1
     fi
 
+    tags="$(tailnet_key_tags)" || return 1
     local response=$(curl -s -X POST "${TAILSCALE_API_BASE}/tailnet/-/keys" \
         -H "Authorization: Bearer ${access_token}" \
         -H "Content-Type: application/json" \
-        -d '{
-            "capabilities": {
-                "devices": {
-                    "create": {
-                        "reusable": false,
-                        "ephemeral": false,
-                        "preauthorized": true,
-                        "tags": ["tag:fivestack"]
-                    }
-                }
-            },
-            "expirySeconds": 3600,
-            "description": "5stack game node auth key"
-        }')
+        -d "$(jq -nc --argjson tags "$tags" '{
+            capabilities: {devices: {create: {reusable: false, ephemeral: false, preauthorized: true, tags: $tags}}},
+            expirySeconds: 3600,
+            description: "5stack game node auth key"
+        }')")
 
     if echo "$response" | grep -q '"message"' && ! echo "$response" | grep -q '"key"'; then
         echo "Error: Failed to create auth key" >&2
@@ -78,12 +103,15 @@ create_auth_key() {
 }
 
 update_acl_for_fivestack() {
-    local access_token=$1
+    local access_token=$1 pods tag
 
     if [ -z "$access_token" ]; then
         echo "Error: Access token is required" >&2
         return 1
     fi
+
+    pods="$(tailnet_pod_range)" || return 1
+    tag="$(tailnet_tag)"
 
     local acl_response=$(curl -s -D - -X GET "${TAILSCALE_API_BASE}/tailnet/-/acl" \
         -H "Authorization: Bearer ${access_token}" \
@@ -109,22 +137,26 @@ update_acl_for_fivestack() {
         return 1
     fi
 
-    updated_acl=$(echo "$body" | jq '
-        .autoApprovers = (.autoApprovers // {})
+    updated_acl=$(echo "$body" | jq --arg pods "$pods" --arg tag "$tag" --arg shared "$TAILSCALE_SHARED_TAG" '
+        (if $tag != $shared then
+            .tagOwners = (.tagOwners // {})
+            | .tagOwners[$tag] = (.tagOwners[$tag] // ["autogroup:admin"])
+        else . end)
+        | .autoApprovers = (.autoApprovers // {})
         | .autoApprovers.routes = (.autoApprovers.routes // {})
-        | .autoApprovers.routes["10.42.0.0/16"] = (
-            (.autoApprovers.routes["10.42.0.0/16"] // []) |
-            if index("tag:fivestack") == null then . + ["tag:fivestack"] else . end
+        | .autoApprovers.routes[$pods] = (
+            (.autoApprovers.routes[$pods] // []) |
+            if index($tag) == null then . + [$tag] else . end
         )
         | .grants = (.grants // [])
         | .grants = (
-            [ 
-                { src: ["tag:fivestack", "10.42.0.0/16"], dst: ["tag:fivestack", "10.42.0.0/16"], ip: ["*"] }
+            [
+                { src: [$tag, $pods], dst: [$tag, $pods], ip: ["*"] }
             ] + (
                 .grants
                 | map(select(
-                    .src != ["tag:fivestack", "10.42.0.0/16"]
-                    or .dst != ["tag:fivestack", "10.42.0.0/16"]
+                    .src != [$tag, $pods]
+                    or .dst != [$tag, $pods]
                     or .ip != ["*"]
                 ))
             )

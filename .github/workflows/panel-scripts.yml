@@ -30,6 +30,7 @@ on:
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/http/**"
+      - ".github/scripts/**"
       - .github/workflows/panel-scripts.yml
   pull_request:
     paths:
@@ -59,6 +60,7 @@ on:
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/http/**"
+      - ".github/scripts/**"
       - .github/workflows/panel-scripts.yml
 
 jobs:
@@ -66,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x cloudflare.sh stream-relay.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh tests/scripts/*.sh tests/scripts/stub/kubectl
+      - run: shellcheck -x cloudflare.sh stream-relay.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh .github/scripts/image_updates.sh tests/scripts/*.sh tests/scripts/stub/kubectl tests/scripts/stub/crane
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/apply_overlay_test.sh
       - run: bash tests/scripts/debug_test.sh
@@ -83,3 +85,4 @@ jobs:
       - run: bash tests/scripts/postgres_backup_test.sh
       - run: bash tests/scripts/choose_node_test.sh
       - run: bash tests/scripts/nvidia_fallback_test.sh
+      - run: bash tests/scripts/image_updates_test.sh

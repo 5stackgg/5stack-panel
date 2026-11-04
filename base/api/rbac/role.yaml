@@ -116,3 +116,11 @@ rules:
       - get
       - watch
       - patch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    resourceNames:
+      - chat-video-faststart
+    verbs:
+      - get

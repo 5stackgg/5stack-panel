@@ -2,19 +2,26 @@
 
 # k3s in Docker, with the panel's routing layer installed by the same functions
 # update.sh calls, in front of stub backends named like the real Services.
-# Requests come from a separate client container on the same Docker network,
+# Requests come from a separate client container on a second Docker network,
 # so the client IP the backends see is a real peer's. One cluster at a time;
 # everything is named after $PREFIX and removed on exit.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_ROOT="${TEST_ROOT:-$(cd "$HERE/../.." && pwd)}"
 PREFIX="${PREFIX:-gateway-test}"
-K3S_IMAGE=rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
+K3S_IMAGE=rancher/k3s:v1.37.2-k3s1@sha256:21ea6e0fac4e3930c2ce8aa40ddd41a8b18cb3e9a0222c030dc005e7e88c4332
+# The last k3s that leaves the Gateway API CRDs to whoever installs Traefik;
+# from 1.37 its gateway-api-crd chart installs them. Not named *_IMAGE, so
+# the image-updates workflow leaves it here while K3S_IMAGE moves on.
+# shellcheck disable=SC2034 # for the tests that source this
+K3S_BEFORE_GATEWAY_API=rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
 PYTHON_IMAGE=python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
 DOMAIN=5stack.test
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-test.XXXXXX")"
 PANEL_DIR="$WORK_DIR/panel"
 KUBECONFIG="$WORK_DIR/kubeconfig"
+# k3s keeps its datastore here, so run_k3s can bring the same cluster back.
+K3S_STATE="$PREFIX-k3s-state"
 DEBUG=false
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -22,7 +29,8 @@ export KUBECONFIG PANEL_DIR DEBUG
 
 cleanup() {
     docker rm -f -v "$PREFIX-k3s" "$PREFIX-client" >/dev/null 2>&1
-    docker network rm "$PREFIX-net" >/dev/null 2>&1
+    docker network rm "$PREFIX-net" "$PREFIX-public" >/dev/null 2>&1
+    docker volume rm "$K3S_STATE" >/dev/null 2>&1
     rm -rf "$WORK_DIR"
 }
 
@@ -51,13 +59,38 @@ client() {
     docker exec "$PREFIX-client" "$@"
 }
 
+# A cluster on K3S_IMAGE, with the client container.
 start_cluster() {
-    local port
     cleanup
     mkdir -p "$WORK_DIR"
     docker network create "$PREFIX-net" >/dev/null || return 1
+    # Clients reach the node on an address k3s doesn't know as its InternalIP,
+    # as a server's public one is when k3s runs on a private or VPN address.
+    # kube-proxy answers the InternalIP itself, which hid that ServiceLB
+    # masquerades everything else.
+    docker network create "$PREFIX-public" >/dev/null || return 1
+    run_k3s "$K3S_IMAGE" || return 1
+
+    docker run -d --name "$PREFIX-client" --network "$PREFIX-net" "$PYTHON_IMAGE" sleep infinity >/dev/null || return 1
+    client apk add --no-cache -q curl jq openssl >/dev/null || return 1
+    docker cp "$HERE/client.py" "$PREFIX-client:/client.py" >/dev/null
+    docker network connect "$PREFIX-public" "$PREFIX-client" || return 1
+    # shellcheck disable=SC2034
+    CLIENT_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-public\").IPAddress}}" "$PREFIX-client")"
+}
+
+# (Re)starts the k3s server on the cluster's state volume. On another image
+# that is the in-place upgrade the panel's k3s updates make with
+# rancher/k3s-upgrade: the same datastore and flags on a new binary. Waits for
+# the new kubelet itself, since the Node the old one left still says Ready.
+run_k3s() {
+    local image="$1" version port
+    version="${image%%@*}"
+    version="${version##*:}"
+    version="${version/-k3s/+k3s}"
+    docker rm -f "$PREFIX-k3s" >/dev/null 2>&1
     docker run -d --name "$PREFIX-k3s" --hostname "$PREFIX-k3s" --network "$PREFIX-net" --privileged \
-        --tmpfs /run --tmpfs /var/run -p 127.0.0.1::6443 "$K3S_IMAGE" server \
+        --tmpfs /run --tmpfs /var/run -v "$K3S_STATE:/var/lib/rancher/k3s" -p 127.0.0.1::6443 "$image" server \
         --disable=traefik --disable=metrics-server --disable=local-storage --tls-san 127.0.0.1 >/dev/null || return 1
     port="$(docker port "$PREFIX-k3s" 6443/tcp | head -n 1 | sed 's/.*://')"
     for _ in $(seq 1 90); do
@@ -66,17 +99,19 @@ start_cluster() {
     done
     docker exec "$PREFIX-k3s" cat /etc/rancher/k3s/k3s.yaml | sed "s#https://127.0.0.1:6443#https://127.0.0.1:$port#" >"$KUBECONFIG"
     for _ in $(seq 1 90); do
-        kubectl wait --for=condition=Ready node --all --timeout=5s >/dev/null 2>&1 && break
+        if [ "$(kubectl get node "$PREFIX-k3s" -o jsonpath='{.status.nodeInfo.kubeletVersion}' 2>/dev/null)" = "$version" ] &&
+            [ "$(kubectl get --raw "/api/v1/nodes/$PREFIX-k3s/proxy/healthz" 2>/dev/null)" = ok ] &&
+            kubectl wait --for=condition=Ready node --all --timeout=5s >/dev/null 2>&1; then
+            break
+        fi
         sleep 2
     done
     kubectl wait --for=condition=Ready node --all --timeout=5s >/dev/null || return 1
-    NODE_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-net\").IPAddress}}" "$PREFIX-k3s")"
+    [ "$(kubectl get node "$PREFIX-k3s" -o jsonpath='{.status.nodeInfo.kubeletVersion}')" = "$version" ] || return 1
 
-    docker run -d --name "$PREFIX-client" --network "$PREFIX-net" "$PYTHON_IMAGE" sleep infinity >/dev/null || return 1
-    client apk add --no-cache -q curl jq openssl >/dev/null || return 1
-    docker cp "$HERE/client.py" "$PREFIX-client:/client.py" >/dev/null
-    # shellcheck disable=SC2034
-    CLIENT_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-net\").IPAddress}}" "$PREFIX-client")"
+    docker network connect "$PREFIX-public" "$PREFIX-k3s" || return 1
+    NODE_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-public\").IPAddress}}" "$PREFIX-k3s")"
+    [ "$NODE_IP" != "$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')" ] || return 1
 }
 
 set_env() {

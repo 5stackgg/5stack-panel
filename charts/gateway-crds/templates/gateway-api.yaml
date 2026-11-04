@@ -1,6 +1,8 @@
+{{- if .Values.gatewayApi }}
 # Gateway API v1.6.3, standard channel: https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.3/standard-install.yaml
 # (sha256 356c2b8e286a964dc20995435659ad1095386329974793af10bbfe3eff977fe5), with helm.sh/resource-policy: keep
-# added to each CRD so an uninstall never takes every HTTPRoute on the cluster with it.
+# added to every object here, so neither an uninstall nor gatewayApi: false deletes the
+# CRDs, and every HTTPRoute on the cluster with them, or the safe-upgrades policy.
 # Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20078,6 +20080,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   annotations:
+    helm.sh/resource-policy: keep
     gateway.networking.k8s.io/bundle-version: v1.6.3
     gateway.networking.k8s.io/channel: standard
   name: "safe-upgrades.gateway.networking.k8s.io"
@@ -20115,6 +20118,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   annotations:
+    helm.sh/resource-policy: keep
     gateway.networking.k8s.io/bundle-version: v1.6.3
     gateway.networking.k8s.io/channel: standard
   name: safe-upgrades.gateway.networking.k8s.io
@@ -20127,3 +20131,4 @@ spec:
       apiVersions: ["v1"]
       resources:   ["customresourcedefinitions"]
       operations:  ["CREATE", "UPDATE"]
+{{- end }}

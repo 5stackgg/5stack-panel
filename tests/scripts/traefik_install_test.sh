@@ -436,6 +436,13 @@ test_traefik_already_on_the_image_pulls_nothing() {
     assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"
 }
 
+test_gateway_api_crds_k3s_has_yet_to_create_are_waited_for() {
+    echo helmchart.helm.cattle.io/gateway-api-crd >"$WORK_DIR/helmcharts-gateway-api-crd"
+    echo 1 >"$WORK_DIR/crds-appear-after"
+    run_install install_traefik
+    assert_contains "$(cat "$WORK_DIR/calls")" "wait --for=condition=Established crd/gatewayclasses.gateway.networking.k8s.io"
+}
+
 test_a_first_install_pulls_nothing() {
     run_install install_traefik
     assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"

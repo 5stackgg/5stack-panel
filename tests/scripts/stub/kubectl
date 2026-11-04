@@ -25,6 +25,17 @@ done
 
 case "$args" in
     *" get crd helmcharts.helm.cattle.io "*) ;;
+    *" crd/"*)
+        if [ -s "$WORK_DIR/crds-appear-after" ]; then
+            left="$(cat "$WORK_DIR/crds-appear-after")"
+            echo $((left - 1)) >"$WORK_DIR/crds-appear-after"
+            if [ "$left" -gt 0 ]; then
+                crd="$(printf '%s' "$args" | sed -n 's#.* crd/\([^ ]*\).*#\1#p')"
+                echo "Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io \"$crd\" not found" >&2
+                exit 1
+            fi
+        fi
+        ;;
     *" apply --server-side "*) if [ -n "$file" ]; then cat "$file" >>"$WORK_DIR/server-side-applied"; fi ;;
     *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
     *" get service traefik "*'{.spec.type}'*)

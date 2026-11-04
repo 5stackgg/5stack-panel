@@ -39,7 +39,7 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd binding nginx crds_values left_out held object
+    local minor http_port https_port crd binding nginx crds_values left_out held object deadline
     local -a kc=() handed=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -94,8 +94,18 @@ install_traefik() {
             meta.helm.sh/release-name=gateway-api-crd meta.helm.sh/release-namespace=kube-system || return 1
     fi
 
+    # k3s's gateway-api-crd release can still be on its way, and kubectl wait
+    # gives up at once on a CRD that doesn't exist yet.
+    deadline=$((SECONDS + 300))
     for crd in gatewayclasses.gateway.networking.k8s.io gateways.gateway.networking.k8s.io \
         httproutes.gateway.networking.k8s.io middlewares.traefik.io; do
+        until kubectl "${kc[@]}" get "crd/$crd" >/dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+                err "CRD $crd was never created"
+                return 1
+            fi
+            sleep 2
+        done
         if ! output_redirect kubectl "${kc[@]}" wait --for=condition=Established "crd/$crd" --timeout=120s; then
             err "CRD $crd never became established"
             return 1

@@ -111,7 +111,7 @@ describe("backblaze-proxy.sh signed clip links check", () => {
       assert.match(
         call,
         new RegExp(
-          `^--kubeconfig=${KUBECONFIG} -n 5stack exec timescaledb-0 -c timescaledb -- sh -c `,
+          `^--kubeconfig=${KUBECONFIG} -n 5stack --request-timeout=120s exec timescaledb-0 -c timescaledb -- sh -c `,
         ),
       );
     }

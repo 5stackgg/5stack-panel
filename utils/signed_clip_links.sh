@@ -143,6 +143,6 @@ require_signed_clip_links() {
 }
 
 signed_clip_links_psql() {
-    kubectl --kubeconfig="$PANEL_KUBECONFIG" -n 5stack exec timescaledb-0 -c timescaledb -- \
+    time_limited 120 kubectl --kubeconfig="$PANEL_KUBECONFIG" -n 5stack --request-timeout=120s exec timescaledb-0 -c timescaledb -- \
         sh -c 'psql -X -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1" 2>/dev/null
 }

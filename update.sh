@@ -137,8 +137,10 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 
-step "Updating the TimescaleDB extension"
-update_timescaledb_extension
+if [ "$TIMESCALEDB_FRESH_INSTALL" != true ]; then
+    step "Updating the TimescaleDB extension"
+    update_timescaledb_extension
+fi
 finish_timescaledb_major_upgrade
 
 GIT_SHA="${FIVESTACK_RELEASE:-$(git rev-parse HEAD)}"

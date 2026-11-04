@@ -98,9 +98,15 @@ if [ "$DEBUG" = true ]; then
 fi
 
 ask_yes_no() {
-    local prompt="$1" answer
+    local prompt="$1" default="${2:-}" answer hint="y/n"
+    if [ "$default" = y ]; then
+        hint="Y/n"
+    fi
     while true; do
-        read -p "$prompt (y/n): " answer
+        read -p "$prompt ($hint): " answer
+        if [ -z "$answer" ]; then
+            answer="$default"
+        fi
         if [ "$answer" = "y" ] || [ "$answer" = "n" ]; then
             break
         fi
@@ -198,27 +204,20 @@ ask_flat_hosts() {
     if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
         interactive=false
     fi
-    FLAT_HOSTS=false
-    if [ "$CLOUDFLARE" = true ]; then
-        if [ -z "$CLOUDFLARE_PLAN" ] && [ "$interactive" = true ]; then
-            ask_cloudflare_plan
-        fi
-        if [ "$CLOUDFLARE_PLAN" != free ]; then
-            return
-        fi
-        FLAT_HOSTS=true
+    FLAT_HOSTS=true
+    if [ "$CLOUDFLARE" = true ] && [ -z "$CLOUDFLARE_PLAN" ] && [ "$interactive" = true ]; then
+        ask_cloudflare_plan
+    fi
+    local question
+    question="Keep every address one level deep ($(flat_host api) instead of api.$WEB_DOMAIN)?"
+    if [ "$CLOUDFLARE" = true ] && [ "$CLOUDFLARE_PLAN" = free ]; then
         flat_hosts_alert
-        if [ "$interactive" = true ] && ! ask_yes_no "Keep every address one level deep? n keeps them under the panel, straight to this server"; then
-            FLAT_HOSTS=false
-        fi
-        return
+        question="Keep every address one level deep? Recommended on Cloudflare's free plan; n keeps them under the panel, straight to this server"
+    else
+        echo "Sign-in then covers all of $parent, so other sites on $parent get the panel's sign-in cookie."
     fi
-    if [ "$interactive" != true ]; then
-        return
-    fi
-    echo "Sign-in then covers all of $parent, so other sites on $parent get the panel's sign-in cookie."
-    if ask_yes_no "Keep every address one level deep ($(flat_host api) instead of api.$WEB_DOMAIN)?"; then
-        FLAT_HOSTS=true
+    if [ "$interactive" = true ] && ! ask_yes_no "$question" y; then
+        FLAT_HOSTS=false
     fi
 }
 

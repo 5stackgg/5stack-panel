@@ -102,9 +102,20 @@ test_hosts_beside_the_web_domain_share_its_parent_as_the_cookie_domain() {
 test_hosts_under_the_web_domain_leave_the_cookie_domain_alone() {
     make_panel
     set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    export FLAT_HOSTS=false
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.panel.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" ""
+}
+
+test_a_subdomain_puts_every_address_one_level_deep_by_default() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
+    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Sign-in then covers all of example.com, so other sites on example.com get the panel's sign-in cookie."
 }
 
 test_flat_hosts_put_every_address_one_level_deep_beside_the_panel() {
@@ -134,14 +145,15 @@ test_the_free_cloudflare_plan_puts_every_address_one_level_deep_and_says_so() {
     assert_contains "$(cat "$WORK_DIR/setup-output")" "Other sites on example.com will receive the panel's sign-in cookie."
 }
 
-test_a_paid_cloudflare_plan_keeps_every_address_under_the_panel() {
+test_a_paid_cloudflare_plan_keeps_the_default_without_the_free_plan_alert() {
     make_panel
     sed -i.bak 's/^CLOUDFLARE=false$/CLOUDFLARE=true/' "$PANEL/.5stack-env.config"
     set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
     export CLOUDFLARE_PLAN=paid
     run_setup_env
-    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.panel.example.com"
-    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "sign-in cookie"
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "Cloudflare's free plan"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Sign-in then covers all of example.com"
 }
 
 test_a_root_domain_keeps_its_addresses_under_it() {

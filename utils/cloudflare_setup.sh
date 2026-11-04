@@ -3,9 +3,9 @@
 # Manages the panel's hostnames on Cloudflare with CLOUDFLARE_API_TOKEN.
 #
 #   cloudflare_setup.sh plan [--json]           what each hostname gets; changes nothing
-#   cloudflare_setup.sh records [--replace a,b] DNS records, DNS-only until the proxy step
-#   cloudflare_setup.sh proxy                   rules, then the orange cloud, host by host, each
-#                                               kept only if Let's Encrypt's check gets through
+#   cloudflare_setup.sh records [--replace a,b] rules, then DNS records, proxied from the start
+#   cloudflare_setup.sh proxy                   checks each proxied host, and puts one back to
+#                                               DNS-only when Cloudflare or Let's Encrypt can't reach it
 #   cloudflare_setup.sh status --json           records and settings against what setup left
 #   cloudflare_setup.sh fix <host>              puts one record back
 #   cloudflare_setup.sh tiered-cache            turns on Smart Tiered Cache
@@ -312,7 +312,7 @@ cf_in_list() {
 }
 
 cf_records() {
-    local replace_list="$1" key host zone_id zone_name proxied why want conflicts="" out
+    local replace_list="$1" key host zone_id zone_name proxied why want orange=keep note plan conflicts="" out
     cf_public_ip || {
         err "Could not find this server's public IP. Set CLOUDFLARE_ORIGIN_IPV4."
         return 1
@@ -321,11 +321,19 @@ cf_records() {
         err "$CLOUDFLARE_ORIGIN_IPV4 is a private address, so Cloudflare can't reach this server there."
         return 1
     fi
+    plan="$(cf_plan)"
+    if awk '$5 == "yes" { found = 1 } END { exit !found }' <<<"$plan"; then
+        if cf_ready && cf_rules; then
+            orange=true
+        else
+            warn "The panel's Cloudflare rules aren't in place, so its hostnames don't go through Cloudflare yet."
+        fi
+    fi
     while read -r key host zone_id zone_name proxied why; do
-        if [ "$proxied" = skip ]; then
+        if [ -z "$host" ] || [ "$proxied" = skip ]; then
             continue
         fi
-        want=keep
+        want="$orange"
         if [ "$proxied" = no ]; then
             want=false
         fi
@@ -333,12 +341,17 @@ cf_records() {
         if [ -n "$out" ]; then
             conflicts+="$out"$'\n'
         else
-            ok "$host → $CLOUDFLARE_ORIGIN_IPV4$([ "$want" = false ] && echo " (straight to this server)")"
+            case "$want" in
+                true) note=" (through Cloudflare)" ;;
+                false) note=" (straight to this server)" ;;
+                *) note="" ;;
+            esac
+            ok "$host → $CLOUDFLARE_ORIGIN_IPV4$note"
         fi
-    done < <(cf_plan)
+    done <<<"$plan"
     while read -r zone_id zone_name; do
         cf_caa_warning "$zone_id" "$zone_name"
-    done < <(cf_plan | awk '$3 != "-" { print $3 " " $4 }' | sort -u)
+    done < <(awk 'NF && $3 != "-" { print $3 " " $4 }' <<<"$plan" | sort -u)
     if [ -n "$conflicts" ]; then
         printf '%s' "$conflicts"
         warn "These records are not 5Stack's, so they were left alone. Run again with --replace and their names to replace them."

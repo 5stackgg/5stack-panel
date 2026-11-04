@@ -148,11 +148,11 @@ test_worker_hostnames_are_never_touched() {
     fi
 }
 
-test_records_start_dns_only_and_keep_their_cloud() {
+test_records_start_through_cloudflare_and_keep_their_cloud() {
     panel_at example.gg
     zone example.gg
     cf records >/dev/null 2>&1 || fail "records"
-    assert_eq "$(record ws.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
     cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
     assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
     state '.ip = "203.0.113.41"'
@@ -170,7 +170,7 @@ test_records_that_are_not_ours_are_left_until_replaced() {
     assert_contains "$(cat "$WORK_DIR/out")" "conflict: api.example.gg A 198.51.100.7 proxied"
     assert_eq "$(record api.example.gg)" "198.51.100.7 true"
     cf records --replace api.example.gg >"$WORK_DIR/out" 2>&1 || fail "replace: $(cat "$WORK_DIR/out")"
-    assert_eq "$(record api.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
     assert_eq "$(jq -r '[.records[] | select(.type == "MX" or .type == "TXT") | .id] | join(",")' "$WORK_DIR/cf-state.json")" "mx,txt"
 }
 
@@ -187,7 +187,8 @@ test_rules_are_added_by_ref_and_an_entrypoint_is_never_replaced() {
     assert_contains "$(jq -r '.rulesets.z1.http_request_cache_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"api.example.gg"'
     assert_not_contains "$(jq -r '.rulesets.z1.http_request_cache_settings.rules[0].expression' "$WORK_DIR/cf-state.json")" '"example.gg"'
     assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PUT-OVER-EXISTING"
-    assert_eq "$(grep -c 'PATCH /zones/z1/rulesets/rs9/rules/' "$WORK_DIR/cf-calls")" 2
+    assert_eq "$(grep -c 'POST /zones/z1/rulesets/rs9/rules ' "$WORK_DIR/cf-calls")" 2
+    assert_eq "$(grep -c 'PATCH /zones/z1/rulesets/rs9/rules/' "$WORK_DIR/cf-calls")" 4
 }
 
 through_cloudflare() {
@@ -209,7 +210,7 @@ test_always_use_https_goes_off_and_a_rule_redirects_everything_but_the_challenge
     assert_eq "$(redirect_rule | jq -r '"\(.action) \(.enabled) \(.action_parameters.from_value.status_code) \(.action_parameters.from_value.preserve_query_string)"')" "redirect true 301 true"
     assert_eq "$(redirect_rule | jq -r '.action_parameters.from_value.target_url.expression')" 'concat("https://", http.host, http.request.uri.path)'
     rule_at="$(grep -n 'POST /zones/z1/rulesets/.*5stack_panel_https\|PUT /zones/z1/rulesets/phases/http_request_dynamic_redirect' "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
-    off_at="$(grep -n 'PATCH /zones/z1/settings/always_use_https' "$WORK_DIR/cf-calls" | cut -d: -f1)"
+    off_at="$(grep -n 'PATCH /zones/z1/settings/always_use_https' "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
     if [ -z "$rule_at" ] || [ -z "$off_at" ] || [ "$rule_at" -ge "$off_at" ]; then
         fail "Always Use HTTPS went off before the rule was in"
     fi
@@ -327,7 +328,7 @@ test_behind_a_reverse_proxy_hosts_go_through_cloudflare_even_when_the_check_404s
     panel_at example.gg
     zone example.gg
     state '.settings.z1.always_use_https = "on" | .acme_elsewhere = ["example.gg", "api.example.gg", "ws.example.gg", "tv.example.gg", "search.example.gg", "console.example.gg"]'
-    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy records >/dev/null 2>&1 || fail "records"
     behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
     for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
         assert_eq "$(record "$host")" "203.0.113.40 true"
@@ -358,7 +359,7 @@ test_behind_a_reverse_proxy_a_host_cloudflare_cannot_reach_goes_back_to_dns_only
     panel_at example.gg
     zone example.gg
     state '.origin = {"ws.example.gg": 522}'
-    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy records >/dev/null 2>&1 || fail "records"
     behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1
     assert_eq "$?" 3
     assert_contains "$(cat "$WORK_DIR/out")" "Cloudflare can't reach the panel on ws.example.gg (HTTP 522)"
@@ -371,11 +372,124 @@ test_behind_a_reverse_proxy_redirect_rules_and_their_blockers_are_left_alone() {
     zone example.gg
     state '.rulesets.z1.http_request_dynamic_redirect = {id: "rs7", phase: "http_request_dynamic_redirect", rules: [{id: "theirs", ref: "their_api", description: "API to HTTPS", action: "redirect", expression: "(http.host in {\"api.example.gg\"} and not ssl)", action_parameters: {from_value: {status_code: 308}}}]} | .no_redirect_rules = true'
     assert_not_contains "$(behind_a_reverse_proxy check)" "redirect_rules"
-    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy records >/dev/null 2>&1 || fail "records"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
     behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
     assert_not_contains "$(cat "$WORK_DIR/out")" "API to HTTPS"
     assert_eq "$(record api.example.gg)" "203.0.113.40 true"
     assert_eq "$(behind_a_reverse_proxy status --json | jq -c '.zones[0].blockers')" "[]"
+}
+
+proxied_hosts="example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg"
+
+created_with() {
+    grep -E "^POST /zones/z1/dns_records \{\"type\":\"A\",\"name\":\"$1\"" "$WORK_DIR/cf-calls" | grep -o '"proxied":[a-z]*'
+}
+
+test_a_new_host_the_plan_proxies_is_created_through_cloudflare() {
+    panel_at example.gg
+    zone example.gg
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    for host in $proxied_hosts; do
+        assert_eq "$(record "$host")" "203.0.113.40 true"
+        assert_eq "$(created_with "$host")" '"proxied":true'
+    done
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PATCH /zones/z1/dns_records"
+    assert_contains "$(cat "$WORK_DIR/out")" "api.example.gg → 203.0.113.40 (through Cloudflare)"
+}
+
+test_behind_a_reverse_proxy_a_new_host_the_plan_proxies_is_created_through_cloudflare() {
+    panel_at example.gg
+    zone example.gg
+    state '.settings.z1.always_use_https = "on"'
+    behind_a_reverse_proxy records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    for host in $proxied_hosts; do
+        assert_eq "$(record "$host")" "203.0.113.40 true"
+        assert_eq "$(created_with "$host")" '"proxied":true'
+    done
+    assert_eq "$(jq -r '[.rulesets.z1.http_config_settings.rules[].ref] | join(",")' "$WORK_DIR/cf-state.json")" "5stack_panel"
+    assert_eq "$(jq -r '.rulesets.z1.http_request_dynamic_redirect.rules // [] | length' "$WORK_DIR/cf-state.json")" 0
+    assert_eq "$(jq -r '.settings.z1.always_use_https' "$WORK_DIR/cf-state.json")" on
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "/.well-known/acme-challenge/5stack-check"
+}
+
+test_demo_uploads_and_streams_are_created_dns_only_beside_proxied_hosts() {
+    panel_at example.gg
+    zone example.gg
+    printf 'TURN_DOMAIN=turn.example.gg\n' >"$WORK_DIR/panel/overlays/coturn/coturn.env"
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    assert_eq "$(created_with api.example.gg)" '"proxied":true'
+    for host in demos.example.gg hls.example.gg turn.example.gg; do
+        assert_eq "$(record "$host")" "203.0.113.40 false"
+        assert_eq "$(created_with "$host")" '"proxied":false'
+    done
+    assert_contains "$(cat "$WORK_DIR/out")" "demos.example.gg → 203.0.113.40 (straight to this server)"
+}
+
+test_the_rules_are_written_before_the_first_proxied_record() {
+    panel_at example.gg
+    zone example.gg
+    state '.settings.z1.always_use_https = "on"'
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    first_proxied="$(grep -n '^POST /zones/z1/dns_records .*"proxied":true' "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
+    [ -n "$first_proxied" ] || fail "no record was created proxied"
+    for call in 'PUT /zones/z1/rulesets/phases/http_config_settings/entrypoint .*"ref":"5stack_panel"' \
+        '/zones/z1/rulesets/.*"ref":"5stack_panel_acme"' \
+        '/zones/z1/rulesets/.*"ref":"5stack_panel_no_cache"' \
+        '/zones/z1/rulesets/.*"ref":"5stack_panel_https"' \
+        'PATCH /zones/z1/settings/always_use_https'; do
+        at="$(grep -n -e "$call" "$WORK_DIR/cf-calls" | head -n 1 | cut -d: -f1)"
+        if [ -z "$at" ] || [ "$at" -ge "$first_proxied" ]; then
+            fail "$call wasn't in place before the first proxied record: $(cat "$WORK_DIR/cf-calls")"
+        fi
+    done
+    assert_eq "$(jq -r '.settings.z1.always_use_https' "$WORK_DIR/cf-state.json")" off
+    assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "x-5stack-check: acme-path"
+    assert_contains "$(through_cloudflare api.example.gg /.well-known/acme-challenge/5stack-check)" "cf-ray:"
+}
+
+test_an_existing_dns_only_record_of_ours_for_a_proxied_host_goes_through_cloudflare() {
+    panel_at example.gg
+    zone example.gg
+    state '.records = [{id: "w1", zone: "z1", type: "A", name: "ws.example.gg", content: "203.0.113.40", proxied: false, ttl: 1, comment: "5stack-panel (managed by update.sh)"}, {id: "d1", zone: "z1", type: "A", name: "demos.example.gg", content: "203.0.113.40", proxied: false, ttl: 1, comment: "5stack-panel (managed by update.sh)"}]'
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+    assert_eq "$(jq -r '[.records[] | select(.name == "ws.example.gg") | .id] | join(",")' "$WORK_DIR/cf-state.json")" "w1"
+    assert_contains "$(cat "$WORK_DIR/cf-calls")" 'PATCH /zones/z1/dns_records/w1'
+    assert_eq "$(record demos.example.gg)" "203.0.113.40 false"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" 'dns_records/d1'
+}
+
+test_a_host_whose_acme_check_fails_is_proxied_until_the_late_check_puts_it_back() {
+    panel_at example.gg
+    zone example.gg
+    state '.acme_elsewhere = ["api.example.gg"]'
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt can't reach api.example.gg through Cloudflare"
+    assert_contains "$(cat "$WORK_DIR/out")" "It goes straight to this server again"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+    state '(.records[] | select(.name == "ws.example.gg" and .type == "A")) |= (.proxied = false)'
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+}
+
+test_a_zone_that_is_not_ready_gets_its_records_but_no_rules_or_orange_cloud() {
+    panel_at example.gg
+    zone example.gg
+    state '.bot_fight.z1 = true'
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    assert_contains "$(cat "$WORK_DIR/out")" "Bot Fight Mode on"
+    assert_contains "$(cat "$WORK_DIR/out")" "don't go through Cloudflare yet"
+    for host in $proxied_hosts; do
+        assert_eq "$(record "$host")" "203.0.113.40 false"
+    done
+    if grep -E '^(PUT|POST|PATCH) /zones/z1/(rulesets|settings)' "$WORK_DIR/cf-calls"; then
+        fail "rules changed in a zone that isn't ready"
+    fi
 }
 
 test_reverse_proxy_mode_is_read_from_the_panels_env_config() {

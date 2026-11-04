@@ -89,7 +89,7 @@ fi
 # node, and Kubernetes happily lets two pods on one node mount the same RWO
 # claim. Two object stores writing one directory corrupts it, so the old
 # StatefulSet has to be gone before the apply below creates the new one.
-if kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2>&1; then
+if s3_storage_is_builtin && kubectl --kubeconfig=$KUBECONFIG get statefulset minio -n 5stack >/dev/null 2>&1; then
     step "Migrating MinIO to RustFS"
     kubectl --kubeconfig=$KUBECONFIG delete statefulset minio -n 5stack >/dev/null 2>&1
     kubectl --kubeconfig=$KUBECONFIG wait --for=delete pod -l app=minio -n 5stack --timeout=120s >/dev/null 2>&1
@@ -117,6 +117,7 @@ if [ "$REVERSE_PROXY" != true ]; then
 fi
 
 retire_ingress_nginx || die "Traefik did not take over ports 80/443"
+move_traefik_to_host_ports || die "Traefik did not take over the host's ports"
 
 if [ "$VAULT_MANAGER" = true ]; then
     step "Syncing Vault secrets"

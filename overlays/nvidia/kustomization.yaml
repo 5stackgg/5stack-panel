@@ -5,3 +5,4 @@ resources:
   - nvidia-time-slicing.yaml
   - nvidia-plugin.yaml
   - game-server-node-connector-nvidia.yaml
+  - game-server-node-connector-nvidia-fallback.yaml

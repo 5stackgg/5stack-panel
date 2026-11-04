@@ -240,6 +240,17 @@ test_mediamtx_paths_outside_its_patterns_are_404() {
     done
 }
 
+test_publishing_and_nested_snapshots_are_not_routed() {
+    local path
+    for path in /m1/whip /m1/whip/session-1; do
+        call https "$HLS" "$path" -X POST -H "Origin: $ORIGIN" -H 'Cookie: session=ok' \
+            -H 'Content-Type: application/sdp' --data-binary 'v=0'
+        expect_code 404
+    done
+    call https "$HLS" /snapshot/abc-123/status -H 'Cookie: session=ok'
+    expect_code 404
+}
+
 test_snapshot_is_rewritten_with_open_cors() {
     call https "$HLS" '/snapshot/abc-123?t=1' -H 'Origin: https://elsewhere.test'
     expect_code 200
@@ -602,6 +613,7 @@ for name in \
     test_forward_auth_receives_only_the_cookie \
     test_spoofed_preflight_headers_do_not_bypass_forward_auth \
     test_mediamtx_paths_outside_its_patterns_are_404 \
+    test_publishing_and_nested_snapshots_are_not_routed \
     test_snapshot_is_rewritten_with_open_cors \
     test_http_redirects_to_https_without_a_port \
     test_client_ip_reaches_the_backend \

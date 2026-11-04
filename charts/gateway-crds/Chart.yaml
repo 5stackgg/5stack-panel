@@ -1,7 +1,7 @@
 apiVersion: v2
 name: gateway-crds
-description: The Gateway API (v1.6.3, standard channel) and Traefik v3.7 CRDs that the gateway chart needs. Install it first.
+description: The Gateway API (v1.6.3, standard channel) and Traefik v3.7 CRDs that the gateway chart needs. Install it first. Set gatewayApi=false where the cluster brings its own Gateway API CRDs, as k3s does from 1.37.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: v1.6.3
 kubeVersion: ">=1.31.0-0"

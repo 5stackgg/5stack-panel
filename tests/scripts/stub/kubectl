@@ -3,6 +3,7 @@
 echo "$*" >>"$WORK_DIR/calls"
 
 args=" $* "
+file=""
 pod=""
 container=""
 previous=false
@@ -14,13 +15,28 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --previous) previous=true ;;
+        -f)
+            file="$2"
+            shift
+            ;;
     esac
     shift
 done
 
 case "$args" in
-    *" get crd helmcharts.helm.cattle.io "* | *" apply --server-side "*) ;;
+    *" get crd helmcharts.helm.cattle.io "*) ;;
+    *" apply --server-side "*) if [ -n "$file" ]; then cat "$file" >>"$WORK_DIR/server-side-applied"; fi ;;
     *" apply -f - "*) cat >"$WORK_DIR/applied" ;;
+    *" get service traefik "*'{.spec.type}'*)
+        if [ -f "$WORK_DIR/traefik-service-error" ]; then
+            echo "The connection to the server was refused" >&2
+            exit 1
+        fi
+        if [ -f "$WORK_DIR/traefik-type" ]; then cat "$WORK_DIR/traefik-type"; fi
+        ;;
+    *" get deployment traefik "*) if [ -f "$WORK_DIR/traefik-image" ]; then cat "$WORK_DIR/traefik-image"; fi ;;
+    *" get pods -l app.kubernetes.io/name=traefik "*) if [ -f "$WORK_DIR/traefik-node" ]; then cat "$WORK_DIR/traefik-node"; fi ;;
+    *" wait pod/traefik-pull "*) [ ! -f "$WORK_DIR/pull-fails" ] || exit 1 ;;
     *" get service traefik "*) if [ -f "$WORK_DIR/traefik-address" ]; then cat "$WORK_DIR/traefik-address"; fi ;;
     *" get helmchart "*) echo 1 ;;
     *" get gateway traefik-gateway "*) [ -f "$WORK_DIR/shared-gateway" ] || exit 1 ;;
@@ -76,7 +92,14 @@ case "$args" in
             *'name=="https"'*) port_file="$WORK_DIR/nginx-https-port" ;;
             *) port_file="$WORK_DIR/nginx-http-port" ;;
         esac
+        if [ -f "$WORK_DIR/nginx-error" ]; then
+            echo "The connection to the server was refused" >&2
+            exit 1
+        fi
         if [ ! -f "$port_file" ]; then
+            case "$args" in
+                *" --ignore-not-found "*) exit 0 ;;
+            esac
             echo 'Error from server (NotFound): services "ingress-nginx-controller" not found' >&2
             exit 1
         fi

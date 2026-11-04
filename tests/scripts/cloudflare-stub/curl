@@ -137,6 +137,8 @@ def plain_http(host, path):
             answer(code, edge)
     else:
         edge = {}
+    if path.startswith("/.well-known/acme-challenge/") and host in state.get("acme_elsewhere", []):
+        answer(404, dict(edge, **{"server": edge.get("server", "openresty")}))
     if path == "/.well-known/acme-challenge/5stack-check" and not state.get("no_acme_route"):
         answer(404, dict(edge, **{"x-5stack-check": "acme-path"}))
     answer(308, dict(edge, **https))

@@ -285,14 +285,47 @@ test_update_sh_on_a_vault_install_still_checks_the_vault_login() {
     assert_contains "$(cat "$WORK_DIR/setup-output")" "Not logged into vault"
 }
 
-test_managed_cloudflare_keeps_the_panel_off_reverse_proxy_mode() {
+test_managed_cloudflare_keeps_a_panel_behind_its_own_reverse_proxy_there() {
     make_panel
     set_env overlays/config/api-config.env WEB_DOMAIN example.com
     printf 'REVERSE_PROXY=true\nCLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\nVAULT_MANAGER=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
     run_setup_env
     assert_contains "$(cat "$WORK_DIR/setup-output")" "no API token yet"
     assert_eq "$(env_lines overlays/local-secrets/cloudflare-secrets.env CLOUDFLARE_API_TOKEN)" "CLOUDFLARE_API_TOKEN="
+    assert_eq "$(bash -c 'source "$1/utils/utils.sh" >/dev/null 2>&1; echo "$REVERSE_PROXY $CLOUDFLARE"' _ "$PANEL" </dev/null)" "true true"
+    assert_eq "$(bash -c 'source "$1/utils/utils.sh" --reverse-proxy=n >/dev/null 2>&1; echo "$REVERSE_PROXY $CLOUDFLARE"' _ "$PANEL" </dev/null)" "false true"
+}
+
+test_managed_cloudflare_without_a_reverse_proxy_issues_its_own_certificates() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    printf 'CLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\nVAULT_MANAGER=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
     assert_eq "$(bash -c 'source "$1/utils/utils.sh" >/dev/null 2>&1; echo "$REVERSE_PROXY $CLOUDFLARE"' _ "$PANEL" </dev/null)" "false true"
+}
+
+test_the_cloudflare_flag_with_a_reverse_proxy_saves_both() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    bash -c 'source "$1/utils/utils.sh" --cloudflare-managed --reverse-proxy=y' _ "$PANEL" </dev/null >"$WORK_DIR/setup-output" 2>&1 || fail "$(tail -n 20 "$WORK_DIR/setup-output")"
+    assert_eq "$(env_lines .5stack-env.config CLOUDFLARE_MANAGED)" "CLOUDFLARE_MANAGED=true"
+    assert_eq "$(env_lines .5stack-env.config REVERSE_PROXY)" "REVERSE_PROXY=true"
+}
+
+test_a_cloudflare_token_the_5stack_service_passes_is_not_asked_for() {
+    make_panel
+    set_sibling_domains
+    printf 'REVERSE_PROXY=false\nCLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\nVAULT_MANAGER=false\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
+    CLOUDFLARE_API_TOKEN=cf-from-the-service FIVESTACK_RELEASE=2026.11.4.1 run_setup_env
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "no API token yet"
+    assert_eq "$(env_lines overlays/local-secrets/cloudflare-secrets.env CLOUDFLARE_API_TOKEN)" "CLOUDFLARE_API_TOKEN="
+}
+
+test_a_vault_install_is_never_told_it_has_no_cloudflare_token() {
+    make_panel
+    set_sibling_domains
+    printf 'REVERSE_PROXY=false\nCLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\nVAULT_MANAGER=true\nKUBECONFIG=/dev/null\n' >"$PANEL/.5stack-env.config"
+    FIVESTACK_RELEASE=2026.11.4.1 run_setup_env
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "no API token yet"
 }
 
 test_the_cloudflare_flag_saves_managed_mode() {

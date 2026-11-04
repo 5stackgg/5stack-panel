@@ -142,7 +142,7 @@ cloudflare_token_url() {
 
 ask_cloudflare_token() {
     local file="overlays/local-secrets/cloudflare-secrets.env" token
-    if grep -qs '^CLOUDFLARE_API_TOKEN=..*' "$file"; then
+    if [ -n "$CLOUDFLARE_API_TOKEN" ] || grep -qs '^CLOUDFLARE_API_TOKEN=..*' "$file"; then
         return
     fi
     if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
@@ -309,7 +309,9 @@ if [ "$CLOUDFLARE_MANAGED" = true ]; then
         echo "Error: managing Cloudflare needs jq. Install it with: apt-get install -y jq"
         exit 1
     fi
-    REVERSE_PROXY=false
+    if [ "$REVERSE_PROXY" != true ]; then
+        REVERSE_PROXY=false
+    fi
     CLOUDFLARE=true
 fi
 
@@ -327,7 +329,7 @@ fi
 if [ "$CLOUDFLARE_MANAGED" = true ] && ! grep -qs '^CLOUDFLARE_MANAGED=true' .5stack-env.config; then
     update_env_var .5stack-env.config CLOUDFLARE_MANAGED true
     update_env_var .5stack-env.config CLOUDFLARE true
-    update_env_var .5stack-env.config REVERSE_PROXY false
+    update_env_var .5stack-env.config REVERSE_PROXY "$REVERSE_PROXY"
 fi
 
 if [ -d "base/secrets" ]; then

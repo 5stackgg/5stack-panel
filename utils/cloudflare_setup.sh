@@ -20,7 +20,10 @@
 # proxied when HTTPS_PORT isn't 443. Certificates stay with cert-manager's
 # HTTP-01 check, so plain HTTP on /.well-known/acme-challenge/ must reach the
 # panel: Always Use HTTPS goes off and a redirect rule sends everything else to
-# HTTPS. With CLOUDFLARE_ZONE set, only that zone is used.
+# HTTPS. Behind the operator's own reverse proxy (REVERSE_PROXY=true) the panel
+# issues no certificates, so none of that is set up or checked, and a host goes
+# back to DNS-only only when Cloudflare can't reach the origin. With
+# CLOUDFLARE_ZONE set, only that zone is used.
 
 CF_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${PANEL_DIR:=$(cd "$CF_SETUP_DIR/.." && pwd)}"
@@ -65,6 +68,11 @@ cf_load_hosts() {
     [ -n "$TYPESENSE_HOST" ] || TYPESENSE_HOST="$(cf_env_value "$config/typesense-config.env" TYPESENSE_HOST)"
     [ -n "$TURN_DOMAIN" ] || TURN_DOMAIN="$(cf_env_value "$PANEL_DIR/overlays/coturn/coturn.env" TURN_DOMAIN)"
     [ -n "$HTTPS_PORT" ] || HTTPS_PORT="$(cf_env_value "$config/traefik-config.env" HTTPS_PORT)"
+    [ -n "$REVERSE_PROXY" ] || REVERSE_PROXY="$(cf_env_value "$PANEL_DIR/.5stack-env.config" REVERSE_PROXY)"
+}
+
+cf_reverse_proxy() {
+    [ "$REVERSE_PROXY" = true ]
 }
 
 cf_load_token() {
@@ -193,8 +201,12 @@ cf_private_ip() {
 }
 
 cf_check() {
-    local zone_id zone_name ids response probe phase
+    local zone_id zone_name ids response probe phase phases
     zone_id=""
+    phases="http_config_settings http_request_cache_settings http_request_dynamic_redirect"
+    if cf_reverse_proxy; then
+        phases="http_config_settings http_request_cache_settings"
+    fi
     ids="$(cf_plan | awk '$3 != "-" { print $3 " " $4 }' | sort -u)"
     if [ -z "$ids" ]; then
         echo "zone: none of the panel's hostnames is in a zone this token can read"
@@ -217,7 +229,7 @@ cf_check() {
         fi
         cfa GET "/zones/$zone_id/ssl/universal/settings" | jq -e '.result.enabled != false' >/dev/null 2>&1 ||
             echo "universal_ssl: $zone_name has Universal SSL off, so Cloudflare has no certificate for the proxied names."
-        for phase in http_config_settings http_request_cache_settings http_request_dynamic_redirect; do
+        for phase in $phases; do
             response="$(cfa GET "/zones/$zone_id/rulesets/phases/$phase/entrypoint")"
             if ! cfa_ok <<<"$response" && ! jq -e 'any(.errors[]?; .code == 10003)' >/dev/null 2>&1 <<<"$response"; then
                 if [ "$phase" = http_request_dynamic_redirect ]; then
@@ -528,11 +540,13 @@ cf_rules() {
             err "Could not save the 5Stack configuration rule"
             return 1
         }
-        cf_rule "$zone" http_config_settings "$CF_ACME_REF" "5Stack panel: Let's Encrypt's check" set_config \
-            '{"security_level": "essentially_off", "bic": false}' "$(cf_acme_expression "${hosts[@]}")" || {
-            err "Could not save the 5Stack rule that keeps challenges off Let's Encrypt's check"
-            return 1
-        }
+        if ! cf_reverse_proxy; then
+            cf_rule "$zone" http_config_settings "$CF_ACME_REF" "5Stack panel: Let's Encrypt's check" set_config \
+                '{"security_level": "essentially_off", "bic": false}' "$(cf_acme_expression "${hosts[@]}")" || {
+                err "Could not save the 5Stack rule that keeps challenges off Let's Encrypt's check"
+                return 1
+            }
+        fi
         if [ "${#nocache[@]}" -gt 0 ]; then
             cf_rule "$zone" http_request_cache_settings "$CF_CACHE_REF" "5Stack panel: live data" set_cache_settings \
                 '{"cache": false}' "$(cf_host_expression "${nocache[@]}")" || {
@@ -540,12 +554,17 @@ cf_rules() {
                 return 1
             }
         fi
-        cf_https "$zone" "${hosts[@]}" || return 1
+        if ! cf_reverse_proxy; then
+            cf_https "$zone" "${hosts[@]}" || return 1
+        fi
     done
 }
 
 cf_zone_blockers() {
     local hosts
+    if cf_reverse_proxy; then
+        return 0
+    fi
     mapfile -t hosts < <(cf_plan | cf_ruled | awk -v z="$1" '$3 == z { print $2 }')
     cf_challenge_blockers "$1" "${hosts[@]}"
 }
@@ -578,7 +597,7 @@ cf_proxy() {
                 continue
                 ;;
         esac
-        if blocked="$(cf_acme_blocked "$host")"; then
+        if ! cf_reverse_proxy && blocked="$(cf_acme_blocked "$host")"; then
             warn "Let's Encrypt can't reach $host through Cloudflare: $blocked. It goes straight to this server again, so its certificate keeps renewing."
             cf_sync_host "$zone_id" "$host" false false >/dev/null
             status=3
@@ -743,7 +762,7 @@ cf_stream_relay() {
         cf_sync_host "$zone_id" "$host" false false >/dev/null
         return 3
     fi
-    if blocked="$(cf_acme_blocked "$host")"; then
+    if ! cf_reverse_proxy && blocked="$(cf_acme_blocked "$host")"; then
         warn "Let's Encrypt can't reach $host through Cloudflare: $blocked. Streams go straight to this server again."
         cf_sync_host "$zone_id" "$host" false false >/dev/null
         return 3

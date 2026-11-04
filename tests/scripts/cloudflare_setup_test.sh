@@ -316,6 +316,78 @@ test_a_check_that_never_goes_through_cloudflare_is_named_and_the_host_kept() {
     assert_eq "$(grep -c 'HTTP example.gg/.well-known/acme-challenge/5stack-check' "$WORK_DIR/cf-calls")" 2
 }
 
+behind_a_reverse_proxy() {
+    (
+        export REVERSE_PROXY=true
+        cf "$@"
+    )
+}
+
+test_behind_a_reverse_proxy_hosts_go_through_cloudflare_even_when_the_check_404s() {
+    panel_at example.gg
+    zone example.gg
+    state '.settings.z1.always_use_https = "on" | .acme_elsewhere = ["example.gg", "api.example.gg", "ws.example.gg", "tv.example.gg", "search.example.gg", "console.example.gg"]'
+    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+        assert_eq "$(record "$host")" "203.0.113.40 true"
+        assert_contains "$(cat "$WORK_DIR/cf-calls")" "ORIGIN $host"
+    done
+    assert_not_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "/.well-known/acme-challenge/5stack-check"
+    assert_eq "$(jq -r '[.rulesets.z1.http_config_settings.rules[].ref] | join(",")' "$WORK_DIR/cf-state.json")" "5stack_panel"
+    assert_eq "$(jq -r '.rulesets.z1.http_config_settings.rules[0].action_parameters.ssl' "$WORK_DIR/cf-state.json")" strict
+    assert_eq "$(jq -r '.rulesets.z1.http_request_dynamic_redirect.rules // [] | length' "$WORK_DIR/cf-state.json")" 0
+    assert_eq "$(jq -r '.settings.z1.always_use_https' "$WORK_DIR/cf-state.json")" on
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "PATCH /zones/z1/settings/always_use_https"
+}
+
+test_a_panel_issuing_its_own_certificates_still_keeps_a_host_whose_check_404s_straight() {
+    panel_at example.gg
+    zone example.gg
+    state '.acme_elsewhere = ["api.example.gg"]'
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt can't reach api.example.gg through Cloudflare: http://api.example.gg/.well-known/acme-challenge/5stack-check answers HTTP 404 instead of the panel"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 true"
+}
+
+test_behind_a_reverse_proxy_a_host_cloudflare_cannot_reach_goes_back_to_dns_only() {
+    panel_at example.gg
+    zone example.gg
+    state '.origin = {"ws.example.gg": 522}'
+    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$?" 3
+    assert_contains "$(cat "$WORK_DIR/out")" "Cloudflare can't reach the panel on ws.example.gg (HTTP 522)"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+}
+
+test_behind_a_reverse_proxy_redirect_rules_and_their_blockers_are_left_alone() {
+    panel_at example.gg
+    zone example.gg
+    state '.rulesets.z1.http_request_dynamic_redirect = {id: "rs7", phase: "http_request_dynamic_redirect", rules: [{id: "theirs", ref: "their_api", description: "API to HTTPS", action: "redirect", expression: "(http.host in {\"api.example.gg\"} and not ssl)", action_parameters: {from_value: {status_code: 308}}}]} | .no_redirect_rules = true'
+    assert_not_contains "$(behind_a_reverse_proxy check)" "redirect_rules"
+    cf records >/dev/null 2>&1 || fail "records"
+    behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "API to HTTPS"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+    assert_eq "$(behind_a_reverse_proxy status --json | jq -c '.zones[0].blockers')" "[]"
+}
+
+test_reverse_proxy_mode_is_read_from_the_panels_env_config() {
+    panel_at example.gg
+    zone example.gg
+    state '.acme_elsewhere = ["api.example.gg"]'
+    printf 'REVERSE_PROXY=true\nCLOUDFLARE=true\nCLOUDFLARE_MANAGED=true\n' >"$WORK_DIR/panel/.5stack-env.config"
+    cf records >/dev/null 2>&1 || fail "records"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+}
+
 test_a_key_without_redirect_rules_is_named_before_anything_changes() {
     panel_at example.gg
     zone example.gg

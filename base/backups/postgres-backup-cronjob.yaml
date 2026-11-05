@@ -25,6 +25,7 @@ spec:
 
                   TS=$(date -u +"%Y%m%d%H%M%S")
                   DUMP_FILE="/tmp/backup-$TS.dump"
+                  ROLES_FILE="/tmp/roles.sql"
                   ZIP_FILE="/tmp/backup-$TS.zip"
 
                   export PGPASSWORD="$POSTGRES_PASSWORD"
@@ -37,6 +38,12 @@ spec:
                   fi
 
                   zip -j "$ZIP_FILE" "$DUMP_FILE"
+
+                  if pg_dumpall -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -l "$POSTGRES_DB" --roles-only --no-role-passwords -f "$ROLES_FILE" && [ -s "$ROLES_FILE" ]; then
+                    zip -j "$ZIP_FILE" "$ROLES_FILE"
+                  else
+                    echo "WARNING: could not save the database roles, so this backup holds the database only"
+                  fi
 
                   ENDPOINT="${S3_ENDPOINT:-rustfs}"
                   REMOTE=false

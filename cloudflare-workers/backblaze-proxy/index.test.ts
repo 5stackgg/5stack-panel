@@ -371,6 +371,8 @@ describe("backblaze-proxy signed clip links", () => {
   const CLIP = "clips/76561198000000001/0b7c.mp4";
   const LINEUP_STILL =
     "clips/utility/ffe58c95-4581-4320-a14e-f2efb95ccebe/aim.jpg";
+  const EVENT_MEDIA =
+    "events/media/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/0123456789abcdef01234567.jpg";
 
   let cacheKeys: string[];
   let cached: Response | undefined;
@@ -475,6 +477,39 @@ describe("backblaze-proxy signed clip links", () => {
     });
   }
 
+  // The api serves event media itself, checking on every request who may see
+  // the event, and never links it through the worker.
+  it("refuses event media without a signature, before the cache or B2", async () => {
+    await refused(EVENT_MEDIA);
+  });
+
+  it("refuses event media to a HEAD without a signature", async () => {
+    await refused(EVENT_MEDIA, "HEAD");
+  });
+
+  it("refuses event media named by ?file= on another route", async () => {
+    await refused(`news?file=${encodeURIComponent(EVENT_MEDIA)}`);
+  });
+
+  it("does not hand a cached copy of event media to a request without a signature", async () => {
+    cached = new Response("cached banner", { status: 200 });
+
+    const response = await send(EVENT_MEDIA);
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(cacheKeys, []);
+  });
+
+  it("serves event media on a signed link", async () => {
+    const response = await send(`${EVENT_MEDIA}?${signed(EVENT_MEDIA)}`);
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      String(upstream.mock.calls[0].arguments[0]),
+      `https://5stack.s3.example.test/${EVENT_MEDIA}`,
+    );
+  });
+
   it("does not hand a cached copy of a clip to a request without a signature", async () => {
     cached = new Response("cached clip", { status: 200 });
 
@@ -542,7 +577,6 @@ describe("backblaze-proxy signed clip links", () => {
   for (const path of [
     "maps/25537370/manifest.json",
     "news/9a3c.webp",
-    "events/4f1e/banner.jpg",
     "demo/0b7c.dem",
   ]) {
     it(`serves ${path} without a signature`, async () => {
@@ -572,6 +606,17 @@ describe("backblaze-proxy signed clip links", () => {
 
         assert.equal(response.status, 200);
         assert.equal(upstream.mock.callCount(), 1);
+      });
+    }
+
+    for (const [label, path] of [
+      ["event media without a signature", EVENT_MEDIA],
+      ["event media with a forged signature", `${EVENT_MEDIA}?exp=${now() + 600}&sig=${"A".repeat(43)}`],
+      ["a key that B2 could resolve into events/", `news/%252e%252e/${EVENT_MEDIA}`],
+      ["a key with an empty segment", `news//${EVENT_MEDIA}`],
+    ]) {
+      it(`still refuses ${label}`, async () => {
+        await refused(path);
       });
     }
 
@@ -690,18 +735,14 @@ describe("backblaze-proxy content types", () => {
     });
   }
 
-  // A Request resolves these itself, so B2 is asked for the key they name,
-  // and it is pinned like any other.
-  it("pins what clips/%2e%2e/events/x.html resolves to", async () => {
+  // A Request resolves this itself, to event media without a signature.
+  it("refuses what clips/%2e%2e/events/x.html resolves to", async () => {
     stored("text/html");
 
     const response = await send("clips/%2e%2e/events/x.html");
 
-    assert.equal(
-      response.headers.get("Content-Type"),
-      "application/octet-stream",
-    );
-    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(response.status, 403);
+    assert.equal(upstream.mock.callCount(), 0);
   });
 
   for (const [path, type] of [
@@ -712,7 +753,7 @@ describe("backblaze-proxy content types", () => {
     it(`still serves ${path} as ${type}`, async () => {
       stored("text/html");
 
-      const response = await send(path);
+      const response = await send(`${path}?${signed(path)}`);
 
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("Content-Type"), type);

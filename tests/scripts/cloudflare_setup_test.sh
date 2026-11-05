@@ -42,6 +42,16 @@ cf() {
     )
 }
 
+update_step() {
+    CLOUDFLARE_API_TOKEN="" CLOUDFLARE_ORIGIN_IPV4="" CLOUDFLARE_ORIGIN_IPV6="" HTTPS_PORT="" TURN_DOMAIN="" CLOUDFLARE_WORKER_DOMAIN="" VAULT_MANAGER="" \
+        PANEL_DIR="$WORK_DIR/panel" PATH="$STUB_PATH" CF_RELAY_WAIT=2 CF_RELAY_PAUSE=0 CF_PROBE_WAIT=2 CF_PROBE_PAUSE=0 \
+        bash -c 'source "$1" && "$2"' _ "$TEST_ROOT/utils/cloudflare_setup.sh" "$1" </dev/null
+}
+
+writes() {
+    grep -E '^(POST|PUT|PATCH|DELETE) ' "$WORK_DIR/cf-calls"
+}
+
 plan_of() {
     cf plan | awk -v h="$1" '$2 == h { print $5 " " $6 }'
 }
@@ -694,6 +704,79 @@ test_stream_relay_sh_uses_the_managed_key_and_keeps_the_worker_through_updates()
     assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
     assert_contains "$(cat "$WORK_DIR/panel/.5stack-env.config")" "CLOUDFLARE_STREAM_RELAY=true"
     assert_not_contains "$(cat "$WORK_DIR/out")" "npx"
+}
+
+test_records_set_at_the_start_leave_the_updates_records_step_out() {
+    panel_at example.gg
+    zone example.gg
+    CLOUDFLARE_RECORDS_SET=true update_step cloudflare_update_records >"$WORK_DIR/out" 2>&1
+    assert_eq "$(cat "$WORK_DIR/out")" ""
+    if [ -s "$WORK_DIR/cf-calls" ]; then
+        fail "Cloudflare was called: $(cat "$WORK_DIR/cf-calls")"
+    fi
+    assert_eq "$(jq '.records | length' "$WORK_DIR/cf-state.json")" 0
+    update_step cloudflare_update_records >"$WORK_DIR/out" 2>&1
+    assert_contains "$(cat "$WORK_DIR/out")" "==> Updating the panel's Cloudflare records"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+    assert_eq "$(record demos.example.gg)" "203.0.113.40 false"
+}
+
+test_records_set_at_the_start_leave_the_proxy_step_out_and_only_put_back_a_host_cloudflare_cannot_reach() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    : >"$WORK_DIR/cf-calls"
+    CLOUDFLARE_RECORDS_SET=true update_step cloudflare_update_proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$(cat "$WORK_DIR/out")" ""
+    if writes; then
+        fail "the check changed something"
+    fi
+    assert_contains "$(cat "$WORK_DIR/cf-calls")" "ORIGIN api.example.gg"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "ORIGIN demos.example.gg"
+    state '.origin = {"ws.example.gg": 522}'
+    : >"$WORK_DIR/cf-calls"
+    CLOUDFLARE_RECORDS_SET=true update_step cloudflare_update_proxy >"$WORK_DIR/out" 2>&1
+    assert_eq "$(sed 's/^ *//' "$WORK_DIR/out")" "Cloudflare can't reach the panel on ws.example.gg (HTTP 522), so it goes straight to this server again."
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 false"
+    assert_eq "$(record api.example.gg)" "203.0.113.40 true"
+    assert_eq "$(writes | wc -l | tr -d ' ')" 1
+    assert_contains "$(writes)" '"name":"ws.example.gg"'
+}
+
+test_records_set_at_the_start_still_put_the_stream_relay_worker_in_front_of_streams() {
+    panel_at example.gg
+    zone example.gg
+    cf records >/dev/null 2>&1 || fail "records"
+    CLOUDFLARE_RECORDS_SET=true CLOUDFLARE_STREAM_RELAY=true update_step cloudflare_update_proxy >"$WORK_DIR/out" 2>&1
+    assert_contains "$(cat "$WORK_DIR/out")" "==> Putting the stream relay Worker in front of streams"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "==> Putting Cloudflare in front of the panel"
+    assert_eq "$(record hls.example.gg)" "203.0.113.40 true"
+    assert_eq "$(jq -r '.routes.z1[] | "\(.pattern) \(.script)"' "$WORK_DIR/cf-state.json")" "hls.example.gg/* 5stack-stream-relay"
+}
+
+test_without_records_set_at_the_start_an_update_puts_cloudflare_in_front_as_before() {
+    panel_at example.gg
+    zone example.gg
+    state '.origin = {"ws.example.gg": 522}'
+    update_step cloudflare_update_records >/dev/null 2>&1
+    : >"$WORK_DIR/cf-calls"
+    update_step cloudflare_update_proxy >"$WORK_DIR/out" 2>&1
+    assert_contains "$(cat "$WORK_DIR/out")" "==> Putting Cloudflare in front of the panel"
+    assert_contains "$(cat "$WORK_DIR/out")" "api.example.gg through Cloudflare"
+    assert_contains "$(cat "$WORK_DIR/out")" "Cloudflare isn't in front of every panel hostname yet"
+    assert_not_contains "$(cat "$WORK_DIR/out")" "stream relay"
+    assert_contains "$(writes)" "/rulesets/"
+    assert_eq "$(record ws.example.gg)" "203.0.113.40 false"
+}
+
+test_update_sh_runs_both_cloudflare_steps_through_the_records_set_check() {
+    local script
+    script="$(cat "$TEST_ROOT/update.sh")"
+    assert_contains "$script" "cloudflare_update_records"
+    assert_contains "$script" "cloudflare_update_proxy"
+    assert_not_contains "$script" "cloudflare_sync_records"
+    assert_not_contains "$script" "cloudflare_sync_proxy"
+    assert_not_contains "$script" "cloudflare_sync_stream_relay"
 }
 
 run_tests

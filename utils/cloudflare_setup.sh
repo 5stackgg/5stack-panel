@@ -6,6 +6,8 @@
 #   cloudflare_setup.sh records [--replace a,b] rules, then DNS records, proxied from the start
 #   cloudflare_setup.sh proxy                   checks each proxied host, and puts one back to
 #                                               DNS-only when Cloudflare or Let's Encrypt can't reach it
+#   cloudflare_setup.sh origins                 changes nothing, unless Cloudflare can't reach a proxied
+#                                               host: that one goes back to DNS-only
 #   cloudflare_setup.sh status --json           records and settings against what setup left
 #   cloudflare_setup.sh fix <host>              puts one record back
 #   cloudflare_setup.sh tiered-cache            turns on Smart Tiered Cache
@@ -621,6 +623,23 @@ cf_proxy() {
     return "$status"
 }
 
+cf_origins() {
+    local key host zone_id zone_name proxied why code status=0
+    cf_public_ip || return 1
+    while read -r key host zone_id zone_name proxied why; do
+        [ "$proxied" = yes ] || continue
+        code="$(cf_origin_status "$host")"
+        case "$code" in
+            52[0-6] | 530)
+                warn "Cloudflare can't reach the panel on $host (HTTP $code), so it goes straight to this server again."
+                cf_sync_host "$zone_id" "$host" false false >/dev/null
+                status=3
+                ;;
+        esac
+    done < <(cf_plan)
+    return "$status"
+}
+
 cf_status_json() {
     local key host zone_id zone_name proxied why records zones
     cf_public_ip
@@ -820,6 +839,7 @@ cloudflare_setup() {
         check) cf_check ;;
         records) cf_records "$replace" ;;
         proxy) cf_proxy ;;
+        origins) cf_origins ;;
         status) cf_status_json ;;
         fix) cf_fix "$1" ;;
         tiered-cache) cf_tiered_cache ;;
@@ -859,6 +879,27 @@ cloudflare_sync_proxy() {
 cloudflare_sync_stream_relay() {
     if ! cloudflare_setup stream-relay; then
         warn "The stream relay Worker isn't set up, so streams go straight to this server. Run ./stream-relay.sh to see why."
+    fi
+}
+
+cloudflare_update_records() {
+    if [ "$CLOUDFLARE_RECORDS_SET" = true ]; then
+        return 0
+    fi
+    step "Updating the panel's Cloudflare records"
+    cloudflare_sync_records
+}
+
+cloudflare_update_proxy() {
+    if [ "$CLOUDFLARE_RECORDS_SET" = true ]; then
+        cloudflare_setup origins
+    else
+        step "Putting Cloudflare in front of the panel"
+        cloudflare_sync_proxy
+    fi
+    if [ "$CLOUDFLARE_STREAM_RELAY" = true ]; then
+        step "Putting the stream relay Worker in front of streams"
+        cloudflare_sync_stream_relay
     fi
 }
 

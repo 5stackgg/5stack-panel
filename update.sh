@@ -60,8 +60,7 @@ install_traefik || die "failed to install Traefik"
 ok "Traefik is ready"
 
 if [ "$CLOUDFLARE_MANAGED" = true ]; then
-    step "Updating the panel's Cloudflare records"
-    cloudflare_sync_records
+    cloudflare_update_records
 fi
 
 step "Building overlay manifests"
@@ -161,12 +160,7 @@ if [ "$REVERSE_PROXY" != true ]; then
 fi
 
 if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$SSL_OK" = true ]; then
-    step "Putting Cloudflare in front of the panel"
-    cloudflare_sync_proxy
-    if [ "$CLOUDFLARE_STREAM_RELAY" = true ]; then
-        step "Putting the stream relay Worker in front of streams"
-        cloudflare_sync_stream_relay
-    fi
+    cloudflare_update_proxy
 fi
 
 if [ "$SSL_OK" != true ]; then

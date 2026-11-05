@@ -299,15 +299,18 @@ function fileUrlKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-// B2 is asked for whatever the upstream URL resolves to, so a key that would
-// resolve to something else (dot segments, escapes, a smuggled ?, empty
-// segments) could reach clips/ while not starting with it. Such a key is never
-// one the api signs, so it is held to the signature like a clip.
 function requiresSignature(key: string): boolean {
-  if (key.startsWith(SIGNED_PREFIX)) {
-    return true;
-  }
+  return key.startsWith(SIGNED_PREFIX);
+}
+
+// B2 is asked for whatever the upstream URL resolves to, so a key that would
+// resolve to something else (dot or empty segments, backslashes, escapes, a
+// smuggled ?) names another object than the one its prefix says: it could get
+// past the signature on clips/ or the type pinned for its extension. No key the
+// api writes looks like this, so every request for one is refused.
+function nonCanonical(key: string): boolean {
   if (
+    key.includes("\\") ||
     key.split("/").some((part) => part === "" || part === "." || part === "..")
   ) {
     return true;
@@ -346,10 +349,10 @@ async function signatureValid(
   );
 }
 
-// Outside clips/, an object is served as the type its extension names, from
-// this list, never the type it was stored with: some uploads stored the
-// uploader's own label, and this hostname shares the panel's cookie domain.
-// Anything else is a download.
+// An object is served as the type its extension names, from this list, never
+// the type it was stored with: some uploads stored the uploader's own label,
+// and this hostname shares the panel's cookie domain. Anything else is a
+// download.
 const TYPE_BY_EXTENSION = new Map([
   ["png", "image/png"],
   ["jpg", "image/jpeg"],
@@ -363,9 +366,6 @@ const TYPE_BY_EXTENSION = new Map([
 ]);
 
 function pinContentType(headers: Headers, key: string) {
-  if (key.startsWith(SIGNED_PREFIX)) {
-    return;
-  }
   headers.set("X-Content-Type-Options", "nosniff");
   const extension = /\.([A-Za-z0-9]+)$/.exec(key)?.[1].toLowerCase();
   const type = extension ? TYPE_BY_EXTENSION.get(extension) : undefined;
@@ -384,8 +384,8 @@ function pinContentType(headers: Headers, key: string) {
 }
 
 // Decorates a response on its way to the client: mp4 Content-Type fix, the
-// pinned type outside clips/, the view beacon, and no-store on anything but a
-// 2xx. The body is never read or rewritten here.
+// pinned type, the view beacon, and no-store on anything but a 2xx. The body is
+// never read or rewritten here.
 function clientResponse(
   source: Response,
   opts: {
@@ -486,6 +486,12 @@ export default {
     }
 
     const key = resolveKey(url);
+    if (key && nonCanonical(key)) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { ...corsHeaders(reqOrigin), "Cache-Control": "no-store" },
+      });
+    }
     // Before the cache: a copy of the file is there for every signed link.
     if (
       env.REQUIRE_SIGNED_CLIPS === "1" &&

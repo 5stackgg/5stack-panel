@@ -647,6 +647,94 @@ describe("backblaze-proxy content types", () => {
     });
   }
 
+  // Without REQUIRE_SIGNED_CLIPS too: B2 resolves dot and empty segments and
+  // escapes, so a key that only starts with clips/ could name any object.
+  async function send(path: string) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://demo-dl.5stack.gg/${path}`, {
+        headers: { Origin: ORIGIN },
+      }),
+      env,
+      ctx as any,
+    );
+  }
+
+  for (const path of [
+    `demo?file=${encodeURIComponent("clips/../events/x.html")}`,
+    "clips//x.html",
+    "clips/%252e%252e/events/x.html",
+    "clips/..%2Fevents/x.html",
+    "clips%2F..%2Fevents%2Fx.html",
+    "clips/%5C..%5Cevents/x.html",
+    `news?file=${encodeURIComponent("clips/./x.html")}`,
+  ]) {
+    it(`refuses ${path} before the cache or B2`, async () => {
+      stored("text/html");
+      const cacheKeys: string[] = [];
+      (globalThis as any).caches = {
+        default: {
+          match: async (request: Request) => {
+            cacheKeys.push(request.url);
+          },
+          put: async () => {},
+        },
+      };
+
+      const response = await send(path);
+
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("Cache-Control"), "no-store");
+      assert.equal(upstream.mock.callCount(), 0);
+      assert.deepEqual(cacheKeys, []);
+    });
+  }
+
+  // A Request resolves these itself, so B2 is asked for the key they name,
+  // and it is pinned like any other.
+  it("pins what clips/%2e%2e/events/x.html resolves to", async () => {
+    stored("text/html");
+
+    const response = await send("clips/%2e%2e/events/x.html");
+
+    assert.equal(
+      response.headers.get("Content-Type"),
+      "application/octet-stream",
+    );
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  });
+
+  for (const [path, type] of [
+    ["clips/76561198000000001/0b7c.mp4", "video/mp4"],
+    ["clips/76561198000000001/0b7c.jpg", "image/jpeg"],
+    ["events/media/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/0123abcd.webp", "image/webp"],
+  ] as const) {
+    it(`still serves ${path} as ${type}`, async () => {
+      stored("text/html");
+
+      const response = await send(path);
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    });
+  }
+
+  it("makes a file under clips/ outside the list a download too", async () => {
+    stored("text/html");
+
+    const response = await send("clips/76561198000000001/0b7c.html");
+
+    assert.equal(
+      response.headers.get("Content-Type"),
+      "application/octet-stream",
+    );
+    assert.match(
+      response.headers.get("Content-Disposition") ?? "",
+      /^attachment/,
+    );
+  });
+
   it("pins the type on a copy the edge cached before", async () => {
     (globalThis as any).caches = {
       default: {

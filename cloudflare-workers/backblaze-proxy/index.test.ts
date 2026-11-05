@@ -219,7 +219,7 @@ describe("backblaze-proxy health", () => {
     assert.deepEqual(json, {
       ok: true,
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      version: "2",
       bucket: "ok",
       code: "AccessDenied",
     });
@@ -583,5 +583,188 @@ describe("backblaze-proxy signed clip links", () => {
 
       assert.deepEqual(unsigned, cacheKeys);
     });
+  });
+});
+
+describe("backblaze-proxy content types", () => {
+  // What B2 holds is the type the object was stored with, which an upload
+  // once took from the uploader's own label.
+  function stored(contentType: string, body = "<script>alert(1)</script>") {
+    upstream = mock.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": contentType },
+        }),
+    );
+    globalThis.fetch = upstream as unknown as typeof fetch;
+  }
+
+  for (const [path, type] of [
+    ["news/images/0123abcd.png", "image/png"],
+    ["news/images/0123abcd.JPG", "image/jpeg"],
+    ["news/images/0123abcd.webp", "image/webp"],
+    ["news/images/0123abcd.gif", "image/gif"],
+    ["news/images/0123abcd.mp4", "video/mp4"],
+    ["news/images/0123abcd.mp3", "audio/mpeg"],
+    ["maps/latest.json", "application/json"],
+  ] as const) {
+    it(`serves ${path} as ${type}, whatever it was stored as`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^inline/,
+      );
+    });
+  }
+
+  for (const path of [
+    "news/images/0123abcd.html",
+    "news/images/0123abcd.svg",
+    "news/images/0123abcd",
+    "demo/0b7c.dem",
+    "maps/25537370/de_mirage.tri.gz",
+  ]) {
+    it(`makes ${path} a download`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(
+        response.headers.get("Content-Type"),
+        "application/octet-stream",
+      );
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^attachment/,
+      );
+    });
+  }
+
+  // Without REQUIRE_SIGNED_CLIPS too: B2 resolves dot and empty segments and
+  // escapes, so a key that only starts with clips/ could name any object.
+  async function send(path: string) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://demo-dl.5stack.gg/${path}`, {
+        headers: { Origin: ORIGIN },
+      }),
+      env,
+      ctx as any,
+    );
+  }
+
+  for (const path of [
+    `demo?file=${encodeURIComponent("clips/../events/x.html")}`,
+    "clips//x.html",
+    "clips/%252e%252e/events/x.html",
+    "clips/..%2Fevents/x.html",
+    "clips%2F..%2Fevents%2Fx.html",
+    "clips/%5C..%5Cevents/x.html",
+    `news?file=${encodeURIComponent("clips/./x.html")}`,
+  ]) {
+    it(`refuses ${path} before the cache or B2`, async () => {
+      stored("text/html");
+      const cacheKeys: string[] = [];
+      (globalThis as any).caches = {
+        default: {
+          match: async (request: Request) => {
+            cacheKeys.push(request.url);
+          },
+          put: async () => {},
+        },
+      };
+
+      const response = await send(path);
+
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("Cache-Control"), "no-store");
+      assert.equal(upstream.mock.callCount(), 0);
+      assert.deepEqual(cacheKeys, []);
+    });
+  }
+
+  // A Request resolves these itself, so B2 is asked for the key they name,
+  // and it is pinned like any other.
+  it("pins what clips/%2e%2e/events/x.html resolves to", async () => {
+    stored("text/html");
+
+    const response = await send("clips/%2e%2e/events/x.html");
+
+    assert.equal(
+      response.headers.get("Content-Type"),
+      "application/octet-stream",
+    );
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  });
+
+  for (const [path, type] of [
+    ["clips/76561198000000001/0b7c.mp4", "video/mp4"],
+    ["clips/76561198000000001/0b7c.jpg", "image/jpeg"],
+    ["events/media/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/0123abcd.webp", "image/webp"],
+  ] as const) {
+    it(`still serves ${path} as ${type}`, async () => {
+      stored("text/html");
+
+      const response = await send(path);
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    });
+  }
+
+  it("makes a file under clips/ outside the list a download too", async () => {
+    stored("text/html");
+
+    const response = await send("clips/76561198000000001/0b7c.html");
+
+    assert.equal(
+      response.headers.get("Content-Type"),
+      "application/octet-stream",
+    );
+    assert.match(
+      response.headers.get("Content-Disposition") ?? "",
+      /^attachment/,
+    );
+  });
+
+  it("pins the type on a copy the edge cached before", async () => {
+    (globalThis as any).caches = {
+      default: {
+        match: async () =>
+          new Response("<script>alert(1)</script>", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/html",
+              "Content-Disposition": 'inline; filename="0123abcd.html"',
+            },
+          }),
+        put: async () => {},
+      },
+    };
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const image = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.png"),
+      env,
+      ctx as any,
+    );
+    const page = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.html"),
+      env,
+      ctx as any,
+    );
+
+    assert.equal(image.headers.get("Content-Type"), "image/png");
+    assert.equal(image.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(page.headers.get("Content-Type"), "application/octet-stream");
+    assert.match(page.headers.get("Content-Disposition") ?? "", /^attachment/);
   });
 });

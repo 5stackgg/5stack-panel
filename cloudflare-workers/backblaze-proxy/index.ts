@@ -128,7 +128,9 @@ async function health(env: {
     {
       ok: bucket === "ok",
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      // 2: types pinned by extension and keys that resolve elsewhere refused.
+      // The panel's settings call an older worker out of date.
+      version: "2",
       bucket,
       code,
     },
@@ -299,15 +301,18 @@ function fileUrlKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-// B2 is asked for whatever the upstream URL resolves to, so a key that would
-// resolve to something else (dot segments, escapes, a smuggled ?, empty
-// segments) could reach clips/ while not starting with it. Such a key is never
-// one the api signs, so it is held to the signature like a clip.
 function requiresSignature(key: string): boolean {
-  if (key.startsWith(SIGNED_PREFIX)) {
-    return true;
-  }
+  return key.startsWith(SIGNED_PREFIX);
+}
+
+// B2 is asked for whatever the upstream URL resolves to, so a key that would
+// resolve to something else (dot or empty segments, backslashes, escapes, a
+// smuggled ?) names another object than the one its prefix says: it could get
+// past the signature on clips/ or the type pinned for its extension. No key the
+// api writes looks like this, so every request for one is refused.
+function nonCanonical(key: string): boolean {
   if (
+    key.includes("\\") ||
     key.split("/").some((part) => part === "" || part === "." || part === "..")
   ) {
     return true;
@@ -346,9 +351,43 @@ async function signatureValid(
   );
 }
 
+// An object is served as the type its extension names, from this list, never
+// the type it was stored with: some uploads stored the uploader's own label,
+// and this hostname shares the panel's cookie domain. Anything else is a
+// download.
+const TYPE_BY_EXTENSION = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["webp", "image/webp"],
+  ["gif", "image/gif"],
+  ["mp4", "video/mp4"],
+  ["webm", "video/webm"],
+  ["mp3", "audio/mpeg"],
+  ["json", "application/json"],
+]);
+
+function pinContentType(headers: Headers, key: string) {
+  headers.set("X-Content-Type-Options", "nosniff");
+  const extension = /\.([A-Za-z0-9]+)$/.exec(key)?.[1].toLowerCase();
+  const type = extension ? TYPE_BY_EXTENSION.get(extension) : undefined;
+  if (type) {
+    headers.set("Content-Type", type);
+    return;
+  }
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set(
+    "Content-Disposition",
+    (headers.get("Content-Disposition") ?? "attachment").replace(
+      /^inline/i,
+      "attachment",
+    ),
+  );
+}
+
 // Decorates a response on its way to the client: mp4 Content-Type fix, the
-// view beacon, and no-store on anything but a 2xx. The body is never read or
-// rewritten here.
+// pinned type, the view beacon, and no-store on anything but a 2xx. The body is
+// never read or rewritten here.
 function clientResponse(
   source: Response,
   opts: {
@@ -367,6 +406,9 @@ function clientResponse(
   if (/\.mp4$/i.test(opts.key)) {
     // B2 stored old clips as binary/octet-stream; players refuse non-video/*.
     headers.set("Content-Type", "video/mp4");
+  }
+  if (source.ok) {
+    pinContentType(headers, opts.key);
   }
   if (!headers.has("Accept-Ranges")) {
     headers.set("Accept-Ranges", "bytes");
@@ -446,6 +488,12 @@ export default {
     }
 
     const key = resolveKey(url);
+    if (key && nonCanonical(key)) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { ...corsHeaders(reqOrigin), "Cache-Control": "no-store" },
+      });
+    }
     // Before the cache: a copy of the file is there for every signed link.
     if (
       env.REQUIRE_SIGNED_CLIPS === "1" &&
@@ -572,6 +620,9 @@ export default {
       // Stored on the cached copy, not patched on the way out, so range hits
       // served straight from cache carry it too.
       headers.set("Content-Type", "video/mp4");
+    }
+    if (upstream.status === 200) {
+      pinContentType(headers, key);
     }
 
     const stored = new Response(upstream.body, {

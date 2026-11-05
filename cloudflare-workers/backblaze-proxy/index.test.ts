@@ -130,6 +130,72 @@ describe("backblaze-proxy upstream failures", () => {
   });
 });
 
+describe("backblaze-proxy browser cache", () => {
+  for (const [label, path, status, cacheControl] of [
+    ["a landing video B2 has", "landing/intro.mp4", 200, "public, max-age=2592000, immutable"],
+    ["the map pointer B2 has", "maps/latest.json", 200, "public, max-age=60"],
+    ["a landing video B2 does not have yet", "landing/does-not-exist-123.mp4", 404, "no-store"],
+    ["a map pointer B2 does not have", "maps/latest.json", 404, "no-store"],
+    ["a demo B2 refuses on every retry", "demo/0b7c.dem", 403, "no-store"],
+    ["a demo while B2 is down", "demo/0b7c.dem", 503, "no-store"],
+  ] as const) {
+    it(`answers ${label} with ${cacheControl}`, async () => {
+      upstream = mock.fn(async () => new Response("body", { status }));
+      globalThis.fetch = upstream as unknown as typeof fetch;
+
+      const { response } = await get(path);
+
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get("Cache-Control"), cacheControl);
+      assert.equal(response.headers.get("Access-Control-Allow-Origin"), ORIGIN);
+    });
+  }
+
+  it("keeps the immutable header on a range served from the edge copy", async () => {
+    (globalThis as any).caches = {
+      default: {
+        match: async () =>
+          new Response("ace", {
+            status: 206,
+            headers: {
+              "Content-Range": "bytes 0-2/100",
+              "Cache-Control": "public, max-age=2592000, immutable",
+            },
+          }),
+        put: async () => {},
+      },
+    };
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const response = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/intro.mp4", {
+        headers: { Origin: ORIGIN, Range: "bytes=0-2" },
+      }),
+      env,
+      ctx as any,
+    );
+
+    assert.equal(response.status, 206);
+    assert.equal(
+      response.headers.get("Cache-Control"),
+      "public, max-age=2592000, immutable",
+    );
+  });
+
+  it("answers a worker deployed without its bucket with no-store", async () => {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const response = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/intro.mp4"),
+      { ...env, BUCKET_NAME: "" },
+      ctx as any,
+    );
+
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+  });
+});
+
 describe("backblaze-proxy health", () => {
   async function health(body: string, overrides: Partial<typeof env> = {}) {
     upstream = mock.fn(async () => new Response(body, { status: 403 }));

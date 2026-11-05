@@ -136,8 +136,8 @@ describe("backblaze-proxy browser cache", () => {
     ["the map pointer B2 has", "maps/latest.json", 200, "public, max-age=60"],
     ["a landing video B2 does not have yet", "landing/does-not-exist-123.mp4", 404, "no-store"],
     ["a map pointer B2 does not have", "maps/latest.json", 404, "no-store"],
-    ["a demo B2 refuses on every retry", "demo/0b7c.dem", 403, "no-store"],
-    ["a demo while B2 is down", "demo/0b7c.dem", 503, "no-store"],
+    ["a demo B2 refuses on every retry", "demos/0b7c.dem", 403, "no-store"],
+    ["a demo while B2 is down", "demos/0b7c.dem", 503, "no-store"],
   ] as const) {
     it(`answers ${label} with ${cacheControl}`, async () => {
       upstream = mock.fn(async () => new Response("body", { status }));
@@ -576,8 +576,8 @@ describe("backblaze-proxy signed clip links", () => {
 
   for (const path of [
     "maps/25537370/manifest.json",
-    "news/9a3c.webp",
-    "demo/0b7c.dem",
+    "landing/9a3c.webp",
+    "demos/0b7c.dem",
   ]) {
     it(`serves ${path} without a signature`, async () => {
       const response = await send(path);
@@ -646,12 +646,12 @@ describe("backblaze-proxy content types", () => {
   }
 
   for (const [path, type] of [
-    ["news/images/0123abcd.png", "image/png"],
-    ["news/images/0123abcd.JPG", "image/jpeg"],
-    ["news/images/0123abcd.webp", "image/webp"],
-    ["news/images/0123abcd.gif", "image/gif"],
-    ["news/images/0123abcd.mp4", "video/mp4"],
-    ["news/images/0123abcd.mp3", "audio/mpeg"],
+    ["landing/0123abcd.png", "image/png"],
+    ["landing/0123abcd.JPG", "image/jpeg"],
+    ["landing/0123abcd.webp", "image/webp"],
+    ["landing/0123abcd.gif", "image/gif"],
+    ["landing/0123abcd.mp4", "video/mp4"],
+    ["landing/0123abcd.mp3", "audio/mpeg"],
     ["maps/latest.json", "application/json"],
   ] as const) {
     it(`serves ${path} as ${type}, whatever it was stored as`, async () => {
@@ -669,10 +669,10 @@ describe("backblaze-proxy content types", () => {
   }
 
   for (const path of [
-    "news/images/0123abcd.html",
-    "news/images/0123abcd.svg",
-    "news/images/0123abcd",
-    "demo/0b7c.dem",
+    "landing/0123abcd.html",
+    "landing/0123abcd.svg",
+    "landing/0123abcd",
+    "demos/0b7c.dem",
     "maps/25537370/de_mirage.tri.gz",
   ]) {
     it(`makes ${path} a download`, async () => {
@@ -793,12 +793,12 @@ describe("backblaze-proxy content types", () => {
     const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 
     const image = await worker.fetch(
-      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.png"),
+      new Request("https://demo-dl.5stack.gg/landing/0123abcd.png"),
       env,
       ctx as any,
     );
     const page = await worker.fetch(
-      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.html"),
+      new Request("https://demo-dl.5stack.gg/landing/0123abcd.html"),
       env,
       ctx as any,
     );
@@ -808,4 +808,119 @@ describe("backblaze-proxy content types", () => {
     assert.equal(page.headers.get("Content-Type"), "application/octet-stream");
     assert.match(page.headers.get("Content-Disposition") ?? "", /^attachment/);
   });
+});
+
+// Only what 5stack itself reads through the worker is served without a signed
+// link: demos and playback (api demo_url / playback_url, /demo?file=), map
+// assets (api MapAssetsService.MAPS_HOST, the web's map loaders) and the
+// landing page's media (web LandingInstallVideo, docs).
+describe("backblaze-proxy unsigned reads", () => {
+  async function send(path: string, requireSigned = false) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://cf.5stack.gg/${path}`, {
+        headers: { Origin: ORIGIN },
+      }),
+      requireSigned ? { ...env, REQUIRE_SIGNED_CLIPS: "1" } : env,
+      ctx as any,
+    );
+  }
+
+  const CHAT = "chat-attachments/rooms/2026-10-01/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/file";
+
+  for (const path of [
+    CHAT,
+    `demo?file=${encodeURIComponent(CHAT)}`,
+    "demo-uploads/76561198000000001/0b7c7d0e-2a5e-4c3b-9d7c-1f0e2d3c4b5a.dem",
+    "scans/orphaned-objects.latest.json",
+    "news/0123456789abcdef01234567.webp",
+    "branding/logo.png",
+    "avatars/teams/0b7c-0123456789ab.png",
+    "demo/0b7c.dem",
+  ]) {
+    for (const requireSigned of [false, true]) {
+      it(`refuses ${path} without a signature${requireSigned ? ", with signed clips required" : ""}`, async () => {
+        const response = await send(path, requireSigned);
+
+        assert.equal(response.status, 403);
+        assert.equal(response.headers.get("Cache-Control"), "no-store");
+        assert.equal(upstream.mock.callCount(), 0);
+      });
+    }
+  }
+
+  for (const path of [
+    "demos/4f1e2d3c/5b6a4798/match.dem",
+    `demo?file=${encodeURIComponent("demos/4f1e2d3c/5b6a4798/match.dem")}&v=1`,
+    `demo?file=${encodeURIComponent("demos/4f1e2d3c/5b6a4798/playback/playback.v3.abc.json.gz")}&v=1`,
+    "maps/latest.json",
+    "maps/25537370/de_mirage.tri.gz",
+    "landing/install-51dadfe6.mp4",
+  ]) {
+    it(`still serves ${path} without a signature`, async () => {
+      const response = await send(path, true);
+
+      assert.equal(response.status, 200);
+      assert.equal(upstream.mock.callCount(), 1);
+    });
+  }
+
+  // Demos and playback stored before api#262 (2026-05-29) kept these keys,
+  // and their rows still link them through /demo?file=.
+  const MATCH = "4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b";
+  const MAP = "0b7c7d0e-2a5e-4c3b-9d7c-1f0e2d3c4b5a";
+
+  for (const key of [
+    `${MATCH}/${MAP}/demos/1717000000_de_mirage.dem`,
+    `${MATCH}/${MAP}/playback/playback.json.gz`,
+  ]) {
+    for (const path of [`demo?file=${encodeURIComponent(key)}&v=1`, key]) {
+      it(`still serves the older key ${path} without a signature`, async () => {
+        const response = await send(path, true);
+
+        assert.equal(response.status, 200);
+        assert.equal(upstream.mock.callCount(), 1);
+      });
+    }
+  }
+
+  for (const [label, key] of [
+    ["another segment", `${MATCH}/${MAP}/coach/x.json.gz`],
+    ["another segment under clips", `${MATCH}/${MAP}/clips/x.mp4`],
+    ["an extra segment", `${MATCH}/${MAP}/demos/extra/x.dem`],
+    ["a third id", `${MATCH}/${MAP}/${MAP}/demos/x.dem`],
+    ["a missing id", `${MATCH}/demos/x.dem`],
+    ["an id that isn't one", `not-a-match/${MAP}/demos/x.dem`],
+    ["an id in capitals", `${MATCH.toUpperCase()}/${MAP}/demos/x.dem`],
+  ]) {
+    it(`refuses a key shaped like an older demo but with ${label}`, async () => {
+      const response = await send(`demo?file=${encodeURIComponent(key)}`);
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+  }
+
+  it("serves any other file on a link signed for it", async () => {
+    const key = "scans/orphaned-objects.latest.json";
+
+    const response = await send(`${key}?${signed(key)}`);
+
+    assert.equal(response.status, 200);
+  });
+
+  // A URL parser drops tabs and newlines, so the key B2 would be asked for is
+  // not the one the request named.
+  for (const [label, key] of [
+    ["a tab", "demos/a\tb.dem"],
+    ["a newline", "demos/a\nb.dem"],
+    ["a tab hiding a dot segment", "demos/.\t./events/x.jpg"],
+  ]) {
+    it(`refuses a ?file= key with ${label}`, async () => {
+      const response = await send(`demo?file=${encodeURIComponent(key)}`);
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+  }
 });

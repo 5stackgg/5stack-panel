@@ -269,10 +269,19 @@ function cacheableUrl(url: URL): string {
 const SIGNED_PREFIX = "clips/";
 const FILE_URL_KEY_LABEL = "5stack-file-url-v1";
 
-// Event media is served by the api, which checks on every request who may see
-// the event, and is never linked through here. So events/ is answered only on
-// a signed link, whether or not REQUIRE_SIGNED_CLIPS is set.
-const ALWAYS_SIGNED_PREFIX = "events/";
+// What 5stack reads through the worker without a signed link: demos and their
+// playback (api demo_url / playback_url, as /demo?file=), map assets (api
+// MapAssetsService.MAPS_HOST, the web's map loaders) and the landing page's
+// media (web LandingInstallVideo, docs). Everything else, from event media and
+// chat attachments to demo uploads and scan reports, is served by the api after
+// its own checks, so the worker answers it only on a signed link. clips/ is
+// signed too, once REQUIRE_SIGNED_CLIPS says the panel's api signs them.
+const UNSIGNED_PREFIXES = ["demos/", "maps/", "landing/"];
+// Demos and playback stored before api#262 (2026-05-29) under
+// <match>/<map>/demos/<file> and <match>/<match map>/playback/<file>: their
+// rows still link these keys, and nothing moved them.
+const LEGACY_DEMO_KEY =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(demos|playback)\/[A-Za-z0-9._-]+$/;
 
 const fileUrlKeys = new Map<string, Promise<CryptoKey>>();
 
@@ -307,10 +316,13 @@ function fileUrlKey(secret: string): Promise<CryptoKey> {
 }
 
 function requiresSignature(key: string, signedClips: boolean): boolean {
-  return (
-    key.startsWith(ALWAYS_SIGNED_PREFIX) ||
-    (signedClips && key.startsWith(SIGNED_PREFIX))
-  );
+  if (
+    UNSIGNED_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+    LEGACY_DEMO_KEY.test(key)
+  ) {
+    return false;
+  }
+  return signedClips || !key.startsWith(SIGNED_PREFIX);
 }
 
 // B2 is asked for whatever the upstream URL resolves to, so a key that would

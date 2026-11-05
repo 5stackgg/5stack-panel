@@ -94,6 +94,9 @@ spec:
         - path:
             type: PathPrefix
             value: /file-manager
+        - path:
+            type: Exact
+            value: /5stack/knock
       filters:
         - type: ExtensionRef
           extensionRef:

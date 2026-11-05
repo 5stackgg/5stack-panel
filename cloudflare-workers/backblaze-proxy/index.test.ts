@@ -585,3 +585,98 @@ describe("backblaze-proxy signed clip links", () => {
     });
   });
 });
+
+describe("backblaze-proxy content types", () => {
+  // What B2 holds is the type the object was stored with, which an upload
+  // once took from the uploader's own label.
+  function stored(contentType: string, body = "<script>alert(1)</script>") {
+    upstream = mock.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": contentType },
+        }),
+    );
+    globalThis.fetch = upstream as unknown as typeof fetch;
+  }
+
+  for (const [path, type] of [
+    ["news/images/0123abcd.png", "image/png"],
+    ["news/images/0123abcd.JPG", "image/jpeg"],
+    ["news/images/0123abcd.webp", "image/webp"],
+    ["news/images/0123abcd.gif", "image/gif"],
+    ["news/images/0123abcd.mp4", "video/mp4"],
+    ["news/images/0123abcd.mp3", "audio/mpeg"],
+    ["maps/latest.json", "application/json"],
+  ] as const) {
+    it(`serves ${path} as ${type}, whatever it was stored as`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^inline/,
+      );
+    });
+  }
+
+  for (const path of [
+    "news/images/0123abcd.html",
+    "news/images/0123abcd.svg",
+    "news/images/0123abcd",
+    "demo/0b7c.dem",
+    "maps/25537370/de_mirage.tri.gz",
+  ]) {
+    it(`makes ${path} a download`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(
+        response.headers.get("Content-Type"),
+        "application/octet-stream",
+      );
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^attachment/,
+      );
+    });
+  }
+
+  it("pins the type on a copy the edge cached before", async () => {
+    (globalThis as any).caches = {
+      default: {
+        match: async () =>
+          new Response("<script>alert(1)</script>", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/html",
+              "Content-Disposition": 'inline; filename="0123abcd.html"',
+            },
+          }),
+        put: async () => {},
+      },
+    };
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const image = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.png"),
+      env,
+      ctx as any,
+    );
+    const page = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/news/images/0123abcd.html"),
+      env,
+      ctx as any,
+    );
+
+    assert.equal(image.headers.get("Content-Type"), "image/png");
+    assert.equal(image.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(page.headers.get("Content-Type"), "application/octet-stream");
+    assert.match(page.headers.get("Content-Disposition") ?? "", /^attachment/);
+  });
+});

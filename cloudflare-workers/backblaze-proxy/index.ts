@@ -608,6 +608,10 @@ const UPLOAD_PREFIXES = ["demo-uploads/", "events/", "news/"];
 const MAX_PART_BYTES = 64 * 1024 * 1024;
 // S3 assembles at most this many parts into one object.
 const MAX_PARTS = 10_000;
+// A token from an api older than sized tokens (no `v`) is honoured only if it
+// expires before this, under the old per-part limit; every panel's api must be
+// updated by then.
+const LEGACY_TOKEN_CUTOFF = Date.parse("2026-12-15T00:00:00Z");
 
 async function handleUpload(
   request: Request,
@@ -736,9 +740,9 @@ function base64urlToBytes(value: string): Uint8Array {
 
 // Verifies the API-minted token: HMAC-SHA256 over the `payload` segment, then
 // confirms the payload is bound to this exact key+uploadId and not expired,
-// and answers with the upload's size and part size it names. A token naming
-// neither is from an api older than sized tokens: one worker can serve several
-// panels, not all of them updated.
+// and answers with the upload's size and part size it names (`v: 2`). A token
+// without `v` is from an api older than sized tokens: one worker can serve
+// several panels, not all of them updated, so it is honoured until the cutoff.
 // crypto.subtle.verify is constant-time, avoiding signature-timing leaks.
 async function verifyUploadToken(
   secret: string,
@@ -778,6 +782,7 @@ async function verifyUploadToken(
   if (!valid) return null;
 
   let payload: {
+    v?: unknown;
     k?: unknown;
     u?: unknown;
     exp?: unknown;
@@ -793,12 +798,13 @@ async function verifyUploadToken(
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
     return null;
   }
+  if (payload.v === undefined) {
+    return payload.exp * 1000 <= LEGACY_TOKEN_CUTOFF ? { sized: false } : null;
+  }
   const size = payload.s;
   const chunk = payload.c;
-  if (size === undefined && chunk === undefined) {
-    return { sized: false };
-  }
   if (
+    payload.v !== 2 ||
     typeof size !== "number" ||
     typeof chunk !== "number" ||
     !Number.isSafeInteger(size) ||

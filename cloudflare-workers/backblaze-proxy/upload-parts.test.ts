@@ -28,7 +28,9 @@ function token(fields: Record<string, unknown>, secret = env.S3_SECRET) {
   return `${payload}.${sig}`;
 }
 
-const SIZED = { s: 100 * MB, c: 64 * MB };
+const SIZED = { v: 2, s: 100 * MB, c: 64 * MB };
+// The last day the worker takes a token from an api older than sized tokens.
+const LEGACY_CUTOFF = Date.parse("2026-12-15T00:00:00Z") / 1000;
 
 const realFetch = globalThis.fetch;
 let upstream: ReturnType<typeof mock.fn>;
@@ -101,12 +103,19 @@ describe("backblaze-proxy multipart parts", () => {
   }
 
   for (const [label, fields] of [
-    ["one naming the size but not the part size", { s: 100 * MB }],
-    ["one naming the part size but not the size", { c: 64 * MB }],
-    ["one with a part size over 64MiB", { s: 200 * MB, c: 128 * MB }],
-    ["one needing more than 10,000 parts", { s: 10_001 * 5 * MB, c: 5 * MB }],
-    ["one with a fractional size", { s: 100 * MB + 0.5, c: 64 * MB }],
-    ["one with a size given as text", { s: String(100 * MB), c: 64 * MB }],
+    ["sized but missing the size", { v: 2, c: 64 * MB }],
+    ["sized but missing the part size", { v: 2, s: 100 * MB }],
+    ["of a version this worker doesn't know", { v: 3, s: 100 * MB, c: 64 * MB }],
+    ["one with a part size over 64MiB", { v: 2, s: 200 * MB, c: 128 * MB }],
+    [
+      "one needing more than 10,000 parts",
+      { v: 2, s: 10_001 * 5 * MB, c: 5 * MB },
+    ],
+    ["one with a fractional size", { v: 2, s: 100 * MB + 0.5, c: 64 * MB }],
+    [
+      "one with a size given as text",
+      { v: 2, s: String(100 * MB), c: 64 * MB },
+    ],
   ] as const) {
     it(`refuses a token that is ${label}`, async () => {
       const response = await put("1", 64 * MB, token(fields));
@@ -116,6 +125,25 @@ describe("backblaze-proxy multipart parts", () => {
     });
   }
 
+  it("refuses a token whose payload was changed after it was signed", async () => {
+    const [, sig] = token(SIZED).split(".");
+    const payload = Buffer.from(
+      JSON.stringify({
+        v: 2,
+        k: KEY,
+        u: UPLOAD_ID,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        s: 1_000 * MB,
+        c: 64 * MB,
+      }),
+    ).toString("base64url");
+
+    const response = await put("1", 64 * MB, `${payload}.${sig}`);
+
+    assert.equal(response.status, 403);
+    assert.equal(upstream.mock.callCount(), 0);
+  });
+
   it("refuses a token signed with another secret", async () => {
     const response = await put("1", 64 * MB, token(SIZED, "another"));
 
@@ -123,10 +151,22 @@ describe("backblaze-proxy multipart parts", () => {
     assert.equal(upstream.mock.callCount(), 0);
   });
 
-  // Minted by an api from before tokens named the size: one worker can serve
-  // several panels, not all of them updated, so these keep the old limit.
-  describe("on a token without the upload's size", () => {
+  // Minted by an api from before sized tokens: one worker can serve several
+  // panels, not all of them updated, so these keep the old limit until the
+  // cutoff.
+  describe("on a token from an api older than sized tokens", () => {
     const legacy = () => token({});
+
+    it("refuses one that expires after the cutoff", async () => {
+      const response = await put(
+        "1",
+        64 * MB,
+        token({ exp: LEGACY_CUTOFF + 3600 }),
+      );
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
 
     for (const partNumber of ["1", "3", "10000"]) {
       it(`passes on part ${partNumber} of up to 64MiB`, async () => {

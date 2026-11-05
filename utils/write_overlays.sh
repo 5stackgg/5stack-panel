@@ -101,12 +101,12 @@ resources:
 - ../config
 $STREAMING_RESOURCES
 $AI_RESOURCES
-$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; echo "- acme-check.yaml"; else echo "- gateway-tls.yaml"; fi)
 $HASURA_REPLICAS_ENTRY
 $STORAGE_COMPONENTS
 EOF
             if [ "$PROTOCOL" = "https" ]; then
-                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"
+                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$PANEL_DIR/overlays/http/acme-check.yaml" "$OVERLAY/"
                 cat "$PANEL_DIR/overlays/http/https-replacements.yaml" >> "$OVERLAY/kustomization.yaml"
             else
                 ensure_reverse_proxy_certificate "$OVERLAY" || return 1

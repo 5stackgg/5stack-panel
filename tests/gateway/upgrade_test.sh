@@ -110,13 +110,15 @@ test_before_the_update_ingress_nginx_serves_everything() {
 }
 
 test_ingress_nginx_is_gone() {
-    local phase
+    local phase left
     phase="$(kubectl get namespace ingress-nginx -o jsonpath='{.status.phase}' 2>/dev/null)"
     [ -z "$phase" ] || [ "$phase" = Terminating ] || fail "ingress-nginx namespace is $phase"
     kubectl get validatingwebhookconfiguration ingress-nginx-admission >/dev/null 2>&1 && fail "the admission webhook is still there"
     kubectl get clusterrole ingress-nginx >/dev/null 2>&1 && fail "the ingress-nginx ClusterRole is still there"
     [ "$(kubectl get ingressclass nginx -o jsonpath='{.spec.controller}')" = k8s.io/ingress-nginx ] || fail "IngressClass nginx is gone"
-    [ -z "$(kubectl -n 5stack get ingress -o name)" ] || fail "panel Ingresses left: $(kubectl -n 5stack get ingress -o name)"
+    left="$(kubectl -n 5stack get ingress -o name | grep -v '^ingress.networking.k8s.io/acme-check$')"
+    [ -z "$left" ] || fail "panel Ingresses left: $left"
+    [ "$(kubectl -n 5stack get ingress acme-check -o jsonpath='{.spec.ingressClassName}')" = traefik ] || fail "the acme-check Ingress isn't Traefik's"
 }
 
 test_the_crds_k3s_left_belong_to_gateway_crds() {

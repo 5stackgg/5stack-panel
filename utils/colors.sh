@@ -47,6 +47,19 @@ read_masked() {
   printf -v "$__outvar" '%s' "$__value"
 }
 
+# Runs a command for at most SECONDS. --foreground keeps Ctrl+C reaching it; a
+# host whose timeout lacks that (macOS has none, busybox's has no flag) runs it
+# unbounded.
+time_limited() {
+  local seconds="$1"
+  shift
+  if timeout --foreground 1 true >/dev/null 2>&1; then
+    timeout --foreground "$seconds" "$@"
+  else
+    "$@"
+  fi
+}
+
 # Bail out with a message. Sourced scripts (update.sh runs inside install.sh)
 # rely on this actually stopping the install rather than letting a half-applied
 # cluster carry on to the next step.

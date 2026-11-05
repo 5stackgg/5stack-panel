@@ -13,6 +13,7 @@ TIMESCALEDB_UPGRADE_JOB=timescaledb-major-upgrade
 TIMESCALEDB_UPGRADE_MARKER=timescaledb-major-upgraded
 TIMESCALEDB_UPGRADE_FROM=""
 TIMESCALEDB_UPGRADE_ATTACH=""
+TIMESCALEDB_FRESH_INSTALL=""
 
 timescaledb_kubectl() {
     kubectl --kubeconfig="$KUBECONFIG" -n 5stack "$@"
@@ -309,6 +310,7 @@ plan_timescaledb_major_upgrade() {
     local pvc job active data_major live_image free_kb need_kb minutes
     TIMESCALEDB_UPGRADE_FROM=""
     TIMESCALEDB_UPGRADE_ATTACH=""
+    TIMESCALEDB_FRESH_INSTALL=""
 
     timescaledb_manifest_image || return 1
 
@@ -317,6 +319,7 @@ plan_timescaledb_major_upgrade() {
         return 1
     fi
     if [ -z "$pvc" ]; then
+        export TIMESCALEDB_FRESH_INSTALL=true
         return 0
     fi
     if [ "$pvc" != persistentvolumeclaim/timescaledb-pvc ]; then
@@ -358,7 +361,7 @@ plan_timescaledb_major_upgrade() {
         return 0
     fi
 
-    data_major="$(timescaledb_kubectl exec timescaledb-0 -c timescaledb -- cat /var/lib/postgresql/data/PG_VERSION 2>/dev/null)"
+    data_major="$(timescaledb_exec "${TIMESCALEDB_EXEC_TIMEOUT:-120}" cat /var/lib/postgresql/data/PG_VERSION 2>/dev/null)"
     if [ -z "$data_major" ]; then
         timescaledb_probe_volume || return 1
         data_major="$TIMESCALEDB_PROBE_MAJOR"
@@ -667,7 +670,7 @@ finish_timescaledb_major_upgrade() {
         return 0
     fi
 
-    major="$(timescaledb_kubectl exec timescaledb-0 -c timescaledb -- cat /var/lib/postgresql/data/PG_VERSION 2>/dev/null)"
+    major="$(timescaledb_exec "${TIMESCALEDB_EXEC_TIMEOUT:-120}" cat /var/lib/postgresql/data/PG_VERSION 2>/dev/null)"
     if [ "$major" = "$from" ]; then
         if [ "$TIMESCALEDB_MAJOR" = "$from" ]; then
             timescaledb_kubectl delete configmap "$TIMESCALEDB_UPGRADE_MARKER" --ignore-not-found >/dev/null 2>&1
@@ -684,7 +687,7 @@ finish_timescaledb_major_upgrade() {
         # pg_upgrade from 18 on carries most statistics over, so only what is
         # missing needs analysing.
         # shellcheck disable=SC2016
-        if output_redirect timescaledb_kubectl exec timescaledb-0 -c timescaledb -- sh -c '
+        if output_redirect timescaledb_exec 3600 sh -c '
             set -- --all --analyze-in-stages
             if vacuumdb --help | grep -q -- --missing-stats-only; then
                 set -- "$@" --missing-stats-only

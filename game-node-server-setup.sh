@@ -9,6 +9,12 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+TAILNET_PODS="$(tailnet_pod_range)" || exit 1
+TAILNET_TAGS="fivestack"
+if [ "$(tailnet_tag)" != "$TAILSCALE_SHARED_TAG" ]; then
+    TAILNET_TAGS="fivestack and ${PANEL_TAILSCALE_TAG#tag:}"
+fi
+
 step "Installing tailscale"
 curl -sfL https://tailscale.com/install.sh | sh
 
@@ -17,14 +23,14 @@ echo "    This script automates Tailscale configuration using OAuth API."
 echo
 echo "    ${C_STEP}1.${C_RESET} Create Access Control Tag at:"
 echo "       ${C_OK}https://login.tailscale.com/admin/acls/visual/tags/add${C_RESET}"
-echo "       Required tag: ${C_OK}fivestack${C_RESET}"
+echo "       Required tag: ${C_OK}${TAILNET_TAGS}${C_RESET}"
 echo
 echo "    ${C_STEP}2.${C_RESET} Create an OAuth Client at:"
 echo "       ${C_OK}https://login.tailscale.com/admin/settings/trust-credentials/add${C_RESET}"
 echo "       OAuth scopes:"
 echo "         - General: ${C_OK}Policy File (write)${C_RESET}"
 echo "         - Keys : ${C_OK}Auth Keys (write)${C_RESET}"
-echo "       Required tag: ${C_OK}fivestack${C_RESET}"
+echo "       Required tag: ${C_OK}${TAILNET_TAGS}${C_RESET}"
 echo
 echo "    ${C_STEP}3.${C_RESET} After creating the OAuth client, you'll receive:"
 echo "         - Client ID"
@@ -62,7 +68,7 @@ step "Configuring ACL rules for fivestack tag"
 update_acl_for_fivestack "$ACCESS_TOKEN"
 
 if [ $? -eq 0 ]; then
-    ok "ACL configured (10.42.0.0/16 subnet with auto-approvers)"
+    ok "ACL configured ($TAILNET_PODS subnet with auto-approvers)"
 else
     warn "ACL configuration failed. You may need to configure ACL manually."
 fi
@@ -179,7 +185,14 @@ SCRIPT
 ok "helper scripts written"
 
 step "Installing k3s"
-curl -sfL https://get.k3s.io | sh -s - --disable=traefik --vpn-auth="name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}"
+K3S_ARGS=(--disable=traefik "--vpn-auth=name=tailscale,joinKey=${TAILSCALE_AUTH_KEY}")
+if [ -n "$PANEL_POD_RANGE" ]; then
+    K3S_ARGS+=("--cluster-cidr=$PANEL_POD_RANGE")
+fi
+if [ -n "$PANEL_SERVICE_RANGE" ]; then
+    K3S_ARGS+=("--service-cidr=$PANEL_SERVICE_RANGE")
+fi
+curl -sfL https://get.k3s.io | sh -s - "${K3S_ARGS[@]}"
 
 step "Writing k3s config"
 mkdir -p /etc/rancher/k3s

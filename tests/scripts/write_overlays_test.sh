@@ -210,4 +210,31 @@ test_the_api_only_takes_the_shared_secret_from_ai_secrets() {
     fi
 }
 
+test_managed_cloudflare_keeps_http01_and_no_cloudflare_key_in_the_cluster() {
+    with_s3_endpoint ""
+    printf 'CLOUDFLARE_API_TOKEN=cf-key-0123456789abcdef\n' >"$(overlay local-secrets)/cloudflare-secrets.env"
+    (
+        export CLOUDFLARE_MANAGED=true CLOUDFLARE_ZONES=example.gg,example.net
+        write
+    ) || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in local-secrets-https vault-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        issuer="$(awk '/^kind: Issuer/,/^---/' <<<"$manifest")"
+        assert_contains "$issuer" "http01:"
+        assert_contains "$issuer" "traefik.ingress.kubernetes.io/router.priority: \"1000000\""
+        assert_not_contains "$manifest" "dns01"
+        assert_not_contains "$manifest" "cloudflare-secrets"
+        assert_not_contains "$manifest" "CLOUDFLARE_API_TOKEN"
+        assert_not_contains "$manifest" "cf-key-0123456789abcdef"
+        rendered="$(kinds_and_names "$manifest")"
+        assert_contains "$rendered" "Ingress/acme-check"
+        assert_contains "$rendered" "Middleware/acme-check"
+    done
+    check="$(awk '/^kind: Ingress/,/^---/' <<<"$(kubectl kustomize "$(overlay local-secrets-https)")")"
+    assert_contains "$check" "path: /.well-known/acme-challenge/5stack-check"
+    assert_contains "$check" "traefik.ingress.kubernetes.io/router.entrypoints: web"
+    assert_contains "$check" "traefik.ingress.kubernetes.io/router.middlewares: 5stack-acme-check@kubernetescrd"
+    assert_not_contains "$(cat "$(overlay local-secrets-http)/kustomization.yaml")" "acme-check"
+}
+
 run_tests

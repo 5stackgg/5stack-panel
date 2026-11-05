@@ -64,6 +64,21 @@ test_http01_is_answered_beside_the_https_redirect() {
     expect_header Location "https://$API/me"
 }
 
+test_lets_encrypts_check_path_answers_from_the_panel_beside_the_https_redirect() {
+    local host
+    for host in "$WEB" "$API" "$WS" "$DEMOS"; do
+        wait_for 200 http "$host" /.well-known/acme-challenge/5stack-check
+        expect_json .backend web
+        expect_header X-5Stack-Check acme-path
+    done
+    call http "$API" /.well-known/acme-challenge/test-token
+    expect_json .backend acme-solver
+    call http "$WEB" /.well-known/acme-challenge/other-token
+    expect_code 308
+    call https "$WEB" /.well-known/acme-challenge/5stack-check
+    [ -z "$(header X-5Stack-Check)" ] || fail "the check answers over HTTPS too"
+}
+
 test_hosts_serve_while_the_stream_certificate_is_missing() {
     wait_for 200 https "$API" /me
     expect_json .backend api
@@ -582,6 +597,7 @@ routing_layer https || exit 1
 solver_ingress "$API" "$HLS" | kubectl apply -f - >/dev/null || exit 1
 
 run_test test_http01_is_answered_beside_the_https_redirect
+run_test test_lets_encrypts_check_path_answers_from_the_panel_beside_the_https_redirect
 
 tls_secret 5stack-ssl "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" "$SEARCH" "$CONSOLE" || exit 1
 run_test test_hosts_serve_while_the_stream_certificate_is_missing

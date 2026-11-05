@@ -59,6 +59,10 @@ step "Installing Traefik"
 install_traefik || die "failed to install Traefik"
 ok "Traefik is ready"
 
+if [ "$CLOUDFLARE_MANAGED" = true ]; then
+    cloudflare_update_records
+fi
+
 step "Building overlay manifests"
 # Whether an operator has asked for a TURN relay at all. Read straight from
 # coturn's own env file rather than the environment: this is the same file the
@@ -132,8 +136,10 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 
-step "Updating the TimescaleDB extension"
-update_timescaledb_extension
+if [ "$TIMESCALEDB_FRESH_INSTALL" != true ]; then
+    step "Updating the TimescaleDB extension"
+    update_timescaledb_extension
+fi
 finish_timescaledb_major_upgrade
 
 GIT_SHA="${FIVESTACK_RELEASE:-$(git rev-parse HEAD)}"
@@ -151,6 +157,10 @@ fi
 SSL_OK=true
 if [ "$REVERSE_PROXY" != true ]; then
     watch_ssl_status || SSL_OK=false
+fi
+
+if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$SSL_OK" = true ]; then
+    cloudflare_update_proxy
 fi
 
 if [ "$SSL_OK" != true ]; then

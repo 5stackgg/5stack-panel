@@ -1,0 +1,4 @@
+name = "5stack-stream-relay"
+main = "worker.js"
+compatibility_date = "2025-04-29"
+workers_dev = false

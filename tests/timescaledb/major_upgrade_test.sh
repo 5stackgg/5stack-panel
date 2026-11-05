@@ -9,7 +9,7 @@ KUBECONFIG_FLAG=--kubeconfig=/home/ops/.kube/prod.yaml
 METRICS_WARNING='E1014 18:50:17.402803   77293 memcache.go:287] "Unhandled Error" err="couldn'"'"'t get resource list for metrics.k8s.io/v1beta1: the server is currently unable to handle the request"'
 
 setup_upgrade() {
-    load_scripts upgrade_timescaledb_major.sh
+    load_scripts update_timescaledb_extension.sh upgrade_timescaledb_major.sh
     export TIMESCALEDB_UPGRADE_TTY=/nonexistent/tty
     PANEL_DIR="$STUB_DIR/panel"
     manifest "$TARGET"
@@ -86,6 +86,22 @@ test_fresh_install_without_a_volume_is_a_no_op() {
     assert_eq "$(cat "$STUB_DIR/out")" ""
     assert_not_called "exec "
     assert_not_called "apply "
+}
+
+test_a_panel_without_a_volume_is_a_fresh_install() {
+    setup_upgrade
+    plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?"
+    assert_eq "$TIMESCALEDB_FRESH_INSTALL" true
+}
+
+test_a_panel_with_a_volume_is_not_a_fresh_install() {
+    setup_upgrade
+    stub pvc persistentvolumeclaim/timescaledb-pvc
+    stub pg-version 18
+    TIMESCALEDB_FRESH_INSTALL=true
+    plan_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
+    assert_eq "$TIMESCALEDB_FRESH_INSTALL" ""
+    assert_called "--request-timeout=120s exec timescaledb-0 -c timescaledb -- cat /var/lib/postgresql/data/PG_VERSION"
 }
 
 test_unreachable_cluster_refuses() {
@@ -369,6 +385,7 @@ test_finish_runs_from_the_marker_in_a_later_run() {
     finish_timescaledb_major_upgrade >"$STUB_DIR/out" 2>&1 || fail "returned $?: $(cat "$STUB_DIR/out")"
     output="$(cat "$STUB_DIR/out")"
     assert_called "--all --analyze-in-stages"
+    assert_called "--request-timeout=3600s exec timescaledb-0 -c timescaledb -- sh -c"
     assert_called "rollout restart deployment/hasura deployment/api"
     assert_called "delete configmap timescaledb-major-upgraded timescaledb-major-upgrade"
     assert_contains "$output" "set the image in base/timescaledb/stateful-set.yaml to $OLD_PINNED"

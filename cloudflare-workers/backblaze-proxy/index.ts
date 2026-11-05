@@ -269,6 +269,11 @@ function cacheableUrl(url: URL): string {
 const SIGNED_PREFIX = "clips/";
 const FILE_URL_KEY_LABEL = "5stack-file-url-v1";
 
+// Event media is served by the api, which checks on every request who may see
+// the event, and is never linked through here. So events/ is answered only on
+// a signed link, whether or not REQUIRE_SIGNED_CLIPS is set.
+const ALWAYS_SIGNED_PREFIX = "events/";
+
 const fileUrlKeys = new Map<string, Promise<CryptoKey>>();
 
 function fileUrlKey(secret: string): Promise<CryptoKey> {
@@ -301,8 +306,11 @@ function fileUrlKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-function requiresSignature(key: string): boolean {
-  return key.startsWith(SIGNED_PREFIX);
+function requiresSignature(key: string, signedClips: boolean): boolean {
+  return (
+    key.startsWith(ALWAYS_SIGNED_PREFIX) ||
+    (signedClips && key.startsWith(SIGNED_PREFIX))
+  );
 }
 
 // B2 is asked for whatever the upstream URL resolves to, so a key that would
@@ -496,9 +504,8 @@ export default {
     }
     // Before the cache: a copy of the file is there for every signed link.
     if (
-      env.REQUIRE_SIGNED_CLIPS === "1" &&
       key &&
-      requiresSignature(key) &&
+      requiresSignature(key, env.REQUIRE_SIGNED_CLIPS === "1") &&
       !(await signatureValid(url, key, env.S3_SECRET))
     ) {
       return new Response("forbidden", {

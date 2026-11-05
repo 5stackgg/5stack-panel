@@ -346,8 +346,9 @@ async function signatureValid(
   );
 }
 
-// Decorates a response on its way to the client: mp4 Content-Type fix and the
-// view beacon. The body is never read or rewritten here.
+// Decorates a response on its way to the client: mp4 Content-Type fix, the
+// view beacon, and no-store on anything but a 2xx. The body is never read or
+// rewritten here.
 function clientResponse(
   source: Response,
   opts: {
@@ -360,6 +361,9 @@ function clientResponse(
   },
 ): Response {
   const headers = new Headers(source.headers);
+  if (!source.ok) {
+    headers.set("Cache-Control", "no-store");
+  }
   if (/\.mp4$/i.test(opts.key)) {
     // B2 stored old clips as binary/octet-stream; players refuse non-video/*.
     headers.set("Content-Type", "video/mp4");
@@ -491,19 +495,22 @@ export default {
     }
 
     if (!key) {
-      return new Response("No file provided", { status: 400 });
+      return new Response("No file provided", {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     if (!env.BUCKET_NAME || !env.S3_ENDPOINT) {
       return new Response(
         "Worker misconfigured: BUCKET_NAME / S3_ENDPOINT not set",
-        { status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     }
     if (!env.S3_ACCESS_KEY || !env.S3_SECRET) {
       return new Response(
         "Worker misconfigured: S3_ACCESS_KEY / S3_SECRET not set",
-        { status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -546,14 +553,17 @@ export default {
     if (!headers.has("Accept-Ranges")) {
       headers.set("Accept-Ranges", "bytes");
     }
-    // Force long browser cache regardless of what B2 returned — second view
-    // of a clip serves from the user's disk cache and never hits the Worker.
-    headers.set(
-      "Cache-Control",
-      ttl === IMMUTABLE_TTL
-        ? `public, max-age=${IMMUTABLE_TTL}, immutable`
-        : `public, max-age=${ttl}`,
-    );
+    // Long browser cache for a file B2 served — second view of a clip serves
+    // from the user's disk cache and never hits the Worker. Only for a 200: a
+    // miss can be an upload still finishing, and a browser would keep it.
+    if (upstream.status === 200) {
+      headers.set(
+        "Cache-Control",
+        ttl === IMMUTABLE_TTL
+          ? `public, max-age=${IMMUTABLE_TTL}, immutable`
+          : `public, max-age=${ttl}`,
+      );
+    }
     for (const [k, v] of Object.entries(corsHeaders(reqOrigin))) {
       headers.set(k, v);
     }

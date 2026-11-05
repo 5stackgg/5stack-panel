@@ -740,9 +740,11 @@ function base64urlToBytes(value: string): Uint8Array {
 
 // Verifies the API-minted token: HMAC-SHA256 over the `payload` segment, then
 // confirms the payload is bound to this exact key+uploadId and not expired,
-// and answers with the upload's size and part size it names (`v: 2`). A token
-// without `v` is from an api older than sized tokens: one worker can serve
-// several panels, not all of them updated, so it is honoured until the cutoff.
+// and answers with the upload's size and part size it names. A token naming
+// either size is sized, with or without `v` (an api once minted them without
+// it), and `v` may only be 2. One naming neither and without `v` is from an api
+// older than sized tokens: one worker can serve several panels, not all of them
+// updated, so it is honoured until the cutoff.
 // crypto.subtle.verify is constant-time, avoiding signature-timing leaks.
 async function verifyUploadToken(
   secret: string,
@@ -798,13 +800,13 @@ async function verifyUploadToken(
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
     return null;
   }
-  if (payload.v === undefined) {
-    return payload.exp * 1000 <= LEGACY_TOKEN_CUTOFF ? { sized: false } : null;
-  }
   const size = payload.s;
   const chunk = payload.c;
+  if (payload.v === undefined && size === undefined && chunk === undefined) {
+    return payload.exp * 1000 <= LEGACY_TOKEN_CUTOFF ? { sized: false } : null;
+  }
   if (
-    payload.v !== 2 ||
+    (payload.v !== undefined && payload.v !== 2) ||
     typeof size !== "number" ||
     typeof chunk !== "number" ||
     !Number.isSafeInteger(size) ||

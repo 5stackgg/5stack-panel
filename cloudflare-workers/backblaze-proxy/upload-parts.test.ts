@@ -105,6 +105,8 @@ describe("backblaze-proxy multipart parts", () => {
   for (const [label, fields] of [
     ["sized but missing the size", { v: 2, c: 64 * MB }],
     ["sized but missing the part size", { v: 2, s: 100 * MB }],
+    ["naming only the size, without a version", { s: 100 * MB }],
+    ["naming only the part size, without a version", { c: 64 * MB }],
     ["of a version this worker doesn't know", { v: 3, s: 100 * MB, c: 64 * MB }],
     ["one with a part size over 64MiB", { v: 2, s: 200 * MB, c: 128 * MB }],
     [
@@ -124,6 +126,31 @@ describe("backblaze-proxy multipart parts", () => {
       assert.equal(upstream.mock.callCount(), 0);
     });
   }
+
+  // Minted before tokens carried `v`, but sized all the same: held to its size.
+  describe("on a sized token without a version", () => {
+    const unversioned = () => token({ s: 100 * MB, c: 64 * MB });
+
+    it("passes on each part of its size", async () => {
+      const response = await put("2", 36 * MB, unversioned());
+
+      assert.equal(response.status, 200);
+    });
+
+    it("refuses a part past its size", async () => {
+      const response = await put("3", 36 * MB, unversioned());
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+
+    it("refuses a part longer than its share", async () => {
+      const response = await put("2", 64 * MB, unversioned());
+
+      assert.equal(response.status, 413);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+  });
 
   it("refuses a token whose payload was changed after it was signed", async () => {
     const [, sig] = token(SIZED).split(".");

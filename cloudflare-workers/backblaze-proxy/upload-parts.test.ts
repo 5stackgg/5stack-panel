@@ -101,7 +101,8 @@ describe("backblaze-proxy multipart parts", () => {
   }
 
   for (const [label, fields] of [
-    ["one minted before tokens named the size", {}],
+    ["one naming the size but not the part size", { s: 100 * MB }],
+    ["one naming the part size but not the size", { c: 64 * MB }],
     ["one with a part size over 64MiB", { s: 200 * MB, c: 128 * MB }],
     ["one needing more than 10,000 parts", { s: 10_001 * 5 * MB, c: 5 * MB }],
     ["one with a fractional size", { s: 100 * MB + 0.5, c: 64 * MB }],
@@ -120,5 +121,41 @@ describe("backblaze-proxy multipart parts", () => {
 
     assert.equal(response.status, 403);
     assert.equal(upstream.mock.callCount(), 0);
+  });
+
+  // Minted by an api from before tokens named the size: one worker can serve
+  // several panels, not all of them updated, so these keep the old limit.
+  describe("on a token without the upload's size", () => {
+    const legacy = () => token({});
+
+    for (const partNumber of ["1", "3", "10000"]) {
+      it(`passes on part ${partNumber} of up to 64MiB`, async () => {
+        const response = await put(partNumber, 64 * MB, legacy());
+
+        assert.equal(response.status, 200);
+        assert.equal(upstream.mock.callCount(), 1);
+      });
+    }
+
+    for (const [label, length] of [
+      ["a part over 64MiB", 64 * MB + 1],
+      ["a part without a Content-Length", null],
+    ] as const) {
+      it(`refuses ${label}`, async () => {
+        const response = await put("1", length, legacy());
+
+        assert.equal(response.status, 413);
+        assert.equal(upstream.mock.callCount(), 0);
+      });
+    }
+
+    for (const partNumber of ["0", "10001", "1.5", "01"]) {
+      it(`refuses part ${partNumber}`, async () => {
+        const response = await put(partNumber, MB, legacy());
+
+        assert.equal(response.status, 403);
+        assert.equal(upstream.mock.callCount(), 0);
+      });
+    }
   });
 });

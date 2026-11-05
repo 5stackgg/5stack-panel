@@ -654,7 +654,10 @@ async function handleUpload(
   // arbitrary writes for anyone with a valid uploadId.
   const upload = await verifyUploadToken(env.S3_SECRET, token, key, uploadId);
   const part = /^[1-9]\d{0,4}$/.test(partNumber) ? Number(partNumber) : 0;
-  if (!upload || part === 0 || part > Math.ceil(upload.size / upload.chunk)) {
+  const partCount = upload?.sized
+    ? Math.ceil(upload.size / upload.chunk)
+    : MAX_PARTS;
+  if (!upload || part === 0 || part > partCount) {
     return new Response("forbidden", {
       status: 403,
       headers: corsHeaders(reqOrigin),
@@ -662,11 +665,16 @@ async function handleUpload(
   }
 
   // Each part is exactly its share of the size the upload was opened for, so
-  // the parts can only ever add up to that size.
+  // the parts can only ever add up to that size. A token from an api that
+  // predates sized tokens keeps the old limit: any part up to MAX_PART_BYTES.
   const contentLengthRaw = request.headers.get("content-length");
   if (
-    contentLengthRaw !==
-    String(Math.min(upload.chunk, upload.size - (part - 1) * upload.chunk))
+    !contentLengthRaw ||
+    (upload.sized
+      ? contentLengthRaw !==
+        String(Math.min(upload.chunk, upload.size - (part - 1) * upload.chunk))
+      : !/^\d+$/.test(contentLengthRaw) ||
+        Number(contentLengthRaw) > MAX_PART_BYTES)
   ) {
     return new Response("invalid content-length", {
       status: 413,
@@ -728,14 +736,18 @@ function base64urlToBytes(value: string): Uint8Array {
 
 // Verifies the API-minted token: HMAC-SHA256 over the `payload` segment, then
 // confirms the payload is bound to this exact key+uploadId and not expired,
-// and answers with the upload's size and part size it names.
+// and answers with the upload's size and part size it names. A token naming
+// neither is from an api older than sized tokens: one worker can serve several
+// panels, not all of them updated.
 // crypto.subtle.verify is constant-time, avoiding signature-timing leaks.
 async function verifyUploadToken(
   secret: string,
   token: string,
   key: string,
   uploadId: string,
-): Promise<{ size: number; chunk: number } | null> {
+): Promise<
+  { sized: true; size: number; chunk: number } | { sized: false } | null
+> {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const message = token.slice(0, dot);
@@ -783,6 +795,9 @@ async function verifyUploadToken(
   }
   const size = payload.s;
   const chunk = payload.c;
+  if (size === undefined && chunk === undefined) {
+    return { sized: false };
+  }
   if (
     typeof size !== "number" ||
     typeof chunk !== "number" ||
@@ -795,7 +810,7 @@ async function verifyUploadToken(
   ) {
     return null;
   }
-  return { size, chunk };
+  return { sized: true, size, chunk };
 }
 
 function corsHeaders(reqOrigin: string | null): Record<string, string> {

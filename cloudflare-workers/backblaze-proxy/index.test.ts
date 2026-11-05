@@ -219,7 +219,7 @@ describe("backblaze-proxy health", () => {
     assert.deepEqual(json, {
       ok: true,
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      version: "2",
       bucket: "ok",
       code: "AccessDenied",
     });

@@ -128,7 +128,9 @@ async function health(env: {
     {
       ok: bucket === "ok",
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      // 2: types pinned by extension and keys that resolve elsewhere refused.
+      // The panel's settings call an older worker out of date.
+      version: "2",
       bucket,
       code,
     },

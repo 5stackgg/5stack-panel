@@ -182,7 +182,26 @@ describe("backblaze-proxy multipart parts", () => {
   // panels, not all of them updated, so these keep the old limit until the
   // cutoff.
   describe("on a token from an api older than sized tokens", () => {
+    // A fixed day before the cutoff, so these keep meaning the same after it.
+    const BEFORE_CUTOFF = Date.parse("2026-11-20T00:00:00Z");
+    const pinClock = (now: number) => {
+      mock.timers.reset();
+      mock.timers.enable({ apis: ["Date"], now });
+    };
+
+    beforeEach(() => pinClock(BEFORE_CUTOFF));
+    afterEach(() => mock.timers.reset());
+
     const legacy = () => token({});
+
+    it("refuses one minted once the cutoff has passed", async () => {
+      pinClock(LEGACY_CUTOFF * 1000 + 60_000);
+
+      const response = await put("1", 64 * MB, legacy());
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
 
     it("refuses one that expires after the cutoff", async () => {
       const response = await put(

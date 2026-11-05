@@ -121,3 +121,6 @@ spec:
             - configMapRef:
                 name: ai-env
                 optional: true
+            - secretRef:
+                name: api-consent-secrets
+                optional: true

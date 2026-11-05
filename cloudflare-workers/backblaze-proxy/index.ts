@@ -606,6 +606,8 @@ const UPLOAD_PREFIXES = ["demo-uploads/", "events/", "news/"];
 // B2 multipart part ceiling we accept; the API chunks at 64MiB so anything
 // larger is a malformed/abusive request.
 const MAX_PART_BYTES = 64 * 1024 * 1024;
+// S3 assembles at most this many parts into one object.
+const MAX_PARTS = 10_000;
 
 async function handleUpload(
   request: Request,
@@ -646,24 +648,25 @@ async function handleUpload(
     });
   }
 
-  // Authorize the part write: the API mints this token (HMAC over key+uploadId
-  // keyed on the shared S3_SECRET) only for authenticated admins. Without this
-  // check the worker would sign arbitrary writes for anyone with a valid
-  // uploadId.
-  if (!(await verifyUploadToken(env.S3_SECRET, token, key, uploadId))) {
+  // Authorize the part write: the API mints this token (HMAC over the key,
+  // uploadId, upload size and part size, keyed on the shared S3_SECRET) only
+  // for authenticated uploaders. Without this check the worker would sign
+  // arbitrary writes for anyone with a valid uploadId.
+  const upload = await verifyUploadToken(env.S3_SECRET, token, key, uploadId);
+  const part = /^[1-9]\d{0,4}$/.test(partNumber) ? Number(partNumber) : 0;
+  if (!upload || part === 0 || part > Math.ceil(upload.size / upload.chunk)) {
     return new Response("forbidden", {
       status: 403,
       headers: corsHeaders(reqOrigin),
     });
   }
 
-  // The streamed body needs an explicit, bounded Content-Length — we forward
-  // the client's value but never trust it blindly.
+  // Each part is exactly its share of the size the upload was opened for, so
+  // the parts can only ever add up to that size.
   const contentLengthRaw = request.headers.get("content-length");
   if (
-    !contentLengthRaw ||
-    !/^\d+$/.test(contentLengthRaw) ||
-    Number(contentLengthRaw) > MAX_PART_BYTES
+    contentLengthRaw !==
+    String(Math.min(upload.chunk, upload.size - (part - 1) * upload.chunk))
   ) {
     return new Response("invalid content-length", {
       status: 413,
@@ -724,16 +727,17 @@ function base64urlToBytes(value: string): Uint8Array {
 }
 
 // Verifies the API-minted token: HMAC-SHA256 over the `payload` segment, then
-// confirms the payload is bound to this exact key+uploadId and not expired.
+// confirms the payload is bound to this exact key+uploadId and not expired,
+// and answers with the upload's size and part size it names.
 // crypto.subtle.verify is constant-time, avoiding signature-timing leaks.
 async function verifyUploadToken(
   secret: string,
   token: string,
   key: string,
   uploadId: string,
-): Promise<boolean> {
+): Promise<{ size: number; chunk: number } | null> {
   const dot = token.lastIndexOf(".");
-  if (dot <= 0) return false;
+  if (dot <= 0) return null;
   const message = token.slice(0, dot);
   const signature = token.slice(dot + 1);
 
@@ -743,7 +747,7 @@ async function verifyUploadToken(
     signatureBytes = base64urlToBytes(signature);
     payloadBytes = base64urlToBytes(message);
   } catch {
-    return false;
+    return null;
   }
 
   const cryptoKey = await crypto.subtle.importKey(
@@ -759,19 +763,39 @@ async function verifyUploadToken(
     signatureBytes,
     new TextEncoder().encode(message),
   );
-  if (!valid) return false;
+  if (!valid) return null;
 
-  let payload: { k?: unknown; u?: unknown; exp?: unknown };
+  let payload: {
+    k?: unknown;
+    u?: unknown;
+    exp?: unknown;
+    s?: unknown;
+    c?: unknown;
+  };
   try {
     payload = JSON.parse(new TextDecoder().decode(payloadBytes));
   } catch {
-    return false;
+    return null;
   }
-  if (payload.k !== key || payload.u !== uploadId) return false;
+  if (payload.k !== key || payload.u !== uploadId) return null;
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
-    return false;
+    return null;
   }
-  return true;
+  const size = payload.s;
+  const chunk = payload.c;
+  if (
+    typeof size !== "number" ||
+    typeof chunk !== "number" ||
+    !Number.isSafeInteger(size) ||
+    !Number.isSafeInteger(chunk) ||
+    size <= 0 ||
+    chunk <= 0 ||
+    chunk > MAX_PART_BYTES ||
+    Math.ceil(size / chunk) > MAX_PARTS
+  ) {
+    return null;
+  }
+  return { size, chunk };
 }
 
 function corsHeaders(reqOrigin: string | null): Record<string, string> {

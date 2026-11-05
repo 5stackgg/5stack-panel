@@ -35,6 +35,7 @@ source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
 source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/cloudflare_workers.sh"
 source "$PANEL_DIR/utils/signed_clip_links.sh"
+source "$PANEL_DIR/utils/panel_settings.sh"
 
 # Existing Cloudflare routes point at this name; renaming spawns a second
 # worker while the old one keeps serving.
@@ -73,26 +74,6 @@ panel_host_name() {
             return
         fi
     done
-}
-
-# panel_graphql QUERY VARIABLES -- runs QUERY against the panel's Hasura as
-# admin, the same way the web's settings pages write settings.
-panel_graphql() {
-    local body
-    body="$(node -p 'JSON.stringify({ query: process.argv[1], variables: JSON.parse(process.argv[2]) })' "$1" "$2")"
-    printf 'header = "x-hasura-admin-secret: %s"\n' "$HASURA_ADMIN_SECRET" \
-        | curl -sS -K - --max-time 15 -H "Content-Type: application/json" \
-            --data "$body" "https://$API_DOMAIN/v1/graphql"
-}
-
-# The api copies CLOUDFLARE_WORKER_DOMAIN into this setting when it boots;
-# writing it here as well means it applies without an ./update.sh.
-set_live_worker_url() {
-    local variables
-    variables="$(node -p 'JSON.stringify({ value: process.argv[1] })' "$1")"
-    [ -n "$(panel_graphql \
-        'mutation ($value: String!) { insert_settings(objects: [{ name: "cloudflare_worker_url", value: $value }], on_conflict: { constraint: settings_pkey, update_columns: [value] }) { affected_rows } }' \
-        "$variables" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]
 }
 
 # The api copies CLOUDFLARE_WORKER_DOMAIN into its setting when it restarts,
@@ -404,6 +385,9 @@ else
     else
         offer_update
     fi
+fi
+if [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ] && ! set_worker_deployed_at; then
+    warn "Could not tell the panel about this deploy. It checks the worker again when its API restarts."
 fi
 
 cf_offer_tiered_cache

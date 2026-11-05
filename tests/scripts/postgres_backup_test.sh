@@ -91,6 +91,7 @@ run_backup() {
     backup_script | sed "s#/tmp/#$WORK_DIR/#g" >"$WORK_DIR/backup.sh"
     PATH="$WORK_DIR/bin:$PATH" \
         S3_ENDPOINT="$1" \
+        DEMOS_DOMAIN="${2:-}" \
         S3_ACCESS_KEY=key \
         S3_SECRET=secret \
         POSTGRES_HOST=timescaledb \
@@ -219,6 +220,27 @@ test_the_in_cluster_store_uploads_without_listing_buckets() {
         assert_not_contains "$(aws_calls)" "list-buckets"
         assert_not_contains "$(aws_calls)" "--expected-bucket-owner"
     done
+}
+
+test_s3_on_the_demos_domain_uploads_to_rustfs_inside_the_cluster() {
+    for endpoint in demos.example.com "https://Demos.Example.com/" "demos.example.com:443"; do
+        rm -f "$WORK_DIR/aws-calls"
+        eight_backups
+        run_backup "$endpoint" demos.example.com
+        assert_succeeded
+        assert_contains "$(calls_to "s3 cp ")" "--endpoint-url http://rustfs:9000"
+        assert_eq "$(calls_to "s3api delete-object ")" "s3api delete-object --bucket 5stack-db-backups --key backup-1.zip --endpoint-url http://rustfs:9000"
+        assert_not_contains "$(aws_calls)" "list-buckets"
+        assert_not_contains "$(aws_calls)" "example.com"
+    done
+}
+
+test_a_remote_bucket_beside_a_demos_domain_stays_remote() {
+    buckets 5stack-db-backups
+    run_backup "$B2_ENDPOINT" demos.example.com
+    assert_succeeded
+    assert_contains "$(calls_to "s3 cp ")" "--endpoint-url https://$B2_ENDPOINT"
+    assert_contains "$(aws_calls)" "list-buckets"
 }
 
 run_tests

@@ -62,7 +62,9 @@ test_a_deploy_is_written_as_the_time_it_happened() {
     [[ "$at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "not a UTC ISO time: $at"
     local seconds
     seconds="$(node -p 'Math.floor(Date.parse(process.argv[1]) / 1000)' "$at")"
-    [ "$seconds" -ge "$before" ] && [ "$seconds" -le "$after" ] || fail "$at is not the time of the deploy"
+    if [ "$seconds" -lt "$before" ] || [ "$seconds" -gt "$after" ]; then
+        fail "$at is not the time of the deploy"
+    fi
 }
 
 test_a_write_the_panel_refuses_is_reported() {

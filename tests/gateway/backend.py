@@ -5,7 +5,9 @@ Service named like the real one reaches it on the real port. Every response is
 JSON describing the request as it arrived, which is what the tests assert on.
 
 /payload?type=T&bytes=N answers N compressible bytes as Content-Type T, gzipped
-by the backend itself with &encoded=gzip; /stream?seconds=S&type=T sends a line
+by the backend itself with &encoded=gzip; any other path does the same with
+&payload=1, for a route that only forwards one exact path (/v1/graphql to
+Hasura). /stream?seconds=S&type=T sends a line
 a second, flushed, for S seconds.
 
 /streams/authorize, /plugins/authorize and /qx/authorize answer like the api's
@@ -199,9 +201,10 @@ def handler_for(name):
             if path.endswith("/stream"):
                 query = parse_qs(urlsplit(self.path).query)
                 return self.stream(int(query.get("seconds", ["5"])[0]), query.get("type", ["text/plain"])[0])
-            if path.endswith("/payload"):
+            query = parse_qs(urlsplit(self.path).query)
+            if path.endswith("/payload") or query.get("payload") == ["1"]:
                 self.read_body()
-                return self.payload(parse_qs(urlsplit(self.path).query))
+                return self.payload(query)
             body_bytes = self.read_body()
             if self.command == "POST" and path.endswith("/whep"):
                 return self.reply(201, self.describe(body_bytes), {"Location": path + "/session-1"})

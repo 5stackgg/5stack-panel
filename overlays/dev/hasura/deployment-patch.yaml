@@ -1,0 +1,17 @@
+# Error detail and the console, for the dev-only dashboard at
+# hasura.5stack.localhost.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hasura
+  namespace: 5stack
+spec:
+  template:
+    spec:
+      containers:
+        - name: hasura
+          env:
+            - name: HASURA_GRAPHQL_DEV_MODE
+              value: "true"
+            - name: HASURA_GRAPHQL_ENABLE_CONSOLE
+              value: "true"

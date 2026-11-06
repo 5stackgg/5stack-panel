@@ -472,6 +472,8 @@ fi
 
 ensure_auth_cookie_domain_in_env_file "overlays/config/api-config.env"
 
+ensure_hasura_cors_domain_in_env_file "overlays/config/api-config.env"
+
 # mirror api-config -> mediamtx.env (kustomize replacement source)
 if [ -n "$GAME_STREAM_DOMAIN" ] && [ -f overlays/mediamtx/mediamtx.env ]; then
     update_env_var "overlays/mediamtx/mediamtx.env" "GAME_STREAM_DOMAIN" "$GAME_STREAM_DOMAIN"

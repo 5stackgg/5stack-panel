@@ -103,19 +103,26 @@ spec:
             group: traefik.io
             kind: Middleware
             name: compress
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: api
           port: 5585
+    # Only Hasura's GraphQL endpoint. Its metadata, query, config and version
+    # APIs are admin-only and stay in-cluster.
     - matches:
         - path:
-            type: PathPrefix
-            value: /v1
-        - path:
-            type: PathPrefix
-            value: /v1alpha1
-        - path:
-            type: PathPrefix
-            value: /v2
+            type: Exact
+            value: /v1/graphql
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: hasura
           port: 8080
@@ -154,6 +161,12 @@ spec:
         - path:
             type: Exact
             value: /quick-connect
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: api
           port: 5585
@@ -179,6 +192,12 @@ spec:
         - path:
             type: PathPrefix
             value: /clips
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: api
           port: 5585
@@ -186,6 +205,12 @@ spec:
         - path:
             type: PathPrefix
             value: /5stack
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: rustfs
           port: 9000

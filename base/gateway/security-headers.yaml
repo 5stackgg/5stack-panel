@@ -1,0 +1,18 @@
+# Transport headers for the hosts web does not serve: the api, ws, demos and
+# search hosts (their routes reference it). Web sends its own from
+# nuxt.config's routeRules, and is left out so its per-page policies are not
+# overwritten. forceSTSHeader because TLS usually ends before Traefik (at
+# Cloudflare or the operator's proxy); a browser ignores the header over plain
+# HTTP anyway. No includeSubDomains: other hosts under a panel's domain may
+# still serve plain HTTP.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: 5stack
+spec:
+  headers:
+    stsSeconds: 31536000
+    forceSTSHeader: true
+    contentTypeNosniff: true
+    referrerPolicy: strict-origin-when-cross-origin

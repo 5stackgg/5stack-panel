@@ -238,3 +238,8 @@ patches:
       kind: Gateway
       name: 5stack
     path: gateway-patch.yaml
+  - target:
+      group: apps
+      kind: Deployment
+      name: hasura
+    path: hasura/deployment-patch.yaml

@@ -94,7 +94,7 @@ test_api_allowlist_paths_reach_their_backends() {
         /branding/logo:api /news/1:api /utility/x:api /custom-pages/x:api /plugins/authorize/x:api \
         /huds/x.zip:api /events/media/1:api /snapshots/1:api /steam-match-history/upload:api /clip-views/1:api \
         /voice/1:api /notifications/1:api /chat/1:api /sanctions/server/1:api /file-manager/upload:api /mediamtx/stats:api \
-        /5stack/knock:api /v1/graphql:hasura /v1alpha1/x:hasura /v2/query:hasura; do
+        /5stack/knock:api /v1/graphql:hasura; do
         path="${entry%:*}"
         backend="${entry##*:}"
         call https "$API" "$path"
@@ -106,7 +106,8 @@ test_api_allowlist_paths_reach_their_backends() {
 
 test_paths_outside_the_allowlist_are_404() {
     local path
-    for path in / /nope /matchesx /me/x /system/healthz/x /system/logs /v3 /ws /auth/steam /mediamtx /5stack /5stack/knock/x; do
+    for path in / /nope /matchesx /me/x /system/healthz/x /system/logs /v3 /ws /auth/steam /mediamtx /5stack /5stack/knock/x \
+        /v1/graphqlx /v1/metadata /v1/query /v1/version /v1alpha1/config /v2/query /console; do
         call https "$API" "$path"
         expect_code 404
     done
@@ -117,6 +118,21 @@ test_hasura_healthz_is_rewritten() {
     expect_code 200
     expect_json .backend hasura
     expect_json .path /healthz
+}
+
+test_hosts_beside_web_send_the_transport_headers() {
+    local entry host path
+    for entry in "$API:/me" "$API:/v1/graphql" "$DEMOS:/demos/1/download" "$DEMOS:/5stack/x" \
+        "$WS:/socket" "$SEARCH:/health"; do
+        host="${entry%%:*}"
+        path="${entry#*:}"
+        call https "$host" "$path"
+        expect_header Strict-Transport-Security "max-age=31536000"
+        expect_header X-Content-Type-Options nosniff
+        expect_header Referrer-Policy strict-origin-when-cross-origin
+    done
+    call https "$WEB" /
+    [ -z "$(header Strict-Transport-Security)" ] || fail "the gateway's headers reached web, which sends its own"
 }
 
 test_web_host_sends_its_api_paths_to_the_api() {
@@ -614,6 +630,7 @@ for name in \
     test_api_allowlist_paths_reach_their_backends \
     test_paths_outside_the_allowlist_are_404 \
     test_hasura_healthz_is_rewritten \
+    test_hosts_beside_web_send_the_transport_headers \
     test_web_host_sends_its_api_paths_to_the_api \
     test_demos_reach_rustfs_with_host_and_path_as_signed \
     test_a_64mib_part_put_reaches_rustfs_whole \

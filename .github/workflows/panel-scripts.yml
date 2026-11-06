@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -x cloudflare.sh stream-relay.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh utils/panel_settings.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh .github/scripts/image_updates.sh gpu-node/*.sh tests/scripts/*.sh tests/scripts/stub/kubectl tests/scripts/stub/crane tests/scripts/tailscale-stub/curl tests/scripts/tailscale-stub/kubectl
+      - run: shellcheck -x cloudflare.sh stream-relay.sh utils/cloudflare_api.sh utils/cloudflare_setup.sh utils/panel_settings.sh service.sh utils/ensure_auth_cookie_domain.sh utils/ensure_hasura_cors_domain.sh utils/ensure_node_ip.sh utils/dev_game_server.sh utils/gpu_nodes.sh utils/choose_node.sh .github/scripts/image_updates.sh gpu-node/*.sh tests/scripts/*.sh tests/scripts/stub/kubectl tests/scripts/stub/crane tests/scripts/tailscale-stub/curl tests/scripts/tailscale-stub/kubectl
       - run: bash tests/scripts/setup_env_test.sh
       - run: bash tests/scripts/apply_overlay_test.sh
       - run: bash tests/scripts/debug_test.sh

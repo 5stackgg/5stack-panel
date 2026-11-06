@@ -42,7 +42,13 @@ if [ -n "$CURL_FAILS" ]; then
 fi
 cp "$WORK_DIR/release/${url##*/}" "$out" || exit 22
 EOF
-    chmod +x "$WORK_DIR/stub/uname" "$WORK_DIR/stub/curl"
+    # Records how tar is run, then runs it.
+    cat >"$WORK_DIR/stub/tar" <<'EOF'
+#!/bin/bash
+echo "$*" >>"$WORK_DIR/tar-calls"
+exec "$WORK_DIR/tools/tar" "$@"
+EOF
+    chmod +x "$WORK_DIR/stub/uname" "$WORK_DIR/stub/curl" "$WORK_DIR/stub/tar"
 }
 
 # A Node.js of VERSION on the machine's PATH.
@@ -58,17 +64,22 @@ EOF
     chmod +x "$WORK_DIR/stub/node" "$WORK_DIR/stub/npx"
 }
 
-# A small stand-in for nodejs.org's tarball for ARCH; prints its sha256.
+# A small stand-in for nodejs.org's tarball for ARCH; prints its sha256. With
+# BROKEN set, its node can't run, as on a server with too old a glibc.
 release() {
     local name="node-v$VERSION-linux-$1"
     mkdir -p "$WORK_DIR/build/$name/bin"
-    cat >"$WORK_DIR/build/$name/bin/node" <<EOF
+    if [ -n "$BROKEN" ]; then
+        printf '#!/bin/bash\necho "node: /lib/libc.so.6: version GLIBC_2.28 not found" >&2\nexit 1\n' >"$WORK_DIR/build/$name/bin/node"
+    else
+        cat >"$WORK_DIR/build/$name/bin/node" <<EOF
 #!/bin/bash
 case "\$1" in
     --version) echo "v$VERSION" ;;
     -p) echo "${VERSION%%.*}" ;;
 esac
 EOF
+    fi
     printf '#!/bin/bash\n' >"$WORK_DIR/build/$name/bin/npx"
     chmod +x "$WORK_DIR/build/$name/bin/node" "$WORK_DIR/build/$name/bin/npx"
     tar -czf "$WORK_DIR/release/$name.tar.gz" -C "$WORK_DIR/build" "$name"
@@ -128,6 +139,18 @@ test_node_20_fetches_the_pinned_release_and_runs_the_rest_on_it() {
     assert_contains "$out" "Fetching Node.js $VERSION for wrangler (once)"
     assert_contains "$out" "NODE $(cached x64)/bin/node v$VERSION"
     assert_eq "$(cat "$(cached x64)/.5stack-sha256")" "$pin"
+    assert_contains "$(cat "$WORK_DIR/tar-calls")" "--no-same-owner"
+}
+
+test_a_release_that_cannot_run_here_is_refused_and_not_kept() {
+    machine Linux x86_64
+    local out status=0
+    out="$(PIN="$(BROKEN=1 release x64)" require 2>&1)" || status=$?
+
+    assert_eq "$status" "1"
+    assert_contains "$out" "Node.js $VERSION from nodejs.org does not run on this server (it needs glibc 2.28 or newer)."
+    assert_not_contains "$out" "NODE "
+    assert_eq "$(find "$WORK_DIR/cache/5stack" -mindepth 1 | wc -l | tr -d ' ')" "0"
 }
 
 test_no_node_fetches_the_arm64_release_on_an_arm_server() {
@@ -148,6 +171,7 @@ test_a_download_that_does_not_match_its_sum_is_refused() {
     assert_eq "$status" "1"
     assert_contains "$out" "does not match the checksum nodejs.org publishes for it, so it was not used"
     assert_not_contains "$out" "NODE "
+    [ ! -f "$WORK_DIR/tar-calls" ] || fail "it unpacked the download before checking it: $(cat "$WORK_DIR/tar-calls")"
     [ ! -e "$(cached x64)" ] || fail "the refused release was kept"
     assert_eq "$(find "$WORK_DIR/cache/5stack" -mindepth 1 | wc -l | tr -d ' ')" "0"
 }
@@ -178,6 +202,23 @@ test_a_cache_that_no_longer_verifies_is_fetched_again() {
 
     assert_eq "$(wc -l <"$WORK_DIR/curl-calls" | tr -d ' ')" "1"
     assert_eq "$(cat "$(cached x64)/.5stack-sha256")" "$pin"
+}
+
+test_a_cache_that_cannot_be_replaced_is_never_run() {
+    machine Linux x86_64
+    local pin out status=0 stuck
+    pin="$(release x64)"
+    PIN="$pin" require >/dev/null 2>&1 || fail "the first run stopped"
+    echo "something else" >"$(cached x64)/.5stack-sha256"
+    stuck="$(cached x64)/stuck"
+    mkdir -p "$stuck" && touch "$stuck/file" && chmod 555 "$stuck"
+
+    out="$(PIN="$pin" require 2>&1)" || status=$?
+    chmod 755 "$stuck"
+
+    assert_eq "$status" "1"
+    assert_contains "$out" "Could not move Node.js $VERSION into $(cached x64)."
+    assert_not_contains "$out" "NODE "
 }
 
 test_a_download_that_fails_says_so_and_leaves_nothing_behind() {

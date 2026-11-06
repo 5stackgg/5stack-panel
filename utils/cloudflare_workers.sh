@@ -150,14 +150,20 @@ cf_fetch_node() {
         err "Run this again. If it keeps happening, something between this server and nodejs.org is changing it."
         return 1
     fi
-    if ! tar -xzf "$tmp/$name.tar.gz" -C "$tmp" || [ ! -x "$tmp/$name/bin/node" ]; then
+    # Run as root, tar would keep the owner the release was packed with.
+    if ! tar --no-same-owner -xzf "$tmp/$name.tar.gz" -C "$tmp" || [ ! -x "$tmp/$name/bin/node" ]; then
         rm -rf "$tmp"
         err "Could not unpack Node.js $CF_NODE_VERSION into $cache."
         return 1
     fi
+    if [ "$("$tmp/$name/bin/node" --version 2>/dev/null)" != "v$CF_NODE_VERSION" ]; then
+        rm -rf "$tmp"
+        err "Node.js $CF_NODE_VERSION from nodejs.org does not run on this server (it needs glibc 2.28 or newer)."
+        err "Install Node.js 22 or newer (https://nodejs.org/en/download), then run this again."
+        return 1
+    fi
     printf '%s\n' "$sum" >"$tmp/$name/.5stack-sha256"
-    rm -rf "$dir"
-    if ! mv "$tmp/$name" "$dir"; then
+    if ! rm -rf "$dir" || ! mv "$tmp/$name" "$dir" || ! cf_node_verified "$dir" "$arch"; then
         rm -rf "$tmp"
         err "Could not move Node.js $CF_NODE_VERSION into $dir."
         return 1

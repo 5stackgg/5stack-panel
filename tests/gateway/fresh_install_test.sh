@@ -120,10 +120,10 @@ test_hasura_healthz_is_rewritten() {
     expect_json .path /healthz
 }
 
-test_hosts_beside_web_send_the_transport_headers() {
+test_what_web_does_not_serve_sends_the_transport_headers() {
     local entry host path
     for entry in "$API:/me" "$API:/v1/graphql" "$DEMOS:/demos/1/download" "$DEMOS:/5stack/x" \
-        "$WS:/socket" "$SEARCH:/health"; do
+        "$WS:/socket" "$SEARCH:/health" "$WEB:/auth/steam" "$WEB:/telemetry"; do
         host="${entry%%:*}"
         path="${entry#*:}"
         call https "$host" "$path"
@@ -494,7 +494,7 @@ test_binary_and_already_encoded_responses_pass_through() {
     # not compressed a second time.
     expect_fetched "$WEB" '/payload?type=application/json&bytes=20000&encoded=gzip' "gzip 20000"
     # Hasura on the api host is not behind the middleware; it compresses itself.
-    expect_fetched "$API" '/v1/payload?type=application/json&bytes=20000' "none 20000"
+    expect_fetched "$API" '/v1/graphql?payload=1&type=application/json&bytes=20000' "none 20000"
 }
 
 # An event stream's first event arrives at once, uncompressed, rather than
@@ -630,7 +630,7 @@ for name in \
     test_api_allowlist_paths_reach_their_backends \
     test_paths_outside_the_allowlist_are_404 \
     test_hasura_healthz_is_rewritten \
-    test_hosts_beside_web_send_the_transport_headers \
+    test_what_web_does_not_serve_sends_the_transport_headers \
     test_web_host_sends_its_api_paths_to_the_api \
     test_demos_reach_rustfs_with_host_and_path_as_signed \
     test_a_64mib_part_put_reaches_rustfs_whole \

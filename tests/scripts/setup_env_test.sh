@@ -242,10 +242,21 @@ test_hasura_cors_includes_the_extra_cors_origins() {
     make_panel
     set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
     set_env overlays/config/api-config.env API_DOMAIN api.panel.example.com
-    printf 'EXTRA_CORS_ORIGINS= https://a.trycloudflare.com ,,https://b.example.net\r\n' >>"$PANEL/overlays/config/api-config.env"
+    printf 'EXTRA_CORS_ORIGINS= https://a.trycloudflare.com ,,https://B.Example.net\r\n' >>"$PANEL/overlays/config/api-config.env"
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env HASURA_GRAPHQL_CORS_DOMAIN)" \
         "HASURA_GRAPHQL_CORS_DOMAIN=https://panel.example.com, https://api.panel.example.com, https://a.trycloudflare.com, https://b.example.net"
+}
+
+# dev.sh derives the same line into the committed dev config; a hand edit to
+# either key there would otherwise drift from what it writes.
+test_the_dev_configs_hasura_cors_is_what_dev_sh_derives() {
+    local config="$WORK_DIR/dev-api-config.env"
+    cp "$TEST_ROOT/overlays/dev/config/api-config.env" "$config"
+    bash -c 'source "$1/utils/update_env_var.sh"; source "$1/utils/ensure_auth_cookie_domain.sh"
+        source "$1/utils/ensure_hasura_cors_domain.sh"; ensure_hasura_cors_domain_in_env_file "$2"' \
+        _ "$TEST_ROOT" "$config"
+    assert_eq "$(cat "$config")" "$(cat "$TEST_ROOT/overlays/dev/config/api-config.env")"
 }
 
 test_hasura_cors_follows_a_changed_web_domain() {

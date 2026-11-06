@@ -172,6 +172,8 @@ test_backblaze_proxy_points_the_panel_at_the_worker_once_it_answers() {
     live="$(grep -n 'ok "The Backblaze proxy is live' "$script" | cut -d: -f1)"
     call="$(grep -nE '^point_panel_at_worker$' "$script" | cut -d: -f1)"
     [ -n "$live" ] || fail "the step that waits for the worker to answer is gone"
+    # shellcheck disable=SC2016 # the literal line the script holds
+    assert_contains "$(cat "$script")" 'source "$PANEL_DIR/utils/panel_settings.sh"'
     assert_eq "$(echo "$call" | wc -l | tr -d ' ')" "1"
     if [ -z "$call" ] || [ "$call" -le "$live" ]; then
         fail "the panel is pointed at the worker before it answers"

@@ -29,6 +29,7 @@ on:
       - cloudflare.sh
       - stream-relay.sh
       - backblaze-proxy.sh
+      - playcast-relay.sh
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/http/**"
@@ -61,6 +62,7 @@ on:
       - cloudflare.sh
       - stream-relay.sh
       - backblaze-proxy.sh
+      - playcast-relay.sh
       - "cloudflare-workers/stream-relay/**"
       - "overlays/cert-manager/**"
       - "overlays/http/**"
@@ -84,6 +86,7 @@ jobs:
       - run: bash tests/scripts/write_overlays_test.sh
       - run: bash tests/scripts/cloudflare_setup_test.sh
       - run: bash tests/scripts/backblaze_proxy_test.sh
+      - run: bash tests/scripts/cloudflare_node_test.sh
       - run: bash tests/scripts/dev_game_server_test.sh
       - run: bash tests/scripts/gpu_nodes_test.sh
       - run: bash tests/scripts/service_test.sh

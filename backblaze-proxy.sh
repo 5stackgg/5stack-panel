@@ -35,6 +35,7 @@ source "$PANEL_DIR/utils/print_domains_and_hosts.sh"
 source "$PANEL_DIR/utils/update_env_var.sh"
 source "$PANEL_DIR/utils/cloudflare_workers.sh"
 source "$PANEL_DIR/utils/signed_clip_links.sh"
+source "$PANEL_DIR/utils/panel_settings.sh"
 
 # Existing Cloudflare routes point at this name; renaming spawns a second
 # worker while the old one keeps serving.
@@ -73,26 +74,6 @@ panel_host_name() {
             return
         fi
     done
-}
-
-# panel_graphql QUERY VARIABLES -- runs QUERY against the panel's Hasura as
-# admin, the same way the web's settings pages write settings.
-panel_graphql() {
-    local body
-    body="$(node -p 'JSON.stringify({ query: process.argv[1], variables: JSON.parse(process.argv[2]) })' "$1" "$2")"
-    printf 'header = "x-hasura-admin-secret: %s"\n' "$HASURA_ADMIN_SECRET" \
-        | curl -sS -K - --max-time 15 -H "Content-Type: application/json" \
-            --data "$body" "https://$API_DOMAIN/v1/graphql"
-}
-
-# The api copies CLOUDFLARE_WORKER_DOMAIN into this setting when it boots;
-# writing it here as well means it applies without an ./update.sh.
-set_live_worker_url() {
-    local variables
-    variables="$(node -p 'JSON.stringify({ value: process.argv[1] })' "$1")"
-    [ -n "$(panel_graphql \
-        'mutation ($value: String!) { insert_settings(objects: [{ name: "cloudflare_worker_url", value: $value }], on_conflict: { constraint: settings_pkey, update_columns: [value] }) { affected_rows } }' \
-        "$variables" | cf_json 'j.data?.insert_settings ? "ok" : undefined')" ]
 }
 
 # The api copies CLOUDFLARE_WORKER_DOMAIN into its setting when it restarts,
@@ -371,39 +352,6 @@ if [ -n "$CF_OTHER_ROUTES" ]; then
 fi
 
 step "Pointing the panel at it"
-WORKER_URL="https://$WORKER_HOST"
-LIVE_URL=""
-if [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ]; then
-    LIVE_URL="$(panel_graphql 'query { settings_by_pk(name: "cloudflare_worker_url") { value } }' '{}' \
-        | cf_json 'j.data ? (j.data.settings_by_pk?.value ?? "") : undefined')"
-fi
-
-CURRENT_URL="$LIVE_URL"
-if [ -n "$CLOUDFLARE_WORKER_DOMAIN" ]; then
-    CURRENT_URL="https://$CLOUDFLARE_WORKER_DOMAIN"
-fi
-SWITCH=y
-if [ -n "$CURRENT_URL" ] && [ "$CURRENT_URL" != "$WORKER_URL" ]; then
-    ok "The panel serves files through $CURRENT_URL now."
-    read -r -p "    Switch it to $WORKER_URL? [Y/n] " SWITCH
-    SWITCH="${SWITCH:-y}"
-fi
-
-if [[ ! "$SWITCH" =~ ^[Yy] ]]; then
-    warn "Left it on $CURRENT_URL. Run this again to switch later."
-else
-    if [ "$CLOUDFLARE_WORKER_DOMAIN" != "$WORKER_HOST" ]; then
-        update_env_var "$PANEL_DIR/overlays/config/api-config.env" CLOUDFLARE_WORKER_DOMAIN "$WORKER_HOST"
-    fi
-    ok "CLOUDFLARE_WORKER_DOMAIN=$WORKER_HOST is in overlays/config/api-config.env"
-
-    if [ "$LIVE_URL" = "$WORKER_URL" ]; then
-        ok "The panel already serves files through $WORKER_URL"
-    elif [ -n "$API_DOMAIN" ] && [ -n "$HASURA_ADMIN_SECRET" ] && set_live_worker_url "$WORKER_URL"; then
-        ok "The panel now serves demos, clips and media through $WORKER_URL"
-    else
-        offer_update
-    fi
-fi
+point_panel_at_worker
 
 cf_offer_tiered_cache

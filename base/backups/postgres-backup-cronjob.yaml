@@ -12,6 +12,15 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: 5stack-timescaledb
+                        operator: In
+                        values:
+                          - "true"
           containers:
             - name: backup
               image: postgres:18-alpine

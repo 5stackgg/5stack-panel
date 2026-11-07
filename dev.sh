@@ -61,7 +61,7 @@ retire_ingress_nginx --immediately || exit 1
 move_traefik_to_host_ports "$PANEL_DIR/overlays/dev/config/traefik-config.env" || exit 1
 
 echo "Labeling node..."
-kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true 5stack-mediamtx=true
+kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true 5stack-mediamtx=true 5stack-demo-parser=true
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 

@@ -110,6 +110,13 @@ if ! upgrade_timescaledb_major; then
     exit 1
 fi
 
+# Installs from before demo-parser had its own label carry it on no node, and
+# its affinity is requiredDuringScheduling. Only when no node has it, so a
+# parser an operator moved stays where they put it.
+if [ -z "$(kubectl --kubeconfig=$KUBECONFIG get nodes -l 5stack-demo-parser=true -o name)" ]; then
+    kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes -l 5stack-api=true -o jsonpath='{.items[0].metadata.name}') 5stack-demo-parser=true --overwrite
+fi
+
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 

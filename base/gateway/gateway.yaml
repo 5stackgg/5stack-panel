@@ -33,14 +33,6 @@ spec:
       hostname: ${RELAY_DOMAIN}
       protocol: HTTP
       port: 8000
-    - name: typesense
-      hostname: ${TYPESENSE_HOST}
-      protocol: HTTP
-      port: 8000
-    - name: s3-console
-      hostname: ${S3_CONSOLE_HOST}
-      protocol: HTTP
-      port: 8000
     - name: game-stream
       hostname: ${GAME_STREAM_DOMAIN}
       protocol: HTTP

@@ -87,7 +87,7 @@ test_built_in_storage_keeps_rustfs_in_every_overlay() {
     done
     manifest="$(kubectl kustomize "$(overlay local-secrets-https)")" || fail "kubectl kustomize failed"
     rendered="$(kinds_and_names "$manifest")"
-    for object in StatefulSet/rustfs Service/rustfs Service/minio HTTPRoute/s3-console PersistentVolumeClaim/minio-pvc; do
+    for object in StatefulSet/rustfs Service/rustfs Service/minio PersistentVolumeClaim/minio-pvc; do
         assert_contains "$rendered" "$object"
     done
 }
@@ -98,7 +98,7 @@ test_an_external_s3_endpoint_leaves_rustfs_out_of_every_overlay() {
     for o in vault-http vault-https local-secrets-http local-secrets-https; do
         manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
         rendered="$(kinds_and_names "$manifest")"
-        for object in StatefulSet/rustfs Service/rustfs Service/minio HTTPRoute/s3-console PersistentVolume/minio-pv PersistentVolumeClaim/minio-pvc Secret/rustfs-secrets ExternalSecret/rustfs-secrets; do
+        for object in StatefulSet/rustfs Service/rustfs Service/minio PersistentVolume/minio-pv PersistentVolumeClaim/minio-pvc Secret/rustfs-secrets ExternalSecret/rustfs-secrets; do
             assert_not_contains "$rendered" "$object"
         done
         assert_not_contains "$manifest" "name: rustfs"
@@ -147,6 +147,113 @@ test_the_backup_reads_the_demos_domain_from_the_api_config() {
     config_map="$(kinds_and_names "$manifest" | sed -n 's#^ConfigMap/\(api-config.*\)#\1#p')"
     [ -n "$config_map" ] || fail "no api-config ConfigMap was rendered"
     assert_eq "$(document "$manifest" CronJob postgres-backup | grep -A1 'key: DEMOS_DOMAIN$' | sed -n 2p | tr -d ' ')" "name:$config_map"
+}
+
+# The hosts setup-env.sh writes for example.gg, beside the console and search
+# hosts an older install still has in its env files.
+with_hosts() {
+    local entry
+    for entry in api-config.env:WEB_DOMAIN=example.gg api-config.env:API_DOMAIN=api.example.gg \
+        api-config.env:WS_DOMAIN=ws.example.gg api-config.env:RELAY_DOMAIN=tv.example.gg \
+        api-config.env:DEMOS_DOMAIN=demos.example.gg api-config.env:GAME_STREAM_DOMAIN=hls.example.gg \
+        s3-config.env:S3_CONSOLE_HOST=console.example.gg typesense-config.env:TYPESENSE_HOST=search.example.gg; do
+        set_config "${entry%%:*}" "${entry#*:}"
+    done
+    printf 'GAME_STREAM_DOMAIN=hls.example.gg\n' >"$(overlay mediamtx)/mediamtx.env"
+}
+
+# set_config FILE KEY=VALUE, in overlays/config.
+set_config() {
+    local file
+    file="$(overlay config)/$1"
+    touch "$file"
+    grep -v "^${2%%=*}=" "$file" >"$WORK_DIR/set-config" || true
+    printf '%s\n' "$2" >>"$WORK_DIR/set-config"
+    mv "$WORK_DIR/set-config" "$file"
+}
+
+# The dev overlay, with the secrets dev.sh would have copied in.
+dev_manifest() {
+    local file
+    for file in "$(overlay local-secrets)"/*.env; do
+        [ -f "$(overlay dev/secrets)/${file##*/}" ] || cp "$file" "$(overlay dev/secrets)/"
+    done
+    kubectl kustomize "$(overlay dev)"
+}
+
+# spec_list MANIFEST KIND NAME KEY: the items of that object's spec.KEY.
+spec_list() {
+    document "$1" "$2" "$3" | awk -v key="  $4:" '$0 == key { f = 1; next } f && /^  - / { print $2; next } f { exit }'
+}
+
+# routing MANIFEST: its Gateways, HTTPRoutes, Ingresses and Certificates.
+routing() {
+    awk '/^---$/ { if (keep) printf "%s", doc; doc = ""; keep = 0; next }
+        /^kind: (Gateway|HTTPRoute|Ingress|Certificate)$/ { keep = 1 }
+        { doc = doc $0 "\n" }
+        END { if (keep) printf "%s", doc }' <<<"$1"
+}
+
+# listeners MANIFEST GATEWAY: name=hostname for each of its listeners.
+listeners() {
+    document "$1" Gateway "$2" | awk '/^  - hostname: / { h = $3 } /^    name: / && h != "" { print $2 "=" h; h = "" }'
+}
+
+expect_no_console_or_search() {
+    local rendered
+    rendered="$(kinds_and_names "$1")"
+    for object in HTTPRoute/s3-console HTTPRoute/typesense ConfigMap/typesense-web-config; do
+        assert_not_contains "$rendered" "$object"
+    done
+    for host in console.example.gg search.example.gg console.5stack.localhost search.5stack.localhost; do
+        assert_not_contains "$(routing "$1")" "$host"
+    done
+    assert_not_contains "$1" "typesense-dashboard"
+    assert_not_contains "$(document "$1" StatefulSet rustfs)" "9001"
+    assert_not_contains "$(document "$1" Service rustfs)" "9001"
+    assert_not_contains "$(document "$1" Service minio)" "9001"
+    assert_eq "$(document "$1" StatefulSet rustfs | grep -A1 'name: RUSTFS_CONSOLE_ENABLE$' | sed -n 2p | tr -d ' ')" 'value:"false"'
+}
+
+test_no_overlay_routes_the_rustfs_console_or_typesense() {
+    with_s3_endpoint ""
+    with_hosts
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        expect_no_console_or_search "$manifest"
+    done
+    manifest="$(dev_manifest)" || fail "kubectl kustomize dev failed"
+    expect_no_console_or_search "$manifest"
+}
+
+test_every_host_keeps_its_place_in_the_listeners_certificate_and_redirect() {
+    local hosts="example.gg api.example.gg demos.example.gg ws.example.gg tv.example.gg"
+    local named="web=example.gg api=api.example.gg demos=demos.example.gg ws=ws.example.gg relay=tv.example.gg game-stream=hls.example.gg"
+    with_s3_endpoint ""
+    with_hosts
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-https local-secrets-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        assert_eq "$(listeners "$manifest" 5stack | xargs)" "$named"
+        assert_eq "$(spec_list "$manifest" Certificate 5stack-ssl dnsNames | xargs)" "$hosts"
+        assert_eq "$(spec_list "$manifest" HTTPRoute https-redirect hostnames | xargs)" "$hosts hls.example.gg"
+    done
+    for o in vault-http local-secrets-http; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        assert_eq "$(listeners "$manifest" 5stack | xargs)" "$named"
+        assert_eq "$(listeners "$manifest" 5stack-tls | xargs)" "$named"
+    done
+    manifest="$(dev_manifest)" || fail "kubectl kustomize dev failed"
+    assert_eq "$(listeners "$manifest" 5stack | xargs)" \
+        "${named//example.gg/5stack.localhost} hasura-dashboard=hasura.5stack.localhost queues=queues.5stack.localhost"
+    assert_eq "$(spec_list "$manifest" HTTPRoute https-redirect hostnames | xargs)" \
+        "${hosts//example.gg/5stack.localhost} hls.5stack.localhost hasura.5stack.localhost queues.5stack.localhost"
+}
+
+test_update_sh_removes_the_console_and_search_routes_an_older_install_applied() {
+    assert_contains "$(sed -n '/^apply_overlay "\$OVERLAY"/,$p' "$TEST_ROOT/update.sh")" "delete httproute s3-console typesense -n 5stack --ignore-not-found"
+    assert_contains "$(sed -n '/^apply_overlay "\$OVERLAY"/,$p' "$TEST_ROOT/update.sh")" "delete configmap typesense-web-config -n 5stack --ignore-not-found"
 }
 
 test_update_sh_hands_a_minio_volume_to_rustfs_only_on_built_in_storage() {

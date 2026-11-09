@@ -36,8 +36,6 @@ set_sibling_domains() {
     set_env overlays/config/api-config.env DEMOS_DOMAIN demos-cs-panel.example.com
     set_env overlays/config/api-config.env GAME_STREAM_DOMAIN hls-cs-panel.example.com
     set_env overlays/config/api-config.env MAIL_FROM hello@cs-panel.example.com
-    set_env overlays/config/s3-config.env S3_CONSOLE_HOST console-cs-panel.example.com
-    set_env overlays/config/typesense-config.env TYPESENSE_HOST search-cs-panel.example.com
 }
 
 run_setup_env() {
@@ -113,7 +111,6 @@ test_a_subdomain_puts_every_address_one_level_deep_by_default() {
     set_env overlays/config/api-config.env WEB_DOMAIN panel.example.com
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
-    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
     assert_contains "$(cat "$WORK_DIR/setup-output")" "Sign-in then covers all of example.com, so other sites on example.com get the panel's sign-in cookie."
 }
@@ -128,8 +125,6 @@ test_flat_hosts_put_every_address_one_level_deep_beside_the_panel() {
     assert_eq "$(env_lines overlays/config/api-config.env RELAY_DOMAIN)" "RELAY_DOMAIN=panel-tv.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env DEMOS_DOMAIN)" "DEMOS_DOMAIN=panel-demos.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env GAME_STREAM_DOMAIN)" "GAME_STREAM_DOMAIN=panel-hls.example.com"
-    assert_eq "$(env_lines overlays/config/s3-config.env S3_CONSOLE_HOST)" "S3_CONSOLE_HOST=panel-console.example.com"
-    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
     assert_eq "$(env_lines overlays/config/api-config.env AUTH_COOKIE_DOMAIN)" "AUTH_COOKIE_DOMAIN=.example.com"
 }
 
@@ -140,8 +135,7 @@ test_the_free_cloudflare_plan_puts_every_address_one_level_deep_and_says_so() {
     export CLOUDFLARE_PLAN=free
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=panel-api.example.com"
-    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=panel-search.example.com"
-    assert_contains "$(cat "$WORK_DIR/setup-output")" "Cloudflare's free plan only covers one level below example.com, so the addresses become panel-api.example.com, panel-ws.example.com, panel-tv.example.com, panel-demos.example.com, panel-hls.example.com, panel-console.example.com, panel-search.example.com."
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Cloudflare's free plan only covers one level below example.com, so the addresses become panel-api.example.com, panel-ws.example.com, panel-tv.example.com, panel-demos.example.com, panel-hls.example.com."
     assert_contains "$(cat "$WORK_DIR/setup-output")" "Other sites on example.com will receive the panel's sign-in cookie."
 }
 
@@ -162,7 +156,28 @@ test_a_root_domain_keeps_its_addresses_under_it() {
     export FLAT_HOSTS=true
     run_setup_env
     assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.example.com"
-    assert_eq "$(env_lines overlays/config/typesense-config.env TYPESENSE_HOST)" "TYPESENSE_HOST=search.example.com"
+    assert_eq "$(env_lines overlays/config/api-config.env GAME_STREAM_DOMAIN)" "GAME_STREAM_DOMAIN=hls.example.com"
+}
+
+test_a_new_install_gets_no_console_or_search_host() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/s3-config.env S3_CONSOLE_HOST)" ""
+    [ ! -e "$PANEL/overlays/config/typesense-config.env" ] || fail "typesense-config.env was written: $(cat "$PANEL/overlays/config/typesense-config.env")"
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "S3_CONSOLE_HOST"
+    assert_not_contains "$(cat "$WORK_DIR/setup-output")" "TYPESENSE_HOST"
+}
+
+test_an_older_installs_console_and_search_hosts_are_left_alone() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    set_env overlays/config/s3-config.env S3_CONSOLE_HOST console.example.com
+    printf 'TYPESENSE_HOST=search.example.com\n' >"$PANEL/overlays/config/typesense-config.env"
+    run_setup_env
+    assert_eq "$(env_lines overlays/config/api-config.env API_DOMAIN)" "API_DOMAIN=api.example.com"
+    assert_eq "$(env_lines overlays/config/s3-config.env S3_CONSOLE_HOST)" "S3_CONSOLE_HOST=console.example.com"
+    assert_eq "$(cat "$PANEL/overlays/config/typesense-config.env")" "TYPESENSE_HOST=search.example.com"
 }
 
 test_an_operator_cookie_domain_that_covers_the_hosts_is_kept() {

@@ -120,6 +120,11 @@ fi
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
+# The RustFS console and Typesense hosts left the overlay, and an apply never
+# deletes what it no longer renders.
+kubectl --kubeconfig=$KUBECONFIG delete httproute s3-console typesense -n 5stack --ignore-not-found >/dev/null
+kubectl --kubeconfig=$KUBECONFIG delete configmap typesense-web-config -n 5stack --ignore-not-found >/dev/null
+
 # Strictly after the apply: it is the apply that removes the cert-manager.io/issuer
 # annotation from the ingresses, and until that lands ingress-shim recreates an
 # Ingress-owned Certificate as fast as we can let go of one.

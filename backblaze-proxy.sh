@@ -68,7 +68,7 @@ normalize_host() {
 
 panel_host_name() {
     local var
-    for var in WEB_DOMAIN API_DOMAIN WS_DOMAIN RELAY_DOMAIN DEMOS_DOMAIN GAME_STREAM_DOMAIN S3_CONSOLE_HOST TYPESENSE_HOST; do
+    for var in WEB_DOMAIN API_DOMAIN WS_DOMAIN RELAY_DOMAIN DEMOS_DOMAIN GAME_STREAM_DOMAIN; do
         if [ -n "${!var}" ] && [ "${!var}" = "$1" ]; then
             echo "$var"
             return

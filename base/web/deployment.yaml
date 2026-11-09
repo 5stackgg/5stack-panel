@@ -91,11 +91,6 @@ spec:
                 configMapKeyRef:
                   name: api-config
                   key: WS_DOMAIN
-            - name: NUXT_PUBLIC_TYPESENSE_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: typesense-config
-                  key: TYPESENSE_HOST 
             - name: HASURA_GRAPHQL_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

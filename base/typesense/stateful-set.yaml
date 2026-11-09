@@ -62,34 +62,16 @@ spec:
             - name: TYPESENSE_DATA_DIR
               value: /data
           volumeMounts:
-            - name: typesense-config
-              mountPath: /etc/typesense
             - name: typesense-data
               mountPath: /data
           envFrom:
-            - configMapRef:
-                name: typesense-config
             - secretRef:
                 name: typesense-secrets
           command:
             - /opt/typesense-server
             - --enable-cors
-            - --cors-domains=http://localhost,https://$(TYPESENSE_HOST)
-        - name: typesense-web
-          image: ghcr.io/bfritscher/typesense-dashboard:2.5.0
-          ports:
-            - containerPort: 80
-          volumeMounts:
-            - mountPath: /srv/config.json
-              name: web-config
-              subPath: config.json
+            - --cors-domains=http://localhost
       volumes:
-        - name: web-config
-          configMap:
-            name: typesense-web-config
-        - name: typesense-config
-          configMap:
-            name: typesense-config
         - name: typesense-data
           persistentVolumeClaim:
             claimName: typesense-pvc

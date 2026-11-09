@@ -140,8 +140,6 @@ make_panel() {
     set_env overlays/config/api-config.env DEMOS_DOMAIN "demos.$DOMAIN"
     set_env overlays/config/api-config.env GAME_STREAM_DOMAIN "hls.$DOMAIN"
     set_env overlays/config/api-config.env MAIL_FROM "hello@$DOMAIN"
-    set_env overlays/config/s3-config.env S3_CONSOLE_HOST "console.$DOMAIN"
-    set_env overlays/config/typesense-config.env TYPESENSE_HOST "search.$DOMAIN"
     set_env overlays/mediamtx/mediamtx.env GAME_STREAM_DOMAIN "hls.$DOMAIN"
 
     local script
@@ -227,8 +225,8 @@ EOF
 
 deploy_panel_stubs() {
     deploy_stub 5stack \
-        "5585:api,8080:hasura,3000:web,9000:rustfs,9001:rustfs-console,8108:typesense,8888:mediamtx-hls,8889:mediamtx-whip,8089:acme-solver" \
-        "api:5585" "hasura:8080" "web:3000" "rustfs:9000 9001" "typesense:8108" "mediamtx:8888 8889" "acme-solver:8089"
+        "5585:api,8080:hasura,3000:web,9000:rustfs,8108:typesense,8888:mediamtx-hls,8889:mediamtx-whip,8089:acme-solver" \
+        "api:5585" "hasura:8080" "web:3000" "rustfs:9000" "typesense:8108" "mediamtx:8888 8889" "acme-solver:8089"
 }
 
 # A self-signed kubernetes.io/tls Secret in 5stack for the given hosts.

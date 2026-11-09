@@ -15,6 +15,7 @@ DEMOS="demos.$DOMAIN"
 WS="ws.$DOMAIN"
 RELAY="tv.$DOMAIN"
 HLS="hls.$DOMAIN"
+# Hosts the panel served before; nothing routes them now.
 SEARCH="search.$DOMAIN"
 CONSOLE="console.$DOMAIN"
 ORIGIN="https://$DOMAIN"
@@ -123,7 +124,7 @@ test_hasura_healthz_is_rewritten() {
 test_what_web_does_not_serve_sends_the_transport_headers() {
     local entry host path
     for entry in "$API:/me" "$API:/v1/graphql" "$DEMOS:/demos/1/download" "$DEMOS:/5stack/x" \
-        "$WS:/socket" "$SEARCH:/health" "$WEB:/auth/steam" "$WEB:/telemetry"; do
+        "$WS:/socket" "$WEB:/auth/steam" "$WEB:/telemetry"; do
         host="${entry%%:*}"
         path="${entry#*:}"
         call https "$host" "$path"
@@ -189,12 +190,14 @@ test_websocket_upgrades_through_the_ws_host() {
     [ "$(jq -r .echoes <<<"$out")" -ge 1 ] || fail "no echo: $out"
 }
 
-test_typesense_and_s3_console_hosts() {
-    call https "$SEARCH" /collections
-    expect_json .backend typesense
-    call https "$CONSOLE" /browser
-    expect_json .backend rustfs-console
-    expect_json .path /browser
+test_typesense_and_the_s3_console_have_no_host() {
+    local host
+    for host in "$SEARCH" "$CONSOLE"; do
+        call https "$host" /collections
+        expect_code 404
+        call http "$host" /collections
+        expect_code 404
+    done
 }
 
 test_mediamtx_preflight_is_answered_before_forward_auth() {
@@ -292,7 +295,7 @@ test_snapshot_is_rewritten_with_open_cors() {
 
 test_http_redirects_to_https_without_a_port() {
     local host
-    for host in "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" "$SEARCH" "$CONSOLE" "$HLS"; do
+    for host in "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" "$HLS"; do
         call http "$host" '/x/y?z=1'
         expect_code 308
         expect_header Location "https://$host/x/y?z=1"
@@ -615,7 +618,7 @@ solver_ingress "$API" "$HLS" | kubectl apply -f - >/dev/null || exit 1
 run_test test_http01_is_answered_beside_the_https_redirect
 run_test test_lets_encrypts_check_path_answers_from_the_panel_beside_the_https_redirect
 
-tls_secret 5stack-ssl "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" "$SEARCH" "$CONSOLE" || exit 1
+tls_secret 5stack-ssl "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" || exit 1
 run_test test_hosts_serve_while_the_stream_certificate_is_missing
 tls_secret 5stack-mediamtx-ssl "$HLS" || exit 1
 call https "$HLS" /m1/index.m3u8
@@ -636,7 +639,7 @@ for name in \
     test_a_64mib_part_put_reaches_rustfs_whole \
     test_ws_and_relay_hosts_rewrite_into_the_api \
     test_websocket_upgrades_through_the_ws_host \
-    test_typesense_and_s3_console_hosts \
+    test_typesense_and_the_s3_console_have_no_host \
     test_text_from_web_and_the_api_is_compressed \
     test_binary_and_already_encoded_responses_pass_through \
     test_event_streams_are_neither_compressed_nor_held_back \

@@ -34,9 +34,17 @@ spec:
                 operator: In
                 values:
                   - "true"
+      initContainers:
+        - name: node-addresses
+          image: busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+          command: [sh, /etc/mediamtx/node-addresses.sh, /etc/mediamtx/mediamtx.yml, /config/mediamtx.yml]
+          volumeMounts:
+            - { name: config, mountPath: /etc/mediamtx }
+            - { name: node-config, mountPath: /config }
       containers:
         - name: mediamtx
           image: ghcr.io/5stackgg/mediamtx:1.21.3-astits1.17.0@sha256:b0c56ebc628c55b701174f884ff3e6673f0186fa2faa80a469c2f3b7fbc3d572
+          args: [/config/mediamtx.yml]
           env:
             # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
             # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR
@@ -76,9 +84,7 @@ spec:
             - { name: metrics,  containerPort: 9998, protocol: TCP }
             - { name: webrtc,   containerPort: 8189, protocol: UDP }
           volumeMounts:
-            - name: config
-              mountPath: /mediamtx.yml
-              subPath: mediamtx.yml
+            - { name: node-config, mountPath: /config }
           # Every WebRTC packet for streams, voice and cameras goes through
           # this one process, on the node that also runs Postgres and the API.
           # No CPU limit: throttling a media relay shows up as jitter.
@@ -88,3 +94,5 @@ spec:
         - name: config
           configMap:
             name: mediamtx-config
+        - name: node-config
+          emptyDir: {}

@@ -256,6 +256,110 @@ test_update_sh_removes_the_console_and_search_routes_an_older_install_applied() 
     assert_contains "$(sed -n '/^apply_overlay "\$OVERLAY"/,$p' "$TEST_ROOT/update.sh")" "delete configmap typesense-web-config -n 5stack --ignore-not-found"
 }
 
+# render_json DIR: the overlay in DIR as kubectl prints it, as JSON.
+render_json() {
+    kubectl kustomize "$1" >"$WORK_DIR/render.yaml" || fail "kubectl kustomize $1 failed"
+    KUBECONFIG=/dev/null kubectl patch --local -o json --type merge -p '{}' -f "$WORK_DIR/render.yaml" ||
+        fail "could not read $1 as JSON"
+}
+
+# check_mediamtx_secrets JSON: the overlay makes mediamtx-secrets under that
+# exact name, which the api names in the streamer Jobs it creates, and the same
+# four passwords as mediamtx-passwords, which MediaMTX and the api require.
+check_mediamtx_secrets() {
+    python3 -I - "$1" <<'PY'
+import json, sys
+raw, decoder, at, objs = open(sys.argv[1]).read(), json.JSONDecoder(), 0, []
+while raw[at:].strip():
+    obj, at = decoder.raw_decode(raw, at + len(raw[at:]) - len(raw[at:].lstrip()))
+    objs.append(obj)
+find = lambda kind, name: next((o for o in objs if o["kind"] == kind and o["metadata"]["name"] == name), None)
+keys = ["MEDIAMTX_API_PASSWORD", "MEDIAMTX_STREAMER_PASSWORD", "MEDIAMTX_RELAY_PASSWORD", "MEDIAMTX_VIEWER_PASSWORD"]
+made = {o["metadata"]["name"]: o for o in objs
+        if o["kind"] in ("Secret", "ExternalSecret") and o["metadata"]["name"].startswith(("mediamtx-secrets", "mediamtx-passwords"))}
+names = sorted(made)
+assert len(names) == 2 and names[1] == "mediamtx-secrets" and names[0].startswith("mediamtx-passwords"), names
+passwords = names[0]
+for name, obj in made.items():
+    if obj["kind"] == "Secret":
+        assert sorted(obj["data"]) == sorted(keys), obj
+    else:
+        assert obj["spec"]["target"]["name"] == name, obj["spec"]["target"]
+        assert [(d["secretKey"], d["remoteRef"]["key"], d["remoteRef"]["property"]) for d in obj["spec"]["data"]] == \
+            [(k, "mediamtx", k) for k in keys], obj["spec"]["data"]
+api = find("Deployment", "api")["spec"]["template"]["spec"]["containers"][0]
+refs = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in api["env"] if e["name"] in keys}
+assert refs == {k: {"name": passwords, "key": k} for k in keys}, refs
+assert not [e for e in api.get("envFrom", []) if e.get("secretRef", {}).get("name", "").startswith("mediamtx")], api["envFrom"]
+mediamtx = find("Deployment", "mediamtx")
+if mediamtx:
+    pod = mediamtx["spec"]["template"]["spec"]
+    env = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in pod["containers"][0]["env"] if e["name"].startswith("MTX_AUTH")}
+    assert list(env) == [f"MTX_AUTHINTERNALUSERS_{i}_PASS" for i in range(4)], env
+    assert list(env.values()) == [{"name": passwords, "key": k} for k in keys], env
+    assert [e["secretRef"] for e in pod["initContainers"][0]["envFrom"]] == [{"name": passwords}]
+    assert find("Middleware", "mediamtx-auth")["spec"]["forwardAuth"]["authResponseHeaders"] == ["Authorization"]
+PY
+}
+
+test_mediamtx_signs_in_with_passwords_from_mediamtx_secrets_in_every_overlay() {
+    local file
+    with_s3_endpoint ""
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        render_json "$(overlay "$o")" >"$WORK_DIR/$o.json"
+        check_mediamtx_secrets "$WORK_DIR/$o.json" || fail "$o"
+    done
+    for file in "$(overlay local-secrets)"/*.env; do
+        [ -f "$(overlay dev/secrets)/${file##*/}" ] || cp "$file" "$(overlay dev/secrets)/"
+    done
+    render_json "$(overlay dev)" >"$WORK_DIR/dev.json"
+    check_mediamtx_secrets "$WORK_DIR/dev.json" || fail "dev"
+}
+
+# pod_templates JSON: the api's and MediaMTX's pod templates, one line each.
+pod_templates() {
+    jq -c 'select(.kind == "Deployment" and (.metadata.name == "api" or .metadata.name == "mediamtx")) | {(.metadata.name): .spec.template}' "$1"
+}
+
+test_a_changed_mediamtx_password_rolls_mediamtx_and_the_api() {
+    local dir file before line
+    with_s3_endpoint ""
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for dir in local-secrets dev/secrets; do
+        printf 'MEDIAMTX_API_PASSWORD=one\nMEDIAMTX_STREAMER_PASSWORD=one\nMEDIAMTX_RELAY_PASSWORD=one\nMEDIAMTX_VIEWER_PASSWORD=one\n' \
+            >"$(overlay "$dir")/mediamtx-secrets.env"
+    done
+    for file in "$(overlay local-secrets)"/*.env; do
+        [ -f "$(overlay dev/secrets)/${file##*/}" ] || cp "$file" "$(overlay dev/secrets)/"
+    done
+    for o in local-secrets-https local-secrets-http dev; do
+        render_json "$(overlay "$o")" >"$WORK_DIR/$o-before.json"
+    done
+    for dir in local-secrets dev/secrets; do
+        sed -i.bak 's/^MEDIAMTX_VIEWER_PASSWORD=one$/MEDIAMTX_VIEWER_PASSWORD=two/' "$(overlay "$dir")/mediamtx-secrets.env"
+    done
+    for o in local-secrets-https local-secrets-http dev; do
+        render_json "$(overlay "$o")" >"$WORK_DIR/$o-after.json"
+        before="$(pod_templates "$WORK_DIR/$o-before.json")"
+        [ "$(wc -l <<<"$before" | tr -d ' ')" = "$([ "$o" = dev ] && echo 1 || echo 2)" ] || fail "$o: $before"
+        while IFS= read -r line; do
+            if grep -qxF "$line" <(pod_templates "$WORK_DIR/$o-after.json"); then
+                fail "$o: $(jq -r 'keys[0]' <<<"$line")'s pod template stayed the same after a password changed"
+            fi
+        done <<<"$before"
+        assert_eq "$(jq -r 'select(.kind == "Secret" and (.metadata.name | startswith("mediamtx-secrets"))) | .metadata.name' "$WORK_DIR/$o-after.json")" \
+            mediamtx-secrets
+    done
+}
+
+test_the_mediamtx_passwords_are_generated_rather_than_asked_for() {
+    local key
+    for key in MEDIAMTX_API_PASSWORD MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_RELAY_PASSWORD MEDIAMTX_VIEWER_PASSWORD; do
+        assert_eq "$(grep "^$key=" "$TEST_ROOT/overlays/local-secrets/mediamtx-secrets.env.example")" "$key=\$(RAND32)"
+    done
+}
+
 test_update_sh_hands_a_minio_volume_to_rustfs_only_on_built_in_storage() {
     assert_contains "$(grep 'get statefulset minio' "$TEST_ROOT/update.sh")" "if s3_storage_is_builtin && "
 }

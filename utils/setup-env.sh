@@ -385,6 +385,7 @@ fi
 # its own pair into `settings` on first boot, and env keys override those, so
 # writing a pair on an update would orphan every existing push subscription.
 ensure_turn_secret_in_env_file "overlays/local-secrets/coturn-secrets.env"
+ensure_mediamtx_secrets_in_env_file "overlays/local-secrets/mediamtx-secrets.env"
 
 # Same reasoning again: these two only matter for a remote bucket, and an
 # existing install would never see them turn up in its own s3-config.env.
@@ -496,6 +497,7 @@ if [ "$VAULT_MANAGER" = true ] && [ -z "${FIVESTACK_RELEASE:-}" ]; then
     migrate_secrets_to_vault "overlays/local-secrets/faceit-secrets.env" "kv/faceit"
     migrate_secrets_to_vault "overlays/local-secrets/discord-secrets.env" "kv/discord"
     migrate_secrets_to_vault "overlays/local-secrets/coturn-secrets.env" "kv/coturn"
+    migrate_secrets_to_vault "overlays/local-secrets/mediamtx-secrets.env" "kv/mediamtx"
     if [ "$AI_ENABLED" = true ]; then
         migrate_secrets_to_vault "overlays/ai/ai-secrets.env" "kv/ai"
     fi

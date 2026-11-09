@@ -225,6 +225,36 @@ test_mediamtx_requires_a_session() {
     expect_json .backend mediamtx-hls
 }
 
+test_mediamtx_gets_the_viewer_credentials_the_api_hands_back() {
+    local viewer
+    viewer="Basic $(printf viewer:test-viewer | base64)"
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=ok'
+    expect_code 200
+    expect_json .headers.authorization "$viewer"
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=ok' -H 'Authorization: Basic c3RyZWFtZXI6Z3Vlc3M='
+    expect_json .headers.authorization "$viewer"
+    call https "$HLS" "/$MATCH/whep" -X POST -H 'Cookie: session=ok' -H 'Authorization: Basic c3RyZWFtZXI6Z3Vlc3M=' \
+        -H 'Content-Type: application/sdp' --data-binary 'v=0'
+    expect_code 201
+    expect_json .headers.authorization "$viewer"
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Authorization: Basic c3RyZWFtZXI6Z3Vlc3M='
+    expect_code 401
+}
+
+# An allow without an Authorization of its own still drops the client's, so a
+# guessed password never reaches MediaMTX.
+test_mediamtx_never_gets_the_clients_authorization() {
+    local guess
+    guess="Basic $(printf viewer:guess | base64)"
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=bare' -H "Authorization: $guess"
+    expect_code 200
+    expect_json '.headers.authorization // "none"' none
+    call https "$HLS" "/$MATCH/whep" -X POST -H 'Cookie: session=bare' -H "Authorization: $guess" \
+        -H 'Content-Type: application/sdp' --data-binary 'v=0'
+    expect_code 201
+    expect_json '.headers.authorization // "none"' none
+}
+
 test_whep_post_and_patch_pass_forward_auth() {
     auth_log '?clear' >/dev/null
     call https "$HLS" "/$MATCH/whep" -X POST -H "Origin: $ORIGIN" -H 'Cookie: session=ok' \
@@ -646,6 +676,8 @@ for name in \
     test_event_streams_are_neither_compressed_nor_held_back \
     test_mediamtx_preflight_is_answered_before_forward_auth \
     test_mediamtx_requires_a_session \
+    test_mediamtx_gets_the_viewer_credentials_the_api_hands_back \
+    test_mediamtx_never_gets_the_clients_authorization \
     test_whep_post_and_patch_pass_forward_auth \
     test_forward_auth_receives_only_the_cookie \
     test_spoofed_preflight_headers_do_not_bypass_forward_auth \

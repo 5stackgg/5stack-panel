@@ -35,7 +35,10 @@ spec:
           ports:
             - { name: openhud, containerPort: 1349 }
             - { name: spec, containerPort: 1350 }
-          env: []
+          env:
+            - name: MEDIAMTX_STREAMER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mediamtx-secrets, key: MEDIAMTX_STREAMER_PASSWORD, optional: true }
           envFrom:
             - configMapRef: { name: dev-game-streamer-config }
             - secretRef:    { name: steam-secrets }

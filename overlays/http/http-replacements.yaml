@@ -79,46 +79,6 @@ replacements:
           - spec.listeners.[name=demos].hostname
   - source:
       kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: HTTPRoute
-          name: typesense
-        fieldPaths:
-          - spec.hostnames.0
-      - select:
-          kind: Gateway
-          name: 5stack
-        fieldPaths:
-          - spec.listeners.[name=typesense].hostname
-      - select:
-          kind: Gateway
-          name: 5stack-tls
-        fieldPaths:
-          - spec.listeners.[name=typesense].hostname
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: HTTPRoute
-          name: s3-console
-        fieldPaths:
-          - spec.hostnames.0
-      - select:
-          kind: Gateway
-          name: 5stack
-        fieldPaths:
-          - spec.listeners.[name=s3-console].hostname
-      - select:
-          kind: Gateway
-          name: 5stack-tls
-        fieldPaths:
-          - spec.listeners.[name=s3-console].hostname
-  - source:
-      kind: ConfigMap
       name: api-config
       fieldPath: data.WS_DOMAIN
     targets:

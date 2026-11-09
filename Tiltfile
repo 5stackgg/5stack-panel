@@ -123,9 +123,8 @@ k8s_resource(
 
 k8s_resource(
     'rustfs',
-    port_forwards=['9000:9000', '9090:9090'],
+    port_forwards=['9000:9000'],
     labels=['infrastructure'],
-    links=['console.5stack.localhost'],
 )
 
 k8s_resource(

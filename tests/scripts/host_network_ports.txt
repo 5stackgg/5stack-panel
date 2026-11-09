@@ -1,0 +1,20 @@
+# The ports a workload may listen on from the host's network, checked by
+# host_network_ports_test.sh against every overlay update.sh can apply:
+#
+#   <Kind/name> <port[-port]/protocol>[,...] <public|internal> <what for>
+#
+# public: open to the internet on purpose.
+# internal: allowed on the host, but it must stay reachable from the cluster
+# and the nodes' LAN or Tailscale only, never the internet.
+#
+# Any other port fails, unless the container binds it to a private hostIP, or
+# it is MediaMTX's and every authInternalUsers entry only lets in private
+# addresses.
+
+Deployment/traefik                                    80/TCP,443/TCP     public    Traefik's hostPorts, set by install_traefik
+Deployment/mediamtx                                   8189/UDP           public    WebRTC media for game streams, voice and cameras
+Deployment/coturn                                     3478/UDP,3478/TCP  public    TURN
+Deployment/coturn                                     50000-50200/UDP    public    TURN's relay range, TURN_MIN_PORT-TURN_MAX_PORT
+DaemonSet/game-server-node-connector                  8585/TCP           internal  The node connector: cluster and LAN/Tailscale only, never the internet
+DaemonSet/game-server-node-connector-nvidia           8585/TCP           internal  The node connector: cluster and LAN/Tailscale only, never the internet
+DaemonSet/game-server-node-connector-nvidia-fallback  8585/TCP           internal  The node connector: cluster and LAN/Tailscale only, never the internet

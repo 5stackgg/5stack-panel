@@ -39,7 +39,7 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd binding nginx crds_values left_out held object deadline
+    local minor http_port https_port crd behind nginx crds_values left_out held object deadline
     local -a kc=() handed=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -116,38 +116,14 @@ install_traefik() {
     # its own until retire_ingress_nginx hands them over, so a stalled handover
     # can still give them back; move_traefik_to_host_ports finishes the move.
     nginx="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller --ignore-not-found -o name)" || return 1
+    behind=""
     if [ -n "$nginx" ]; then
-        binding="  ports:
-    web: {exposedPort: $http_port}
-    websecure: {exposedPort: $https_port}
-  service:
-    spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
-    else
-        binding="  ports:
-    web: {exposedPort: $http_port, hostPort: $http_port}
-    websecure: {exposedPort: $https_port, hostPort: $https_port}"
+        behind=servicelb
     fi
 
     pull_traefik_image || return 1
 
-    # Only the node running Traefik listens on these ports, and DNS points at
-    # the server node, not at a game node that joined later.
-    install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(cat <<EOF
-traefik:
-$binding
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-  tolerations:
-    - key: node-role.kubernetes.io/control-plane
-      operator: Exists
-      effect: NoSchedule
-EOF
-)" || return 1
+    install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(gateway_chart_values "$http_port" "$https_port" "$behind")" || return 1
 
     if ! kubectl "${kc[@]}" -n traefik rollout status deployment/traefik --timeout=300s; then
         err "Traefik never became ready"
@@ -185,6 +161,41 @@ pull_traefik_image() {
         return 1
     fi
     output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --wait=false
+}
+
+# gateway_chart_values HTTP_PORT HTTPS_PORT [servicelb]: the gateway chart's
+# values. Traefik binds the host's ports itself, or with servicelb sits behind
+# ServiceLB while ingress-nginx still holds them. Only the node running
+# Traefik listens on these ports, and DNS points at the server node, not at a
+# game node that joined later.
+gateway_chart_values() {
+    local binding
+    if [ "${3:-}" = servicelb ]; then
+        binding="  ports:
+    web: {exposedPort: $1}
+    websecure: {exposedPort: $2}
+  service:
+    spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
+    else
+        binding="  ports:
+    web: {exposedPort: $1, hostPort: $1}
+    websecure: {exposedPort: $2, hostPort: $2}"
+    fi
+    cat <<EOF
+traefik:
+$binding
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+EOF
 }
 
 move_traefik_to_host_ports() {

@@ -40,7 +40,7 @@ spec:
           command: [sh, /etc/mediamtx/node-addresses.sh, /etc/mediamtx/mediamtx.yml, /config/mediamtx.yml]
           envFrom:
             - secretRef:
-                name: mediamtx-secrets
+                name: mediamtx-passwords
           volumeMounts:
             - { name: config, mountPath: /etc/mediamtx }
             - { name: node-config, mountPath: /config }
@@ -53,22 +53,22 @@ spec:
             - name: MTX_AUTHINTERNALUSERS_0_PASS
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_API_PASSWORD
             - name: MTX_AUTHINTERNALUSERS_1_PASS
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_STREAMER_PASSWORD
             - name: MTX_AUTHINTERNALUSERS_2_PASS
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_RELAY_PASSWORD
             - name: MTX_AUTHINTERNALUSERS_3_PASS
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_VIEWER_PASSWORD
             # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
             # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR

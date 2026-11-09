@@ -86,22 +86,22 @@ spec:
             - name: MEDIAMTX_API_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_API_PASSWORD
             - name: MEDIAMTX_STREAMER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_STREAMER_PASSWORD
             - name: MEDIAMTX_RELAY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_RELAY_PASSWORD
             - name: MEDIAMTX_VIEWER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mediamtx-secrets
+                  name: mediamtx-passwords
                   key: MEDIAMTX_VIEWER_PASSWORD
           envFrom:
             - configMapRef:

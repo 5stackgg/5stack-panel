@@ -25,9 +25,12 @@ PRIVATE=10.253.47.0/24
 PUBLIC=198.51.100.0/24
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mediamtx-test.XXXXXX")"
 
-# The password a test install has under each mediamtx-secrets key.
+# The password a test install has under each mediamtx-secrets key, in
+# $(RAND32)'s alphabet, + and _ included.
 password() {
-    printf '%s' "$1" | shasum -a 256 | cut -c 1-32
+    local hash
+    hash="$(printf '%s' "$1" | shasum -a 256 | cut -c 1-40)"
+    printf '%s+%s_%s' "${hash:0:20}" "${hash:20:10}" "${hash:30:10}"
 }
 
 network_name() {
@@ -261,9 +264,11 @@ test_the_relay_has_voice_and_cameras_and_no_match_stream() {
 # game streamer's srtsink does, for SECONDS; the status is ffmpeg's.
 srt() {
     docker exec "$PREFIX-$1" sh -c 'command -v ffmpeg >/dev/null || apk add -q --no-cache ffmpeg >/dev/null' || return 1
+    # ffmpeg reads a + in the URL's stream id as a space, and srtsink, which the
+    # streamers publish with, keeps it, so only this test spells it %2B.
     docker exec "$PREFIX-$1" timeout 20 ffmpeg -hide_banner -loglevel error -re -f lavfi \
         -i testsrc=size=160x120:rate=10 -t "$4" -c:v libx264 -preset ultrafast -tune zerolatency -g 10 -f mpegts \
-        "srt://$(node_on "$2"):8890?streamid=$3&pkt_size=1316" >"$WORK_DIR/srt.log" 2>&1
+        "srt://$(node_on "$2"):8890?streamid=${3//+/%2B}&pkt_size=1316" >"$WORK_DIR/srt.log" 2>&1
 }
 
 # ready PATH: whether MediaMTX's API says something publishes PATH.
@@ -281,6 +286,10 @@ except urllib.error.HTTPError as error:
 
 test_the_streamer_publishes_a_match_over_srt_with_its_password() {
     local path=1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b seen=""
+    case "$(password MEDIAMTX_STREAMER_PASSWORD)" in
+        *+*_*) ;;
+        *) fail "the test password has no + and _" ;;
+    esac
     srt client "$PRIVATE" "publish:$path:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 8 &
     for _ in $(seq 1 15); do
         seen="$(ready "$path")"

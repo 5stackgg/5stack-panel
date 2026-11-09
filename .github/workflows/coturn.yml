@@ -1,0 +1,22 @@
+name: Coturn
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "overlays/coturn/**"
+      - "tests/coturn/**"
+      - .github/workflows/coturn.yml
+  pull_request:
+    paths:
+      - "overlays/coturn/**"
+      - "tests/coturn/**"
+      - .github/workflows/coturn.yml
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -x tests/coturn/*.sh
+      - run: bash tests/coturn/relay_test.sh

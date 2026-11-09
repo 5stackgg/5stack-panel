@@ -128,7 +128,9 @@ async function health(env: {
     {
       ok: bucket === "ok",
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      // 2: types pinned by extension and keys that resolve elsewhere refused.
+      // The panel's settings call an older worker out of date.
+      version: "2",
       bucket,
       code,
     },
@@ -267,6 +269,20 @@ function cacheableUrl(url: URL): string {
 const SIGNED_PREFIX = "clips/";
 const FILE_URL_KEY_LABEL = "5stack-file-url-v1";
 
+// What 5stack reads through the worker without a signed link: demos and their
+// playback (api demo_url / playback_url, as /demo?file=), map assets (api
+// MapAssetsService.MAPS_HOST, the web's map loaders) and the landing page's
+// media (web LandingInstallVideo, docs). Everything else, from event media and
+// chat attachments to demo uploads and scan reports, is served by the api after
+// its own checks, so the worker answers it only on a signed link. clips/ is
+// signed too, once REQUIRE_SIGNED_CLIPS says the panel's api signs them.
+const UNSIGNED_PREFIXES = ["demos/", "maps/", "landing/"];
+// Demos and playback stored before api#262 (2026-05-29) under
+// <match>/<map>/demos/<file> and <match>/<match map>/playback/<file>: their
+// rows still link these keys, and nothing moved them.
+const LEGACY_DEMO_KEY =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(demos|playback)\/[A-Za-z0-9._-]+$/;
+
 const fileUrlKeys = new Map<string, Promise<CryptoKey>>();
 
 function fileUrlKey(secret: string): Promise<CryptoKey> {
@@ -299,15 +315,24 @@ function fileUrlKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-// B2 is asked for whatever the upstream URL resolves to, so a key that would
-// resolve to something else (dot segments, escapes, a smuggled ?, empty
-// segments) could reach clips/ while not starting with it. Such a key is never
-// one the api signs, so it is held to the signature like a clip.
-function requiresSignature(key: string): boolean {
-  if (key.startsWith(SIGNED_PREFIX)) {
-    return true;
-  }
+function requiresSignature(key: string, signedClips: boolean): boolean {
   if (
+    UNSIGNED_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+    LEGACY_DEMO_KEY.test(key)
+  ) {
+    return false;
+  }
+  return signedClips || !key.startsWith(SIGNED_PREFIX);
+}
+
+// B2 is asked for whatever the upstream URL resolves to, so a key that would
+// resolve to something else (dot or empty segments, backslashes, escapes, a
+// smuggled ?) names another object than the one its prefix says: it could get
+// past the signature on clips/ or the type pinned for its extension. No key the
+// api writes looks like this, so every request for one is refused.
+function nonCanonical(key: string): boolean {
+  if (
+    key.includes("\\") ||
     key.split("/").some((part) => part === "" || part === "." || part === "..")
   ) {
     return true;
@@ -346,8 +371,43 @@ async function signatureValid(
   );
 }
 
-// Decorates a response on its way to the client: mp4 Content-Type fix and the
-// view beacon. The body is never read or rewritten here.
+// An object is served as the type its extension names, from this list, never
+// the type it was stored with: some uploads stored the uploader's own label,
+// and this hostname shares the panel's cookie domain. Anything else is a
+// download.
+const TYPE_BY_EXTENSION = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["webp", "image/webp"],
+  ["gif", "image/gif"],
+  ["mp4", "video/mp4"],
+  ["webm", "video/webm"],
+  ["mp3", "audio/mpeg"],
+  ["json", "application/json"],
+]);
+
+function pinContentType(headers: Headers, key: string) {
+  headers.set("X-Content-Type-Options", "nosniff");
+  const extension = /\.([A-Za-z0-9]+)$/.exec(key)?.[1].toLowerCase();
+  const type = extension ? TYPE_BY_EXTENSION.get(extension) : undefined;
+  if (type) {
+    headers.set("Content-Type", type);
+    return;
+  }
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set(
+    "Content-Disposition",
+    (headers.get("Content-Disposition") ?? "attachment").replace(
+      /^inline/i,
+      "attachment",
+    ),
+  );
+}
+
+// Decorates a response on its way to the client: mp4 Content-Type fix, the
+// pinned type, the view beacon, and no-store on anything but a 2xx. The body is
+// never read or rewritten here.
 function clientResponse(
   source: Response,
   opts: {
@@ -360,9 +420,15 @@ function clientResponse(
   },
 ): Response {
   const headers = new Headers(source.headers);
+  if (!source.ok) {
+    headers.set("Cache-Control", "no-store");
+  }
   if (/\.mp4$/i.test(opts.key)) {
     // B2 stored old clips as binary/octet-stream; players refuse non-video/*.
     headers.set("Content-Type", "video/mp4");
+  }
+  if (source.ok) {
+    pinContentType(headers, opts.key);
   }
   if (!headers.has("Accept-Ranges")) {
     headers.set("Accept-Ranges", "bytes");
@@ -442,11 +508,16 @@ export default {
     }
 
     const key = resolveKey(url);
+    if (key && nonCanonical(key)) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { ...corsHeaders(reqOrigin), "Cache-Control": "no-store" },
+      });
+    }
     // Before the cache: a copy of the file is there for every signed link.
     if (
-      env.REQUIRE_SIGNED_CLIPS === "1" &&
       key &&
-      requiresSignature(key) &&
+      requiresSignature(key, env.REQUIRE_SIGNED_CLIPS === "1") &&
       !(await signatureValid(url, key, env.S3_SECRET))
     ) {
       return new Response("forbidden", {
@@ -491,19 +562,22 @@ export default {
     }
 
     if (!key) {
-      return new Response("No file provided", { status: 400 });
+      return new Response("No file provided", {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     if (!env.BUCKET_NAME || !env.S3_ENDPOINT) {
       return new Response(
         "Worker misconfigured: BUCKET_NAME / S3_ENDPOINT not set",
-        { status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     }
     if (!env.S3_ACCESS_KEY || !env.S3_SECRET) {
       return new Response(
         "Worker misconfigured: S3_ACCESS_KEY / S3_SECRET not set",
-        { status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -546,14 +620,17 @@ export default {
     if (!headers.has("Accept-Ranges")) {
       headers.set("Accept-Ranges", "bytes");
     }
-    // Force long browser cache regardless of what B2 returned — second view
-    // of a clip serves from the user's disk cache and never hits the Worker.
-    headers.set(
-      "Cache-Control",
-      ttl === IMMUTABLE_TTL
-        ? `public, max-age=${IMMUTABLE_TTL}, immutable`
-        : `public, max-age=${ttl}`,
-    );
+    // Long browser cache for a file B2 served — second view of a clip serves
+    // from the user's disk cache and never hits the Worker. Only for a 200: a
+    // miss can be an upload still finishing, and a browser would keep it.
+    if (upstream.status === 200) {
+      headers.set(
+        "Cache-Control",
+        ttl === IMMUTABLE_TTL
+          ? `public, max-age=${IMMUTABLE_TTL}, immutable`
+          : `public, max-age=${ttl}`,
+      );
+    }
     for (const [k, v] of Object.entries(corsHeaders(reqOrigin))) {
       headers.set(k, v);
     }
@@ -562,6 +639,9 @@ export default {
       // Stored on the cached copy, not patched on the way out, so range hits
       // served straight from cache carry it too.
       headers.set("Content-Type", "video/mp4");
+    }
+    if (upstream.status === 200) {
+      pinContentType(headers, key);
     }
 
     const stored = new Response(upstream.body, {
@@ -596,6 +676,12 @@ const UPLOAD_PREFIXES = ["demo-uploads/", "events/", "news/"];
 // B2 multipart part ceiling we accept; the API chunks at 64MiB so anything
 // larger is a malformed/abusive request.
 const MAX_PART_BYTES = 64 * 1024 * 1024;
+// S3 assembles at most this many parts into one object.
+const MAX_PARTS = 10_000;
+// A token from an api older than sized tokens (no `v`) is honoured only if it
+// expires before this, under the old per-part limit; every panel's api must be
+// updated by then.
+const LEGACY_TOKEN_CUTOFF = Date.parse("2026-12-15T00:00:00Z");
 
 async function handleUpload(
   request: Request,
@@ -636,24 +722,33 @@ async function handleUpload(
     });
   }
 
-  // Authorize the part write: the API mints this token (HMAC over key+uploadId
-  // keyed on the shared S3_SECRET) only for authenticated admins. Without this
-  // check the worker would sign arbitrary writes for anyone with a valid
-  // uploadId.
-  if (!(await verifyUploadToken(env.S3_SECRET, token, key, uploadId))) {
+  // Authorize the part write: the API mints this token (HMAC over the key,
+  // uploadId, upload size and part size, keyed on the shared S3_SECRET) only
+  // for authenticated uploaders. Without this check the worker would sign
+  // arbitrary writes for anyone with a valid uploadId.
+  const upload = await verifyUploadToken(env.S3_SECRET, token, key, uploadId);
+  const part = /^[1-9]\d{0,4}$/.test(partNumber) ? Number(partNumber) : 0;
+  const partCount = upload?.sized
+    ? Math.ceil(upload.size / upload.chunk)
+    : MAX_PARTS;
+  if (!upload || part === 0 || part > partCount) {
     return new Response("forbidden", {
       status: 403,
       headers: corsHeaders(reqOrigin),
     });
   }
 
-  // The streamed body needs an explicit, bounded Content-Length — we forward
-  // the client's value but never trust it blindly.
+  // Each part is exactly its share of the size the upload was opened for, so
+  // the parts can only ever add up to that size. A token from an api that
+  // predates sized tokens keeps the old limit: any part up to MAX_PART_BYTES.
   const contentLengthRaw = request.headers.get("content-length");
   if (
     !contentLengthRaw ||
-    !/^\d+$/.test(contentLengthRaw) ||
-    Number(contentLengthRaw) > MAX_PART_BYTES
+    (upload.sized
+      ? contentLengthRaw !==
+        String(Math.min(upload.chunk, upload.size - (part - 1) * upload.chunk))
+      : !/^\d+$/.test(contentLengthRaw) ||
+        Number(contentLengthRaw) > MAX_PART_BYTES)
   ) {
     return new Response("invalid content-length", {
       status: 413,
@@ -714,16 +809,23 @@ function base64urlToBytes(value: string): Uint8Array {
 }
 
 // Verifies the API-minted token: HMAC-SHA256 over the `payload` segment, then
-// confirms the payload is bound to this exact key+uploadId and not expired.
+// confirms the payload is bound to this exact key+uploadId and not expired,
+// and answers with the upload's size and part size it names. A token naming
+// either size is sized, with or without `v` (an api once minted them without
+// it), and `v` may only be 2. One naming neither and without `v` is from an api
+// older than sized tokens: one worker can serve several panels, not all of them
+// updated, so it is honoured until the cutoff.
 // crypto.subtle.verify is constant-time, avoiding signature-timing leaks.
 async function verifyUploadToken(
   secret: string,
   token: string,
   key: string,
   uploadId: string,
-): Promise<boolean> {
+): Promise<
+  { sized: true; size: number; chunk: number } | { sized: false } | null
+> {
   const dot = token.lastIndexOf(".");
-  if (dot <= 0) return false;
+  if (dot <= 0) return null;
   const message = token.slice(0, dot);
   const signature = token.slice(dot + 1);
 
@@ -733,7 +835,7 @@ async function verifyUploadToken(
     signatureBytes = base64urlToBytes(signature);
     payloadBytes = base64urlToBytes(message);
   } catch {
-    return false;
+    return null;
   }
 
   const cryptoKey = await crypto.subtle.importKey(
@@ -749,19 +851,44 @@ async function verifyUploadToken(
     signatureBytes,
     new TextEncoder().encode(message),
   );
-  if (!valid) return false;
+  if (!valid) return null;
 
-  let payload: { k?: unknown; u?: unknown; exp?: unknown };
+  let payload: {
+    v?: unknown;
+    k?: unknown;
+    u?: unknown;
+    exp?: unknown;
+    s?: unknown;
+    c?: unknown;
+  };
   try {
     payload = JSON.parse(new TextDecoder().decode(payloadBytes));
   } catch {
-    return false;
+    return null;
   }
-  if (payload.k !== key || payload.u !== uploadId) return false;
+  if (payload.k !== key || payload.u !== uploadId) return null;
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
-    return false;
+    return null;
   }
-  return true;
+  const size = payload.s;
+  const chunk = payload.c;
+  if (payload.v === undefined && size === undefined && chunk === undefined) {
+    return payload.exp * 1000 <= LEGACY_TOKEN_CUTOFF ? { sized: false } : null;
+  }
+  if (
+    (payload.v !== undefined && payload.v !== 2) ||
+    typeof size !== "number" ||
+    typeof chunk !== "number" ||
+    !Number.isSafeInteger(size) ||
+    !Number.isSafeInteger(chunk) ||
+    size <= 0 ||
+    chunk <= 0 ||
+    chunk > MAX_PART_BYTES ||
+    Math.ceil(size / chunk) > MAX_PARTS
+  ) {
+    return null;
+  }
+  return { sized: true, size, chunk };
 }
 
 function corsHeaders(reqOrigin: string | null): Record<string, string> {

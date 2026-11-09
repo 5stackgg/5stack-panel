@@ -56,6 +56,14 @@ case " $* " in
 esac
 printf '%s%s\n' "$*" "${kind:+ <$kind>}" >>"$STUB_DIR/calls"
 
+case " $* " in
+    *" exec timescaledb-0 "*)
+        if [ -s "$STUB_DIR/exec-hangs" ]; then
+            exec sleep "$(cat "$STUB_DIR/exec-hangs")"
+        fi
+        ;;
+esac
+
 for last; do :; done
 
 case " $* " in

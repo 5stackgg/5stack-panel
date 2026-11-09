@@ -109,10 +109,19 @@ spec:
               value: "500"
             - name: HASURA_GRAPHQL_CONFIGURED_HEADER_PRECEDENCE
               value: "true"
+            # Dev mode puts internal error detail (SQL, arguments) in responses
+            # to every role; overlays/dev turns it and the console back on.
             - name: HASURA_GRAPHQL_DEV_MODE
-              value: "true"
+              value: "false"
             - name: HASURA_GRAPHQL_ENABLE_CONSOLE
-              value: "true"
+              value: "false"
+            # Written by utils/ensure_hasura_cors_domain.sh. Without it Hasura
+            # grants credentialed CORS to any origin.
+            - name: HASURA_GRAPHQL_CORS_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: api-config
+                  key: HASURA_GRAPHQL_CORS_DOMAIN
             - name: HASURA_GRAPHQL_STRINGIFY_NUMERIC_TYPES
               value: "true"
             - name: HASURA_GRAPHQL_AUTH_HOOK

@@ -16,6 +16,11 @@ spec:
             path:
               type: ReplacePrefixMatch
               replacePrefixMatch: /ws/
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: api
           port: 5585

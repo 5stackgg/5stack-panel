@@ -21,18 +21,24 @@ ensure_reverse_proxy_certificate() {
     }
 }
 
+config_host() {
+    local host
+    host="$(grep -s "^$1=" "$PANEL_DIR/overlays/config/$2" | tail -1 | cut -d= -f2- | tr -d "\"' \t\r" | tr '[:upper:]' '[:lower:]')"
+    host="${host#*://}"
+    host="${host%%/*}"
+    printf '%s' "${host%%:*}"
+}
+
 # Empty, rustfs or minio (base/rustfs/service.yaml's alias), with or without a
-# scheme or port, is the panel's own RustFS.
+# scheme or port, is the panel's own RustFS. So is DEMOS_DOMAIN, whose route
+# sends /5stack to it.
 s3_storage_is_builtin() {
     local endpoint
-    endpoint="$(grep -s '^S3_ENDPOINT=' "$PANEL_DIR/overlays/config/s3-config.env" | tail -1 | cut -d= -f2- | tr -d "\"' \t\r" | tr '[:upper:]' '[:lower:]')"
-    endpoint="${endpoint#*://}"
-    endpoint="${endpoint%%/*}"
-    endpoint="${endpoint%%:*}"
+    endpoint="$(config_host S3_ENDPOINT s3-config.env)"
     case "$endpoint" in
         "" | rustfs | minio) return 0 ;;
     esac
-    return 1
+    [ "$endpoint" = "$(config_host DEMOS_DOMAIN api-config.env)" ]
 }
 
 # Writes overlays/{vault,local-secrets}-{http,https}, of which update.sh applies
@@ -101,12 +107,12 @@ resources:
 - ../config
 $STREAMING_RESOURCES
 $AI_RESOURCES
-$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; else echo "- gateway-tls.yaml"; fi)
+$(if [[ "$PROTOCOL" == "https" ]]; then echo "- ../cert-manager"; echo "- https-redirect.yaml"; echo "- acme-check.yaml"; else echo "- gateway-tls.yaml"; fi)
 $HASURA_REPLICAS_ENTRY
 $STORAGE_COMPONENTS
 EOF
             if [ "$PROTOCOL" = "https" ]; then
-                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$OVERLAY/"
+                cp "$PANEL_DIR/overlays/http/gateway-https-patch.yaml" "$PANEL_DIR/overlays/http/https-redirect.yaml" "$PANEL_DIR/overlays/http/acme-check.yaml" "$OVERLAY/"
                 cat "$PANEL_DIR/overlays/http/https-replacements.yaml" >> "$OVERLAY/kustomization.yaml"
             else
                 ensure_reverse_proxy_certificate "$OVERLAY" || return 1

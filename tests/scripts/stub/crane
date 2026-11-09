@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# crane for tests/scripts/image_updates_test.sh: the tags of a repository come
+# from $WORK_DIR/tags/<repository, with / as _>, and digests from
+# "<ref> <digest>" lines in $WORK_DIR/digests.
+
+echo "$*" >>"$WORK_DIR/crane-calls"
+
+case "$1" in
+    ls) cat "$WORK_DIR/tags/$(printf '%s' "$2" | tr / _)" ;;
+    digest) awk -v ref="$2" '$1 == ref { print $2; found = 1 } END { exit !found }' "$WORK_DIR/digests" 2>/dev/null ;;
+    *) exit 2 ;;
+esac

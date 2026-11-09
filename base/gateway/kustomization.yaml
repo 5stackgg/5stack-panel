@@ -5,3 +5,4 @@ resources:
   - gateway.yaml
   - ingressclass-nginx.yaml
   - compress.yaml
+  - security-headers.yaml

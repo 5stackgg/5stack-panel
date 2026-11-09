@@ -15,6 +15,15 @@ spec:
       labels:
         app: demo-parser
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: 5stack-demo-parser
+                    operator: In
+                    values:
+                      - "true"
       containers:
         - name: demo-parser
           image: ghcr.io/5stackgg/demo-parser:latest

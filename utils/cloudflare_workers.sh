@@ -11,6 +11,12 @@
 CF_WRANGLER="wrangler@^4.139"
 CF_API="https://api.cloudflare.com/client/v4"
 
+# The Node.js wrangler runs on when this machine has none new enough: an LTS
+# release from nodejs.org, checked against the sums its SHASUMS256.txt lists.
+CF_NODE_VERSION="22.23.4"
+CF_NODE_SHA256_X64="b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+CF_NODE_SHA256_ARM64="f7a1e486dbc8b286847815b477d4fb5e9fb963ed4489c3e1588853d685f589f9"
+
 wrangler() {
     npx --yes "$CF_WRANGLER" "$@"
 }
@@ -37,17 +43,132 @@ cf_link() {
     echo "${C_STEP}    $1${C_RESET}"
 }
 
+# wrangler needs Node.js 22 or newer. A Linux server without it fetches the
+# pinned release into its cache once and runs the rest of the script on it,
+# since these scripts run from the 5Stack service dashboard too, where nobody
+# can install anything.
 cf_require_node() {
+    local arch dir
+    if cf_has_node; then
+        return
+    fi
+    if ! arch="$(cf_node_arch)"; then
+        if ! command -v node >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
+            err "Node.js is needed to run wrangler, Cloudflare's deploy tool."
+            err "Install Node.js 22 or newer (https://nodejs.org/en/download), then run this again."
+        else
+            err "wrangler needs Node.js 22 or newer, and this machine has $(node --version)."
+            err "Update it (https://nodejs.org/en/download), then run this again."
+        fi
+        exit 1
+    fi
+    dir="$(cf_node_cache)/node-v$CF_NODE_VERSION-linux-$arch"
+    if ! cf_node_verified "$dir" "$arch"; then
+        step "Fetching Node.js $CF_NODE_VERSION for wrangler (once)"
+        cf_fetch_node "$dir" "$arch" || exit 1
+    fi
+    export PATH="$dir/bin:$PATH"
+    hash -r
+}
+
+cf_has_node() {
+    local major
     if ! command -v node >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
-        err "Node.js is needed to run wrangler, Cloudflare's deploy tool."
+        return 1
+    fi
+    major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
+    [[ "$major" =~ ^[0-9]+$ ]] && [ "$major" -ge 22 ]
+}
+
+# nodejs.org's name for this machine, on the systems a release is pinned for.
+cf_node_arch() {
+    [ "$(uname -s)" = Linux ] || return 1
+    case "$(uname -m)" in
+        x86_64 | amd64) echo x64 ;;
+        aarch64 | arm64) echo arm64 ;;
+        *) return 1 ;;
+    esac
+}
+
+cf_node_sha256() {
+    case "$1" in
+        x64) echo "$CF_NODE_SHA256_X64" ;;
+        arm64) echo "$CF_NODE_SHA256_ARM64" ;;
+    esac
+}
+
+# Kept between runs. The service runs scripts as root without HOME, so the home
+# then comes from the passwd entry, and the panel's own directory is the last
+# resort.
+cf_node_cache() {
+    local home="${HOME:-}"
+    if [ -n "${XDG_CACHE_HOME:-}" ]; then
+        echo "$XDG_CACHE_HOME/5stack"
+        return
+    fi
+    if [ -z "$home" ]; then
+        home="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+    fi
+    if [ -n "$home" ]; then
+        echo "$home/.cache/5stack"
+    else
+        echo "$PANEL_DIR/.cache/5stack"
+    fi
+}
+
+# A release moved into place only after its tarball matched the pinned sum,
+# which it carries with it.
+cf_node_verified() {
+    local dir="$1" arch="$2"
+    [ "$(cat "$dir/.5stack-sha256" 2>/dev/null)" = "$(cf_node_sha256 "$arch")" ] &&
+        [ -x "$dir/bin/npx" ] &&
+        [ "$("$dir/bin/node" --version 2>/dev/null)" = "v$CF_NODE_VERSION" ]
+}
+
+# cf_fetch_node DIR ARCH -- downloads and unpacks the pinned release beside DIR,
+# then renames it into place, so a download cut short is never used.
+cf_fetch_node() {
+    local dir="$1" arch="$2" cache name url tmp sum
+    cache="$(dirname "$dir")"
+    name="node-v$CF_NODE_VERSION-linux-$arch"
+    url="https://nodejs.org/dist/v$CF_NODE_VERSION/$name.tar.gz"
+    if ! mkdir -p "$cache" || ! tmp="$(mktemp -d "$cache/.node-XXXXXX")"; then
+        err "Could not make room for Node.js in $cache."
+        return 1
+    fi
+    find "$cache" -maxdepth 1 -name '.node-*' ! -path "$tmp" -mmin +60 -exec rm -rf {} + 2>/dev/null
+    if ! curl -fsSL --retry 2 --connect-timeout 20 --max-time 600 -o "$tmp/$name.tar.gz" "$url"; then
+        rm -rf "$tmp"
+        err "Could not download Node.js $CF_NODE_VERSION from $url."
+        err "Check that this server can reach nodejs.org, then run this again."
+        return 1
+    fi
+    sum="$(sha256sum "$tmp/$name.tar.gz" | cut -d ' ' -f 1)"
+    if [ "$sum" != "$(cf_node_sha256 "$arch")" ]; then
+        rm -rf "$tmp"
+        err "The Node.js $CF_NODE_VERSION download does not match the checksum nodejs.org publishes for it, so it was not used."
+        err "Run this again. If it keeps happening, something between this server and nodejs.org is changing it."
+        return 1
+    fi
+    # Run as root, tar would keep the owner the release was packed with.
+    if ! tar --no-same-owner -xzf "$tmp/$name.tar.gz" -C "$tmp" || [ ! -x "$tmp/$name/bin/node" ]; then
+        rm -rf "$tmp"
+        err "Could not unpack Node.js $CF_NODE_VERSION into $cache."
+        return 1
+    fi
+    if [ "$("$tmp/$name/bin/node" --version 2>/dev/null)" != "v$CF_NODE_VERSION" ]; then
+        rm -rf "$tmp"
+        err "Node.js $CF_NODE_VERSION from nodejs.org does not run on this server (it needs glibc 2.28 or newer)."
         err "Install Node.js 22 or newer (https://nodejs.org/en/download), then run this again."
-        exit 1
+        return 1
     fi
-    if [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
-        err "wrangler needs Node.js 22 or newer, and this machine has $(node --version)."
-        err "Update it (https://nodejs.org/en/download), then run this again."
-        exit 1
+    printf '%s\n' "$sum" >"$tmp/$name/.5stack-sha256"
+    if ! rm -rf "$dir" || ! mv "$tmp/$name" "$dir" || ! cf_node_verified "$dir" "$arch"; then
+        rm -rf "$tmp"
+        err "Could not move Node.js $CF_NODE_VERSION into $dir."
+        return 1
     fi
+    rm -rf "$tmp"
 }
 
 cf_read_api_token() {

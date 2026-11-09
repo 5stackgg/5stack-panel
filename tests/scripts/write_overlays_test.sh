@@ -32,8 +32,28 @@ with_s3_endpoint() {
     printf 'S3_ENDPOINT=%s\n' "$1" >>"$(overlay config)/s3-config.env"
 }
 
+with_demos_domain() {
+    grep -v '^DEMOS_DOMAIN=' "$(overlay config)/api-config.env" >"$WORK_DIR/api-config.env"
+    printf 'DEMOS_DOMAIN=%s\n' "$1" >>"$WORK_DIR/api-config.env"
+    mv "$WORK_DIR/api-config.env" "$(overlay config)/api-config.env"
+}
+
 builtin() {
     in_panel s3_storage_is_builtin
+}
+
+# document MANIFEST KIND NAME: that one object of a rendered manifest.
+document() {
+    awk -v kind="$2" -v name="$3" '
+        function flush() {
+            if (index(doc, "\nkind: " kind "\n") && index(doc, "\n  name: " name "\n")) { printf "%s", doc }
+            doc = "\n"
+        }
+        BEGIN { doc = "\n" }
+        /^---$/ { flush(); next }
+        { doc = doc $0 "\n" }
+        END { flush() }
+    ' <<<"$1"
 }
 
 kinds_and_names() {
@@ -87,6 +107,46 @@ test_an_external_s3_endpoint_leaves_rustfs_out_of_every_overlay() {
         assert_contains "$manifest" "value: /demos"
         assert_contains "$(cat "$(overlay "$o")/kustomization.yaml")" "- ../external-s3"
     done
+}
+
+test_s3_on_the_demos_domain_is_the_built_in_rustfs() {
+    for endpoint in demos.example.com "https://Demos.Example.com/" "demos.example.com:443"; do
+        with_s3_endpoint "$endpoint"
+        with_demos_domain demos.example.com
+        builtin || fail "'$endpoint' on DEMOS_DOMAIN demos.example.com was taken for a remote bucket"
+    done
+}
+
+test_s3_on_another_host_is_external_beside_a_demos_domain() {
+    for endpoint in s3.us-east-005.backblazeb2.com files.demos.example.com; do
+        with_s3_endpoint "$endpoint"
+        with_demos_domain demos.example.com
+        builtin && fail "'$endpoint' was taken for the built-in RustFS"
+    done
+    true
+}
+
+test_s3_on_the_demos_domain_keeps_the_demos_route_to_rustfs() {
+    with_s3_endpoint demos.example.com
+    with_demos_domain demos.example.com
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        route="$(document "$manifest" HTTPRoute demos)"
+        assert_contains "$route" "value: /5stack"
+        assert_contains "$route" "name: rustfs"
+        assert_contains "$(kinds_and_names "$manifest")" "StatefulSet/rustfs"
+    done
+}
+
+test_the_backup_reads_the_demos_domain_from_the_api_config() {
+    with_s3_endpoint demos.example.com
+    with_demos_domain demos.example.com
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    manifest="$(kubectl kustomize "$(overlay local-secrets-https)")" || fail "kubectl kustomize failed"
+    config_map="$(kinds_and_names "$manifest" | sed -n 's#^ConfigMap/\(api-config.*\)#\1#p')"
+    [ -n "$config_map" ] || fail "no api-config ConfigMap was rendered"
+    assert_eq "$(document "$manifest" CronJob postgres-backup | grep -A1 'key: DEMOS_DOMAIN$' | sed -n 2p | tr -d ' ')" "name:$config_map"
 }
 
 test_update_sh_hands_a_minio_volume_to_rustfs_only_on_built_in_storage() {
@@ -208,6 +268,33 @@ test_the_api_only_takes_the_shared_secret_from_ai_secrets() {
     if grep -B1 'name: ai-secrets' <<<"$rendered" | grep -q 'secretRef:'; then
         fail "the api takes all of ai-secrets"
     fi
+}
+
+test_managed_cloudflare_keeps_http01_and_no_cloudflare_key_in_the_cluster() {
+    with_s3_endpoint ""
+    printf 'CLOUDFLARE_API_TOKEN=cf-key-0123456789abcdef\n' >"$(overlay local-secrets)/cloudflare-secrets.env"
+    (
+        export CLOUDFLARE_MANAGED=true CLOUDFLARE_ZONES=example.gg,example.net
+        write
+    ) || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in local-secrets-https vault-https; do
+        manifest="$(kubectl kustomize "$(overlay "$o")")" || fail "kubectl kustomize $o failed"
+        issuer="$(awk '/^kind: Issuer/,/^---/' <<<"$manifest")"
+        assert_contains "$issuer" "http01:"
+        assert_contains "$issuer" "traefik.ingress.kubernetes.io/router.priority: \"1000000\""
+        assert_not_contains "$manifest" "dns01"
+        assert_not_contains "$manifest" "cloudflare-secrets"
+        assert_not_contains "$manifest" "CLOUDFLARE_API_TOKEN"
+        assert_not_contains "$manifest" "cf-key-0123456789abcdef"
+        rendered="$(kinds_and_names "$manifest")"
+        assert_contains "$rendered" "Ingress/acme-check"
+        assert_contains "$rendered" "Middleware/acme-check"
+    done
+    check="$(awk '/^kind: Ingress/,/^---/' <<<"$(kubectl kustomize "$(overlay local-secrets-https)")")"
+    assert_contains "$check" "path: /.well-known/acme-challenge/5stack-check"
+    assert_contains "$check" "traefik.ingress.kubernetes.io/router.entrypoints: web"
+    assert_contains "$check" "traefik.ingress.kubernetes.io/router.middlewares: 5stack-acme-check@kubernetescrd"
+    assert_not_contains "$(cat "$(overlay local-secrets-http)/kustomization.yaml")" "acme-check"
 }
 
 run_tests

@@ -39,8 +39,8 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd
-    local -a kc=()
+    local minor http_port https_port crd binding nginx crds_values left_out held object deadline
+    local -a kc=() handed=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
     # Gateway API v1.6's CRDs validate with CEL's isIP(), which the API server
@@ -62,27 +62,79 @@ install_traefik() {
         return 1
     fi
 
-    adopt_orphaned_chart_objects "$PANEL_DIR/charts/gateway-crds" gateway-crds traefik || return 1
-    install_helm_chart gateway-crds "$PANEL_DIR/charts/gateway-crds" "" || return 1
+    # Where k3s installs the Gateway API itself, gateway-crds brings only
+    # Traefik's CRDs. One that still holds k3s's objects, from before k3s was
+    # upgraded to 1.37, hands them over: Helm deletes what a release drops
+    # unless the live object is marked keep, which before gateway-crds 0.2.0
+    # the safe-upgrades policy and its binding weren't.
+    crds_values=""
+    left_out=""
+    handed=()
+    if k3s_installs_gateway_api; then
+        crds_values="gatewayApi: false"
+        left_out=gateway-api.yaml
+        held="$(gateway_api_held_by_gateway_crds)" || {
+            err "could not read the cluster's Gateway API CRDs before installing gateway-crds"
+            return 1
+        }
+        while IFS= read -r object; do
+            [ -n "$object" ] && handed+=("$object")
+        done <<<"$held"
+        if [ "${#handed[@]}" -gt 0 ]; then
+            output_redirect kubectl "${kc[@]}" annotate --overwrite "${handed[@]}" helm.sh/resource-policy=keep || return 1
+        fi
+    fi
 
+    adopt_orphaned_chart_objects "$PANEL_DIR/charts/gateway-crds" gateway-crds traefik "$left_out" || return 1
+    install_helm_chart gateway-crds "$PANEL_DIR/charts/gateway-crds" "$crds_values" || return 1
+
+    if [ "${#handed[@]}" -gt 0 ]; then
+        warn "k3s installs the Gateway API CRDs now; handing ${#handed[@]} of gateway-crds' objects to its gateway-api-crd release"
+        output_redirect kubectl "${kc[@]}" annotate --overwrite "${handed[@]}" \
+            meta.helm.sh/release-name=gateway-api-crd meta.helm.sh/release-namespace=kube-system || return 1
+    fi
+
+    # k3s's gateway-api-crd release can still be on its way, and kubectl wait
+    # gives up at once on a CRD that doesn't exist yet.
+    deadline=$((SECONDS + 300))
     for crd in gatewayclasses.gateway.networking.k8s.io gateways.gateway.networking.k8s.io \
         httproutes.gateway.networking.k8s.io middlewares.traefik.io; do
+        until kubectl "${kc[@]}" get "crd/$crd" >/dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+                err "CRD $crd was never created"
+                return 1
+            fi
+            sleep 2
+        done
         if ! output_redirect kubectl "${kc[@]}" wait --for=condition=Established "crd/$crd" --timeout=120s; then
             err "CRD $crd never became established"
             return 1
         fi
     done
 
-    # The Service is externalTrafficPolicy: Local, so only the node running
-    # Traefik answers on these ports -- and DNS points at the server node, not
-    # at a game node that joined later.
+    # While ingress-nginx's ServiceLB pods hold the ports, Traefik waits behind
+    # its own until retire_ingress_nginx hands them over, so a stalled handover
+    # can still give them back; move_traefik_to_host_ports finishes the move.
+    nginx="$(kubectl "${kc[@]}" -n ingress-nginx get service ingress-nginx-controller --ignore-not-found -o name)" || return 1
+    if [ -n "$nginx" ]; then
+        binding="  ports:
+    web: {exposedPort: $http_port}
+    websecure: {exposedPort: $https_port}
+  service:
+    spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
+    else
+        binding="  ports:
+    web: {exposedPort: $http_port, hostPort: $http_port}
+    websecure: {exposedPort: $https_port, hostPort: $https_port}"
+    fi
+
+    pull_traefik_image || return 1
+
+    # Only the node running Traefik listens on these ports, and DNS points at
+    # the server node, not at a game node that joined later.
     install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(cat <<EOF
 traefik:
-  ports:
-    web:
-      exposedPort: $http_port
-    websecure:
-      exposedPort: $https_port
+$binding
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -104,10 +156,89 @@ EOF
     fi
 }
 
-# The cluster-scoped objects a chart's templates define, as kind/name.
+# A rollout stops the running pod before its replacement exists, so a new
+# image is pulled onto Traefik's node first: a slow or refused pull would
+# otherwise leave nothing serving.
+pull_traefik_image() {
+    local image node
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    image="docker.io/traefik@$(sed -n 's/^ *digest: *\(sha256:[0-9a-f]*\).*/\1/p' "$PANEL_DIR/charts/gateway/values.yaml" | head -n 1)"
+    if [ "$(kubectl "${kc[@]}" -n traefik get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)" = "$image" ]; then
+        return 0
+    fi
+    node="$(kubectl "${kc[@]}" -n traefik get pods -l app.kubernetes.io/name=traefik -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)"
+    if [ -z "$node" ]; then
+        return 0
+    fi
+
+    echo "Pulling $image onto $node..."
+    output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --ignore-not-found --wait=true
+    if ! output_redirect kubectl "${kc[@]}" -n traefik run traefik-pull --image="$image" --restart=Never \
+        --overrides="{\"spec\":{\"nodeName\":\"$node\",\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
+        --command -- traefik version ||
+        ! output_redirect kubectl "${kc[@]}" -n traefik wait pod/traefik-pull --timeout=300s \
+            --for=jsonpath='{.status.phase}'=Succeeded; then
+        err "could not pull $image onto $node; Traefik keeps running its current image"
+        output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --ignore-not-found --wait=false
+        return 1
+    fi
+    output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --wait=false
+}
+
+move_traefik_to_host_ports() {
+    local type
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    type="$(kubectl "${kc[@]}" -n traefik get service traefik -o jsonpath='{.spec.type}')" || return 1
+    if [ "$type" != LoadBalancer ]; then
+        return 0
+    fi
+    install_traefik "$@"
+}
+
+# The cluster-scoped objects the given chart templates define, as kind/name.
 chart_objects() {
     awk '/^kind: / { kind = $2; next }
-        kind && /^  name: / { name = $2; gsub(/"/, "", name); print tolower(kind) "/" name; kind = "" }' "$1"/templates/*.yaml
+        kind && /^  name: / { name = $2; gsub(/"/, "", name); print tolower(kind) "/" name; kind = "" }' "$@"
+}
+
+# The cluster's CRDs, admission policies and bindings with Helm's marks, as
+# kind/name|release|release namespace.
+marked_objects() {
+    local listed
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    listed="$(kubectl "${kc[@]}" get customresourcedefinitions,validatingadmissionpolicies,validatingadmissionpolicybindings \
+        -o jsonpath='{range .items[*]}{.kind}/{.metadata.name}|{.metadata.annotations.meta\.helm\.sh/release-name}|{.metadata.annotations.meta\.helm\.sh/release-namespace}{"\n"}{end}')" || return 1
+    awk -F'|' -v OFS='|' 'NF { $1 = tolower($1); print }' <<<"$listed"
+}
+
+# From 1.37 k3s installs the Gateway API CRDs and the safe-upgrades policy
+# itself, as its gateway-api-crd chart, whatever --disable=traefik says, and
+# takes them over from any release that holds them. Turned off with
+# --disable=gateway-api-crd, the chart isn't there.
+k3s_installs_gateway_api() {
+    local -a kc=()
+    [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
+
+    [ -n "$(kubectl "${kc[@]}" get helmcharts.helm.cattle.io -A --field-selector metadata.name=gateway-api-crd -o name 2>/dev/null)" ]
+}
+
+# The Gateway API objects marked as gateway-crds' own, as kind/name.
+gateway_api_held_by_gateway_crds() {
+    local objects existing object owner owner_namespace
+
+    objects="$(chart_objects "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml")"
+    existing="$(marked_objects)" || return 1
+    while IFS='|' read -r object owner owner_namespace; do
+        if [ "$owner|$owner_namespace" = "gateway-crds|traefik" ] && grep -qxF "$object" <<<"$objects"; then
+            echo "$object"
+        fi
+    done <<<"$existing"
 }
 
 helm_release_gone() {
@@ -133,31 +264,41 @@ helm_release_recorded() {
 # --disable=traefik deletes the release but leaves the CRDs marked as its, and
 # Helm won't install over objects another release claims. Ones whose release
 # is gone are handed to this one; anything a live release, or no release, owns
-# stops the install. Only a first install can collide: Helm upgrades what a
-# release already holds whatever its marks say, and the Traefik chart's own
-# crds/ strips them from the traefik.io CRDs the two charts share.
+# stops the install. Once the release exists, Helm upgrades what it holds
+# whatever the marks say, and the Traefik chart's own crds/ strips them from
+# the traefik.io CRDs the two charts share, so only objects a removed release
+# left are handed over: the Gateway API's, after k3s's gateway-api-crd chart
+# that gateway-crds stepped aside for is turned off. A template left out (its
+# file name) is one the install won't render.
 adopt_orphaned_chart_objects() {
-    local chart_dir="$1" release="$2" release_namespace="$3"
-    local objects existing object owner owner_namespace refused=false
-    local -a kc=() orphaned=()
+    local chart_dir="$1" release="$2" release_namespace="$3" left_out="${4:-}"
+    local objects existing object owner owner_namespace template recorded=false refused=false
+    local -a kc=() orphaned=() templates=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
     if helm_release_recorded "$release" "$release_namespace"; then
-        return 0
+        recorded=true
     fi
 
-    objects="$(chart_objects "$chart_dir")"
-    if ! existing="$(kubectl "${kc[@]}" get customresourcedefinitions,validatingadmissionpolicies,validatingadmissionpolicybindings \
-        -o jsonpath='{range .items[*]}{.kind}/{.metadata.name}|{.metadata.annotations.meta\.helm\.sh/release-name}|{.metadata.annotations.meta\.helm\.sh/release-namespace}{"\n"}{end}')"; then
+    for template in "$chart_dir"/templates/*.yaml; do
+        [ "$(basename "$template")" = "$left_out" ] || templates+=("$template")
+    done
+    objects="$(chart_objects "${templates[@]}")"
+    if ! existing="$(marked_objects)"; then
         err "could not read the cluster's CRDs before installing $release"
         return 1
     fi
 
     while IFS='|' read -r object owner owner_namespace; do
         [ -n "$object" ] || continue
-        object="$(printf '%s' "$object" | tr '[:upper:]' '[:lower:]')"
         grep -qxF "$object" <<<"$objects" || continue
         if [ "$owner" = "$release" ] && [ "$owner_namespace" = "$release_namespace" ]; then
+            continue
+        fi
+        if [ "$recorded" = true ]; then
+            if [ -n "$owner" ] && helm_release_gone "$owner" "$owner_namespace"; then
+                orphaned+=("$object")
+            fi
             continue
         fi
         if [ -z "$owner" ]; then

@@ -8,14 +8,18 @@
 update_timescaledb_extension() {
     local before available after
 
+    echo "    Waiting for TimescaleDB to start (the first start pulls its image)"
     if ! output_redirect kubectl --kubeconfig="$KUBECONFIG" -n 5stack \
         rollout status statefulset/timescaledb --timeout=300s; then
         warn "timescaledb never became ready; its extension was not updated"
         return 1
     fi
 
-    before="$(timescaledb_psql "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")"
-    available="$(timescaledb_psql "SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'")"
+    if ! before="$(timescaledb_psql "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")" \
+        || ! available="$(timescaledb_psql "SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'")"; then
+        warn "timescaledb did not answer; its extension was not updated"
+        return 1
+    fi
     if [ -z "$before" ] || [ -z "$available" ]; then
         return 0
     fi
@@ -35,7 +39,14 @@ update_timescaledb_extension() {
     ok "timescaledb extension updated from $before to $after"
 }
 
+timescaledb_exec() {
+    local seconds="$1"
+    shift
+    time_limited "$seconds" kubectl --kubeconfig="$KUBECONFIG" -n 5stack --request-timeout="${seconds}s" \
+        exec timescaledb-0 -c timescaledb -- "$@"
+}
+
 timescaledb_psql() {
-    kubectl --kubeconfig="$KUBECONFIG" -n 5stack exec timescaledb-0 -c timescaledb -- \
+    timescaledb_exec "${TIMESCALEDB_EXEC_TIMEOUT:-120}" \
         sh -c 'psql -X -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1"
 }

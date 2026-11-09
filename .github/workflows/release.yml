@@ -5,7 +5,7 @@ on:
   push:
     branches: ["**"]
   workflow_run:
-    workflows: [Cloudflare workers, Gateway, Gateway chart, Panel scripts, TimescaleDB upgrade]
+    workflows: [Cloudflare workers, Gateway, Gateway chart, MediaMTX image, Panel scripts, TimescaleDB upgrade]
     types: [completed]
     branches: [main]
 

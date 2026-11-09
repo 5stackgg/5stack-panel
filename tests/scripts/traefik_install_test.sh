@@ -143,8 +143,21 @@ hand_over() {
         source "$TEST_ROOT/utils/output_redirect.sh"
         # shellcheck source=utils/install_traefik.sh
         source "$TEST_ROOT/utils/install_traefik.sh"
-        adopt_orphaned_chart_objects "$TEST_ROOT/charts/gateway-crds" gateway-crds traefik
+        adopt_orphaned_chart_objects "$TEST_ROOT/charts/gateway-crds" gateway-crds traefik "$@"
     ) >"$WORK_DIR/output" 2>&1
+}
+
+# Runs one of install_traefik.sh's functions against the stub.
+traefik_fn() {
+    (
+        # shellcheck source=utils/colors.sh
+        source "$TEST_ROOT/utils/colors.sh"
+        # shellcheck source=utils/output_redirect.sh
+        source "$TEST_ROOT/utils/output_redirect.sh"
+        # shellcheck source=utils/install_traefik.sh
+        source "$TEST_ROOT/utils/install_traefik.sh"
+        PANEL_DIR="$TEST_ROOT" "$@"
+    )
 }
 
 handovers() {
@@ -219,6 +232,63 @@ test_a_cluster_with_nothing_left_over_hands_nothing_over() {
     assert_eq "$(handovers)" ""
 }
 
+K3S_GATEWAY_API_CHART="CustomResourceDefinition/httproutes.gateway.networking.k8s.io|gateway-api-crd|kube-system"
+
+test_k3s_installing_the_gateway_api_is_seen_from_its_chart() {
+    if traefik_fn k3s_installs_gateway_api; then
+        fail "a cluster without k3s's gateway-api-crd chart was taken for one with it"
+    fi
+    echo helmchart.helm.cattle.io/gateway-api-crd >"$WORK_DIR/helmcharts-gateway-api-crd"
+    traefik_fn k3s_installs_gateway_api || fail "k3s's gateway-api-crd chart went unseen"
+}
+
+# From k3s 1.37 its gateway-api-crd release holds the Gateway API CRDs, which
+# gateway-crds then leaves out rather than refusing to install.
+test_a_left_out_template_is_not_checked() {
+    cluster_objects "$K3S_GATEWAY_API_CHART"
+    echo helmchart.helm.cattle.io/gateway-api-crd >"$WORK_DIR/helmcharts-gateway-api-crd"
+    if hand_over; then
+        fail "gateway-crds would install over the CRDs of k3s's gateway-api-crd release"
+    fi
+    assert_contains "$(cat "$WORK_DIR/output")" "belongs to the Helm release gateway-api-crd in kube-system"
+    rm "$WORK_DIR/calls"
+    hand_over gateway-api.yaml || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_eq "$(handovers)" ""
+}
+
+# k3s's gateway-api-crd turned off after gateway-crds stepped aside leaves the
+# CRDs marked as that release's; gateway-crds takes them back on its upgrade.
+test_once_installed_what_a_removed_release_left_is_handed_over() {
+    cluster_objects "$K3S_GATEWAY_API_CHART" \
+        "CustomResourceDefinition/ingressroutes.traefik.io||" \
+        "CustomResourceDefinition/gateways.gateway.networking.k8s.io|gateway-crds|traefik"
+    echo secret/sh.helm.release.v1.gateway-crds.v2 >"$WORK_DIR/releases-gateway-crds"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_contains "$(handovers)" "annotate --overwrite customresourcedefinition/httproutes.gateway.networking.k8s.io meta.helm.sh/release-name=gateway-crds meta.helm.sh/release-namespace=traefik"
+    assert_not_contains "$(handovers)" ingressroutes
+    assert_not_contains "$(handovers)" gateways
+}
+
+test_once_installed_a_live_release_is_left_alone() {
+    cluster_objects "$K3S_GATEWAY_API_CHART"
+    echo secret/sh.helm.release.v1.gateway-crds.v2 >"$WORK_DIR/releases-gateway-crds"
+    echo helmchart.helm.cattle.io/gateway-api-crd >"$WORK_DIR/helmcharts-gateway-api-crd"
+    hand_over || fail "adopt_orphaned_chart_objects failed: $(cat "$WORK_DIR/output")"
+    assert_eq "$(handovers)" ""
+}
+
+test_only_gateway_api_objects_gateway_crds_holds_are_handed_to_k3s() {
+    cluster_objects "CustomResourceDefinition/httproutes.gateway.networking.k8s.io|gateway-crds|traefik" \
+        "ValidatingAdmissionPolicy/safe-upgrades.gateway.networking.k8s.io|gateway-crds|traefik" \
+        "ValidatingAdmissionPolicyBinding/safe-upgrades.gateway.networking.k8s.io|gateway-crds|traefik" \
+        "CustomResourceDefinition/ingressroutes.traefik.io|gateway-crds|traefik" \
+        "CustomResourceDefinition/gateways.gateway.networking.k8s.io|gateway-api-crd|kube-system" \
+        "CustomResourceDefinition/grpcroutes.gateway.networking.k8s.io||"
+    assert_eq "$(traefik_fn gateway_api_held_by_gateway_crds)" "customresourcedefinition/httproutes.gateway.networking.k8s.io
+validatingadmissionpolicy/safe-upgrades.gateway.networking.k8s.io
+validatingadmissionpolicybinding/safe-upgrades.gateway.networking.k8s.io"
+}
+
 test_an_unchanged_chart_that_installed_is_left_alone() {
     run_install_chart
     assert_eq "$(calls)" ""
@@ -261,6 +331,121 @@ test_dev_retires_without_waiting_for_routes() {
     echo '[{"ip":"10.0.0.1"}]' >"$WORK_DIR/traefik-address"
     run_retire --immediately || fail "retire_ingress_nginx failed: $(cat "$WORK_DIR/output")"
     assert_not_contains "$(cat "$WORK_DIR/calls")" "wait httproute/api"
+}
+
+test_retiring_with_no_ingress_nginx_waits_for_no_address() {
+    run_retire || fail "retire_ingress_nginx failed: $(cat "$WORK_DIR/output")"
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "loadBalancer.ingress"
+}
+
+try_install() {
+    (
+        export PANEL_DIR="$TEST_ROOT"
+        # shellcheck source=utils/colors.sh
+        source "$TEST_ROOT/utils/colors.sh"
+        # shellcheck source=utils/output_redirect.sh
+        source "$TEST_ROOT/utils/output_redirect.sh"
+        # shellcheck source=utils/update_env_var.sh
+        source "$TEST_ROOT/utils/update_env_var.sh"
+        # shellcheck source=utils/install_traefik.sh
+        source "$TEST_ROOT/utils/install_traefik.sh"
+        "$@" "$WORK_DIR/traefik-config.env"
+    ) >"$WORK_DIR/output" 2>&1
+}
+
+run_install() {
+    try_install "$@" || fail "$1 exited $?: $(cat "$WORK_DIR/output")"
+}
+
+chart_image() {
+    printf 'docker.io/traefik@%s' "$(sed -n 's/^ *digest: *\(sha256:[0-9a-f]*\).*/\1/p' "$TEST_ROOT/charts/gateway/values.yaml")"
+}
+
+gateway_values() {
+    sed -n '/^  name: gateway$/,$p' "$WORK_DIR/server-side-applied" 2>/dev/null | sed -n '/valuesContent/,$p'
+}
+
+test_traefik_binds_the_host_ports_itself() {
+    ports_file HTTP_PORT=8080 HTTPS_PORT=8443
+    run_install install_traefik
+    assert_contains "$(gateway_values)" "web: {exposedPort: 8080, hostPort: 8080}"
+    assert_contains "$(gateway_values)" "websecure: {exposedPort: 8443, hostPort: 8443}"
+    assert_not_contains "$(gateway_values)" "LoadBalancer"
+}
+
+test_traefik_waits_behind_servicelb_while_ingress_nginx_holds_the_ports() {
+    nginx_ports 80 443
+    ports_file HTTP_PORT=80 HTTPS_PORT=443
+    run_install install_traefik
+    assert_contains "$(gateway_values)" "spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
+    assert_not_contains "$(gateway_values)" "hostPort"
+}
+
+test_traefik_left_behind_servicelb_moves_onto_the_host_ports() {
+    echo LoadBalancer >"$WORK_DIR/traefik-type"
+    ports_file HTTP_PORT=80 HTTPS_PORT=443
+    run_install move_traefik_to_host_ports
+    assert_contains "$(gateway_values)" "web: {exposedPort: 80, hostPort: 80}"
+}
+
+test_traefik_already_on_the_host_ports_is_not_reinstalled() {
+    echo ClusterIP >"$WORK_DIR/traefik-type"
+    run_install move_traefik_to_host_ports
+    [ ! -f "$WORK_DIR/server-side-applied" ] || fail "the gateway chart was applied again"
+}
+
+test_a_failed_service_lookup_fails_the_move() {
+    touch "$WORK_DIR/traefik-service-error"
+    if try_install move_traefik_to_host_ports; then
+        fail "move_traefik_to_host_ports succeeded without knowing where Traefik is"
+    fi
+}
+
+test_a_failed_ingress_nginx_lookup_stops_the_install() {
+    touch "$WORK_DIR/nginx-error"
+    if try_install install_traefik; then
+        fail "install_traefik succeeded without knowing whether ingress-nginx holds the ports"
+    fi
+    assert_eq "$(gateway_values)" ""
+}
+
+test_a_new_image_is_pulled_onto_traefiks_node_before_the_upgrade() {
+    echo docker.io/traefik@sha256:0000 >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    run_install install_traefik
+    assert_contains "$(grep ' run traefik-pull ' "$WORK_DIR/calls")" "--image=$(chart_image) --restart=Never --overrides={\"spec\":{\"nodeName\":\"node-a\""
+    [ "$(grep -n ' run traefik-pull ' "$WORK_DIR/calls" | cut -d: -f1)" -lt "$(grep -n ' apply --server-side ' "$WORK_DIR/calls" | tail -n 1 | cut -d: -f1)" ] ||
+        fail "the image was pulled after the upgrade"
+}
+
+test_a_refused_pull_leaves_traefik_alone() {
+    echo docker.io/traefik@sha256:0000 >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    touch "$WORK_DIR/pull-fails"
+    if try_install install_traefik; then
+        fail "install_traefik succeeded although the image never arrived"
+    fi
+    assert_eq "$(gateway_values)" ""
+    assert_contains "$(cat "$WORK_DIR/output")" "keeps running its current image"
+}
+
+test_traefik_already_on_the_image_pulls_nothing() {
+    chart_image >"$WORK_DIR/traefik-image"
+    echo node-a >"$WORK_DIR/traefik-node"
+    run_install install_traefik
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"
+}
+
+test_gateway_api_crds_k3s_has_yet_to_create_are_waited_for() {
+    echo helmchart.helm.cattle.io/gateway-api-crd >"$WORK_DIR/helmcharts-gateway-api-crd"
+    echo 1 >"$WORK_DIR/crds-appear-after"
+    run_install install_traefik
+    assert_contains "$(cat "$WORK_DIR/calls")" "wait --for=condition=Established crd/gatewayclasses.gateway.networking.k8s.io"
+}
+
+test_a_first_install_pulls_nothing() {
+    run_install install_traefik
+    assert_not_contains "$(cat "$WORK_DIR/calls")" "run traefik-pull"
 }
 
 run_tests

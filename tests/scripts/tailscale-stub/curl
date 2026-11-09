@@ -1,0 +1,57 @@
+#!/bin/bash
+
+method=GET
+data=""
+url=""
+headers=false
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -X)
+            method="$2"
+            shift 2
+            ;;
+        -d)
+            data="$2"
+            shift 2
+            ;;
+        -D)
+            headers=true
+            shift 2
+            ;;
+        -H)
+            shift 2
+            ;;
+        -*)
+            shift
+            ;;
+        *)
+            url="$1"
+            shift
+            ;;
+    esac
+done
+
+printf '%s %s\n' "$method" "${url#https://api.tailscale.com}" >>"$WORK_DIR/curl-calls"
+
+case "$method ${url#https://api.tailscale.com/api/v2}" in
+    "POST /oauth/token")
+        echo '{"access_token":"ts-access"}'
+        ;;
+    "GET /tailnet/-/acl")
+        if [ "$headers" = true ]; then
+            printf 'HTTP/2 200\r\netag: "acl-1"\r\n\r\n'
+        fi
+        cat "$WORK_DIR/acl.json"
+        ;;
+    "POST /tailnet/-/acl")
+        printf '%s' "$data" >"$WORK_DIR/acl-posted.json"
+        echo '{}'
+        ;;
+    "POST /tailnet/-/keys")
+        printf '%s' "$data" >"$WORK_DIR/key-request.json"
+        echo '{"key":"tskey-auth-test"}'
+        ;;
+    *)
+        echo '{"message":"not stubbed"}'
+        ;;
+esac

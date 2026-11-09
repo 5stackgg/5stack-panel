@@ -1,0 +1,10 @@
+#!/bin/bash
+
+printf '%s\n' "$*" >>"$WORK_DIR/kubectl-calls"
+case " $* " in
+    *" get nodes "*)
+        if [ -f "$WORK_DIR/pod-cidrs" ]; then
+            cat "$WORK_DIR/pod-cidrs"
+        fi
+        ;;
+esac

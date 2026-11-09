@@ -58,9 +58,10 @@ kubectl config use-context k3d-5stack-dev
 
 install_traefik "$PANEL_DIR/overlays/dev/config/traefik-config.env" || exit 1
 retire_ingress_nginx --immediately || exit 1
+move_traefik_to_host_ports "$PANEL_DIR/overlays/dev/config/traefik-config.env" || exit 1
 
 echo "Labeling node..."
-kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true 5stack-mediamtx=true
+kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 5stack-api=true 5stack-hasura=true 5stack-minio=true 5stack-rustfs=true 5stack-timescaledb=true 5stack-redis=true 5stack-typesense=true 5stack-web=true 5stack-dev-server=true 5stack-mediamtx=true 5stack-demo-parser=true
 
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
@@ -71,6 +72,8 @@ setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 setup_steam_web_api_key "overlays/dev/secrets/steam-secrets.env"
 
 setup_fixtures "overlays/dev/config/api-config.env"
+
+ensure_hasura_cors_domain_in_env_file "overlays/dev/config/api-config.env"
 
 docker exec -it k3d-5stack-dev-server-0 sh -c "mkdir -p mkdir -p /opt/5stack/dev /opt/5stack/demos /opt/5stack/steamcmd /opt/5stack/serverfiles /opt/5stack/serverfiles-csgo /opt/5stack/timescaledb /opt/5stack/typesense /opt/5stack/minio /opt/5stack/custom-plugins /var/lib/rancher/k3s/agent/pod-manifests && echo Directories created successfully"
 

@@ -12,6 +12,15 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: 5stack-timescaledb
+                        operator: In
+                        values:
+                          - "true"
           containers:
             - name: backup
               image: postgres:18-alpine
@@ -40,12 +49,18 @@ spec:
 
                   ENDPOINT="${S3_ENDPOINT:-rustfs}"
                   REMOTE=false
+                  HOST=$(printf '%s' "$ENDPOINT" | tr '[:upper:]' '[:lower:]')
+                  HOST="${HOST#*://}"
+                  HOST="${HOST%%[/:]*}"
 
                   # Both names mean the in-cluster store (see the minio alias
-                  # Service in base/rustfs/service.yaml). Anything else is a
-                  # real remote bucket reached over https.
+                  # Service in base/rustfs/service.yaml), and so does
+                  # DEMOS_DOMAIN, whose route passes only /5stack on to it.
+                  # Anything else is a real remote bucket reached over https.
                   if [ "$ENDPOINT" = "rustfs" ] || [ "$ENDPOINT" = "minio" ]; then
                     ENDPOINT="http://$ENDPOINT:9000"
+                  elif [ -n "${DEMOS_DOMAIN:-}" ] && [ "$HOST" = "$(printf '%s' "$DEMOS_DOMAIN" | tr '[:upper:]' '[:lower:]')" ]; then
+                    ENDPOINT="http://rustfs:9000"
                   else
                     ENDPOINT="https://$S3_ENDPOINT"
                     REMOTE=true
@@ -139,6 +154,12 @@ spec:
                 - configMapRef:
                     name: s3-config
               env:
+                - name: DEMOS_DOMAIN
+                  valueFrom:
+                    configMapKeyRef:
+                      name: api-config
+                      key: DEMOS_DOMAIN
+                      optional: true
                 - name: POSTGRES_HOST
                   value: timescaledb
                 - name: POSTGRES_PORT

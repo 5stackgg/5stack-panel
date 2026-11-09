@@ -130,6 +130,72 @@ describe("backblaze-proxy upstream failures", () => {
   });
 });
 
+describe("backblaze-proxy browser cache", () => {
+  for (const [label, path, status, cacheControl] of [
+    ["a landing video B2 has", "landing/intro.mp4", 200, "public, max-age=2592000, immutable"],
+    ["the map pointer B2 has", "maps/latest.json", 200, "public, max-age=60"],
+    ["a landing video B2 does not have yet", "landing/does-not-exist-123.mp4", 404, "no-store"],
+    ["a map pointer B2 does not have", "maps/latest.json", 404, "no-store"],
+    ["a demo B2 refuses on every retry", "demos/0b7c.dem", 403, "no-store"],
+    ["a demo while B2 is down", "demos/0b7c.dem", 503, "no-store"],
+  ] as const) {
+    it(`answers ${label} with ${cacheControl}`, async () => {
+      upstream = mock.fn(async () => new Response("body", { status }));
+      globalThis.fetch = upstream as unknown as typeof fetch;
+
+      const { response } = await get(path);
+
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get("Cache-Control"), cacheControl);
+      assert.equal(response.headers.get("Access-Control-Allow-Origin"), ORIGIN);
+    });
+  }
+
+  it("keeps the immutable header on a range served from the edge copy", async () => {
+    (globalThis as any).caches = {
+      default: {
+        match: async () =>
+          new Response("ace", {
+            status: 206,
+            headers: {
+              "Content-Range": "bytes 0-2/100",
+              "Cache-Control": "public, max-age=2592000, immutable",
+            },
+          }),
+        put: async () => {},
+      },
+    };
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const response = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/intro.mp4", {
+        headers: { Origin: ORIGIN, Range: "bytes=0-2" },
+      }),
+      env,
+      ctx as any,
+    );
+
+    assert.equal(response.status, 206);
+    assert.equal(
+      response.headers.get("Cache-Control"),
+      "public, max-age=2592000, immutable",
+    );
+  });
+
+  it("answers a worker deployed without its bucket with no-store", async () => {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const response = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/intro.mp4"),
+      { ...env, BUCKET_NAME: "" },
+      ctx as any,
+    );
+
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+  });
+});
+
 describe("backblaze-proxy health", () => {
   async function health(body: string, overrides: Partial<typeof env> = {}) {
     upstream = mock.fn(async () => new Response(body, { status: 403 }));
@@ -153,7 +219,7 @@ describe("backblaze-proxy health", () => {
     assert.deepEqual(json, {
       ok: true,
       worker: "5stack-backblaze-proxy",
-      version: "1",
+      version: "2",
       bucket: "ok",
       code: "AccessDenied",
     });
@@ -305,6 +371,8 @@ describe("backblaze-proxy signed clip links", () => {
   const CLIP = "clips/76561198000000001/0b7c.mp4";
   const LINEUP_STILL =
     "clips/utility/ffe58c95-4581-4320-a14e-f2efb95ccebe/aim.jpg";
+  const EVENT_MEDIA =
+    "events/media/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/0123456789abcdef01234567.jpg";
 
   let cacheKeys: string[];
   let cached: Response | undefined;
@@ -409,6 +477,39 @@ describe("backblaze-proxy signed clip links", () => {
     });
   }
 
+  // The api serves event media itself, checking on every request who may see
+  // the event, and never links it through the worker.
+  it("refuses event media without a signature, before the cache or B2", async () => {
+    await refused(EVENT_MEDIA);
+  });
+
+  it("refuses event media to a HEAD without a signature", async () => {
+    await refused(EVENT_MEDIA, "HEAD");
+  });
+
+  it("refuses event media named by ?file= on another route", async () => {
+    await refused(`news?file=${encodeURIComponent(EVENT_MEDIA)}`);
+  });
+
+  it("does not hand a cached copy of event media to a request without a signature", async () => {
+    cached = new Response("cached banner", { status: 200 });
+
+    const response = await send(EVENT_MEDIA);
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(cacheKeys, []);
+  });
+
+  it("serves event media on a signed link", async () => {
+    const response = await send(`${EVENT_MEDIA}?${signed(EVENT_MEDIA)}`);
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      String(upstream.mock.calls[0].arguments[0]),
+      `https://5stack.s3.example.test/${EVENT_MEDIA}`,
+    );
+  });
+
   it("does not hand a cached copy of a clip to a request without a signature", async () => {
     cached = new Response("cached clip", { status: 200 });
 
@@ -475,9 +576,8 @@ describe("backblaze-proxy signed clip links", () => {
 
   for (const path of [
     "maps/25537370/manifest.json",
-    "news/9a3c.webp",
-    "events/4f1e/banner.jpg",
-    "demo/0b7c.dem",
+    "landing/9a3c.webp",
+    "demos/0b7c.dem",
   ]) {
     it(`serves ${path} without a signature`, async () => {
       const response = await send(path);
@@ -509,6 +609,17 @@ describe("backblaze-proxy signed clip links", () => {
       });
     }
 
+    for (const [label, path] of [
+      ["event media without a signature", EVENT_MEDIA],
+      ["event media with a forged signature", `${EVENT_MEDIA}?exp=${now() + 600}&sig=${"A".repeat(43)}`],
+      ["a key that B2 could resolve into events/", `news/%252e%252e/${EVENT_MEDIA}`],
+      ["a key with an empty segment", `news//${EVENT_MEDIA}`],
+    ]) {
+      it(`still refuses ${label}`, async () => {
+        await refused(path);
+      });
+    }
+
     it("keeps one edge copy of a clip for its signed and unsigned links", async () => {
       await send(`${CLIP}?name=ace.mp4&v=1`);
       const unsigned = [...cacheKeys];
@@ -518,4 +629,298 @@ describe("backblaze-proxy signed clip links", () => {
       assert.deepEqual(unsigned, cacheKeys);
     });
   });
+});
+
+describe("backblaze-proxy content types", () => {
+  // What B2 holds is the type the object was stored with, which an upload
+  // once took from the uploader's own label.
+  function stored(contentType: string, body = "<script>alert(1)</script>") {
+    upstream = mock.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": contentType },
+        }),
+    );
+    globalThis.fetch = upstream as unknown as typeof fetch;
+  }
+
+  for (const [path, type] of [
+    ["landing/0123abcd.png", "image/png"],
+    ["landing/0123abcd.JPG", "image/jpeg"],
+    ["landing/0123abcd.webp", "image/webp"],
+    ["landing/0123abcd.gif", "image/gif"],
+    ["landing/0123abcd.mp4", "video/mp4"],
+    ["landing/0123abcd.mp3", "audio/mpeg"],
+    ["maps/latest.json", "application/json"],
+  ] as const) {
+    it(`serves ${path} as ${type}, whatever it was stored as`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^inline/,
+      );
+    });
+  }
+
+  for (const path of [
+    "landing/0123abcd.html",
+    "landing/0123abcd.svg",
+    "landing/0123abcd",
+    "demos/0b7c.dem",
+    "maps/25537370/de_mirage.tri.gz",
+  ]) {
+    it(`makes ${path} a download`, async () => {
+      stored("text/html");
+
+      const { response } = await get(path);
+
+      assert.equal(
+        response.headers.get("Content-Type"),
+        "application/octet-stream",
+      );
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+      assert.match(
+        response.headers.get("Content-Disposition") ?? "",
+        /^attachment/,
+      );
+    });
+  }
+
+  // Without REQUIRE_SIGNED_CLIPS too: B2 resolves dot and empty segments and
+  // escapes, so a key that only starts with clips/ could name any object.
+  async function send(path: string) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://demo-dl.5stack.gg/${path}`, {
+        headers: { Origin: ORIGIN },
+      }),
+      env,
+      ctx as any,
+    );
+  }
+
+  for (const path of [
+    `demo?file=${encodeURIComponent("clips/../events/x.html")}`,
+    "clips//x.html",
+    "clips/%252e%252e/events/x.html",
+    "clips/..%2Fevents/x.html",
+    "clips%2F..%2Fevents%2Fx.html",
+    "clips/%5C..%5Cevents/x.html",
+    `news?file=${encodeURIComponent("clips/./x.html")}`,
+  ]) {
+    it(`refuses ${path} before the cache or B2`, async () => {
+      stored("text/html");
+      const cacheKeys: string[] = [];
+      (globalThis as any).caches = {
+        default: {
+          match: async (request: Request) => {
+            cacheKeys.push(request.url);
+          },
+          put: async () => {},
+        },
+      };
+
+      const response = await send(path);
+
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("Cache-Control"), "no-store");
+      assert.equal(upstream.mock.callCount(), 0);
+      assert.deepEqual(cacheKeys, []);
+    });
+  }
+
+  // A Request resolves this itself, to event media without a signature.
+  it("refuses what clips/%2e%2e/events/x.html resolves to", async () => {
+    stored("text/html");
+
+    const response = await send("clips/%2e%2e/events/x.html");
+
+    assert.equal(response.status, 403);
+    assert.equal(upstream.mock.callCount(), 0);
+  });
+
+  for (const [path, type] of [
+    ["clips/76561198000000001/0b7c.mp4", "video/mp4"],
+    ["clips/76561198000000001/0b7c.jpg", "image/jpeg"],
+    ["events/media/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/0123abcd.webp", "image/webp"],
+  ] as const) {
+    it(`still serves ${path} as ${type}`, async () => {
+      stored("text/html");
+
+      const response = await send(`${path}?${signed(path)}`);
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Content-Type"), type);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    });
+  }
+
+  it("makes a file under clips/ outside the list a download too", async () => {
+    stored("text/html");
+
+    const response = await send("clips/76561198000000001/0b7c.html");
+
+    assert.equal(
+      response.headers.get("Content-Type"),
+      "application/octet-stream",
+    );
+    assert.match(
+      response.headers.get("Content-Disposition") ?? "",
+      /^attachment/,
+    );
+  });
+
+  it("pins the type on a copy the edge cached before", async () => {
+    (globalThis as any).caches = {
+      default: {
+        match: async () =>
+          new Response("<script>alert(1)</script>", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/html",
+              "Content-Disposition": 'inline; filename="0123abcd.html"',
+            },
+          }),
+        put: async () => {},
+      },
+    };
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+
+    const image = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/0123abcd.png"),
+      env,
+      ctx as any,
+    );
+    const page = await worker.fetch(
+      new Request("https://demo-dl.5stack.gg/landing/0123abcd.html"),
+      env,
+      ctx as any,
+    );
+
+    assert.equal(image.headers.get("Content-Type"), "image/png");
+    assert.equal(image.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(page.headers.get("Content-Type"), "application/octet-stream");
+    assert.match(page.headers.get("Content-Disposition") ?? "", /^attachment/);
+  });
+});
+
+// Only what 5stack itself reads through the worker is served without a signed
+// link: demos and playback (api demo_url / playback_url, /demo?file=), map
+// assets (api MapAssetsService.MAPS_HOST, the web's map loaders) and the
+// landing page's media (web LandingInstallVideo, docs).
+describe("backblaze-proxy unsigned reads", () => {
+  async function send(path: string, requireSigned = false) {
+    const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+    return worker.fetch(
+      new Request(`https://cf.5stack.gg/${path}`, {
+        headers: { Origin: ORIGIN },
+      }),
+      requireSigned ? { ...env, REQUIRE_SIGNED_CLIPS: "1" } : env,
+      ctx as any,
+    );
+  }
+
+  const CHAT = "chat-attachments/rooms/2026-10-01/4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b/file";
+
+  for (const path of [
+    CHAT,
+    `demo?file=${encodeURIComponent(CHAT)}`,
+    "demo-uploads/76561198000000001/0b7c7d0e-2a5e-4c3b-9d7c-1f0e2d3c4b5a.dem",
+    "scans/orphaned-objects.latest.json",
+    "news/0123456789abcdef01234567.webp",
+    "branding/logo.png",
+    "avatars/teams/0b7c-0123456789ab.png",
+    "demo/0b7c.dem",
+  ]) {
+    for (const requireSigned of [false, true]) {
+      it(`refuses ${path} without a signature${requireSigned ? ", with signed clips required" : ""}`, async () => {
+        const response = await send(path, requireSigned);
+
+        assert.equal(response.status, 403);
+        assert.equal(response.headers.get("Cache-Control"), "no-store");
+        assert.equal(upstream.mock.callCount(), 0);
+      });
+    }
+  }
+
+  for (const path of [
+    "demos/4f1e2d3c/5b6a4798/match.dem",
+    `demo?file=${encodeURIComponent("demos/4f1e2d3c/5b6a4798/match.dem")}&v=1`,
+    `demo?file=${encodeURIComponent("demos/4f1e2d3c/5b6a4798/playback/playback.v3.abc.json.gz")}&v=1`,
+    "maps/latest.json",
+    "maps/25537370/de_mirage.tri.gz",
+    "landing/install-51dadfe6.mp4",
+  ]) {
+    it(`still serves ${path} without a signature`, async () => {
+      const response = await send(path, true);
+
+      assert.equal(response.status, 200);
+      assert.equal(upstream.mock.callCount(), 1);
+    });
+  }
+
+  // Demos and playback stored before api#262 (2026-05-29) kept these keys,
+  // and their rows still link them through /demo?file=.
+  const MATCH = "4f1e2d3c-5b6a-4798-8a7b-6c5d4e3f2a1b";
+  const MAP = "0b7c7d0e-2a5e-4c3b-9d7c-1f0e2d3c4b5a";
+
+  for (const key of [
+    `${MATCH}/${MAP}/demos/1717000000_de_mirage.dem`,
+    `${MATCH}/${MAP}/playback/playback.json.gz`,
+  ]) {
+    for (const path of [`demo?file=${encodeURIComponent(key)}&v=1`, key]) {
+      it(`still serves the older key ${path} without a signature`, async () => {
+        const response = await send(path, true);
+
+        assert.equal(response.status, 200);
+        assert.equal(upstream.mock.callCount(), 1);
+      });
+    }
+  }
+
+  for (const [label, key] of [
+    ["another segment", `${MATCH}/${MAP}/coach/x.json.gz`],
+    ["another segment under clips", `${MATCH}/${MAP}/clips/x.mp4`],
+    ["an extra segment", `${MATCH}/${MAP}/demos/extra/x.dem`],
+    ["a third id", `${MATCH}/${MAP}/${MAP}/demos/x.dem`],
+    ["a missing id", `${MATCH}/demos/x.dem`],
+    ["an id that isn't one", `not-a-match/${MAP}/demos/x.dem`],
+    ["an id in capitals", `${MATCH.toUpperCase()}/${MAP}/demos/x.dem`],
+  ]) {
+    it(`refuses a key shaped like an older demo but with ${label}`, async () => {
+      const response = await send(`demo?file=${encodeURIComponent(key)}`);
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+  }
+
+  it("serves any other file on a link signed for it", async () => {
+    const key = "scans/orphaned-objects.latest.json";
+
+    const response = await send(`${key}?${signed(key)}`);
+
+    assert.equal(response.status, 200);
+  });
+
+  // A URL parser drops tabs and newlines, so the key B2 would be asked for is
+  // not the one the request named.
+  for (const [label, key] of [
+    ["a tab", "demos/a\tb.dem"],
+    ["a newline", "demos/a\nb.dem"],
+    ["a tab hiding a dot segment", "demos/.\t./events/x.jpg"],
+  ]) {
+    it(`refuses a ?file= key with ${label}`, async () => {
+      const response = await send(`demo?file=${encodeURIComponent(key)}`);
+
+      assert.equal(response.status, 403);
+      assert.equal(upstream.mock.callCount(), 0);
+    });
+  }
 });

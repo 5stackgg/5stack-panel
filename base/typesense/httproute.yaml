@@ -10,6 +10,12 @@ spec:
   hostnames:
     - ${TYPESENSE_HOST}
   rules:
-    - backendRefs:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
+      backendRefs:
         - name: typesense
           port: 8108

@@ -1,0 +1,4 @@
+# The Gateway API's CRDs and its safe-upgrades admission policy. Turn it off
+# where something else installs them, as k3s does from 1.37 with its
+# gateway-api-crd chart. Traefik's CRDs are installed either way.
+gatewayApi: true

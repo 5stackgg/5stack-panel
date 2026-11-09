@@ -3,7 +3,8 @@
 # An install that is still on ingress-nginx -- the controller, its admission
 # webhook, the panel's Ingresses as they were, and another app's nginx-class
 # Ingress with forward-auth -- taken through update.sh's routing steps:
-# install_traefik, the overlay's Gateway and routes, retire_ingress_nginx.
+# install_traefik, the overlay's Gateway and routes, retire_ingress_nginx,
+# move_traefik_to_host_ports.
 
 # shellcheck source=tests/gateway/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -38,7 +39,7 @@ install_ingress_nginx() {
 # traefik-crd release, which is gone.
 leave_k3s_traefik_crds() {
     local -a crds
-    kubectl apply --server-side -f "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml" >/dev/null || return 1
+    grep -v "^{{" "$PANEL_DIR/charts/gateway-crds/templates/gateway-api.yaml" | kubectl apply --server-side -f - >/dev/null || return 1
     kubectl delete validatingadmissionpolicybinding,validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io >/dev/null || return 1
     mapfile -t crds < <(kubectl get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
     kubectl annotate --overwrite "${crds[@]}" meta.helm.sh/release-name=traefik-crd meta.helm.sh/release-namespace=kube-system >/dev/null || return 1
@@ -109,13 +110,15 @@ test_before_the_update_ingress_nginx_serves_everything() {
 }
 
 test_ingress_nginx_is_gone() {
-    local phase
+    local phase left
     phase="$(kubectl get namespace ingress-nginx -o jsonpath='{.status.phase}' 2>/dev/null)"
     [ -z "$phase" ] || [ "$phase" = Terminating ] || fail "ingress-nginx namespace is $phase"
     kubectl get validatingwebhookconfiguration ingress-nginx-admission >/dev/null 2>&1 && fail "the admission webhook is still there"
     kubectl get clusterrole ingress-nginx >/dev/null 2>&1 && fail "the ingress-nginx ClusterRole is still there"
     [ "$(kubectl get ingressclass nginx -o jsonpath='{.spec.controller}')" = k8s.io/ingress-nginx ] || fail "IngressClass nginx is gone"
-    [ -z "$(kubectl -n 5stack get ingress -o name)" ] || fail "panel Ingresses left: $(kubectl -n 5stack get ingress -o name)"
+    left="$(kubectl -n 5stack get ingress -o name | grep -v '^ingress.networking.k8s.io/acme-check$')"
+    [ -z "$left" ] || fail "panel Ingresses left: $left"
+    [ "$(kubectl -n 5stack get ingress acme-check -o jsonpath='{.spec.ingressClassName}')" = traefik ] || fail "the acme-check Ingress isn't Traefik's"
 }
 
 test_the_crds_k3s_left_belong_to_gateway_crds() {
@@ -200,12 +203,15 @@ test_running_the_update_again_changes_nothing() {
     install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" >/dev/null || fail "install_traefik failed"
     routing_layer https || fail "the overlay did not apply"
     retire_ingress_nginx || fail "retire_ingress_nginx failed"
+    move_traefik_to_host_ports "$PANEL_DIR/overlays/config/traefik-config.env" >/dev/null || fail "move_traefik_to_host_ports failed"
     call https "$API" /me
     expect_code 200
     expect_other_app_routes_with_its_auth
 }
 
-start_cluster || exit 1
+# k3s's Traefik only held the Gateway API CRDs before 1.37, when k3s began
+# installing them as a chart of their own.
+K3S_IMAGE="$K3S_BEFORE_GATEWAY_API" start_cluster || exit 1
 make_panel || exit 1
 install_ingress_nginx || exit 1
 deploy_panel_stubs || exit 1
@@ -222,6 +228,7 @@ sleep 2
 install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
 routing_layer https || exit 1
 retire_ingress_nginx || exit 1
+move_traefik_to_host_ports "$PANEL_DIR/overlays/config/traefik-config.env" || exit 1
 sleep 5
 client touch /tmp/stop
 for _ in $(seq 1 10); do

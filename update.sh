@@ -59,6 +59,10 @@ step "Installing Traefik"
 install_traefik || die "failed to install Traefik"
 ok "Traefik is ready"
 
+if [ "$CLOUDFLARE_MANAGED" = true ]; then
+    cloudflare_update_records
+fi
+
 step "Building overlay manifests"
 # Whether an operator has asked for a TURN relay at all. Read straight from
 # coturn's own env file rather than the environment: this is the same file the
@@ -106,6 +110,13 @@ if ! upgrade_timescaledb_major; then
     exit 1
 fi
 
+# Installs from before demo-parser had its own label carry it on no node, and
+# its affinity is requiredDuringScheduling. Only when no node has it, so a
+# parser an operator moved stays where they put it.
+if [ -z "$(kubectl --kubeconfig=$KUBECONFIG get nodes -l 5stack-demo-parser=true -o name)" ]; then
+    kubectl --kubeconfig=$KUBECONFIG label node $(kubectl --kubeconfig=$KUBECONFIG get nodes -l 5stack-api=true -o jsonpath='{.items[0].metadata.name}') 5stack-demo-parser=true --overwrite
+fi
+
 apply_overlay "$OVERLAY" || die "failed to apply $OVERLAY"
 ok "overlay applied"
 
@@ -117,6 +128,7 @@ if [ "$REVERSE_PROXY" != true ]; then
 fi
 
 retire_ingress_nginx || die "Traefik did not take over ports 80/443"
+move_traefik_to_host_ports || die "Traefik did not take over the host's ports"
 
 if [ "$VAULT_MANAGER" = true ]; then
     step "Syncing Vault secrets"
@@ -131,8 +143,10 @@ kubectl --kubeconfig=$KUBECONFIG delete deployment timescaledb -n 5stack  2>/dev
 kubectl --kubeconfig=$KUBECONFIG delete deployment typesense -n 5stack  2>/dev/null
 kubectl --kubeconfig=$KUBECONFIG delete deployment redis -n 5stack  2>/dev/null
 
-step "Updating the TimescaleDB extension"
-update_timescaledb_extension
+if [ "$TIMESCALEDB_FRESH_INSTALL" != true ]; then
+    step "Updating the TimescaleDB extension"
+    update_timescaledb_extension
+fi
 finish_timescaledb_major_upgrade
 
 GIT_SHA="${FIVESTACK_RELEASE:-$(git rev-parse HEAD)}"
@@ -150,6 +164,10 @@ fi
 SSL_OK=true
 if [ "$REVERSE_PROXY" != true ]; then
     watch_ssl_status || SSL_OK=false
+fi
+
+if [ "$CLOUDFLARE_MANAGED" = true ] && [ "$SSL_OK" = true ]; then
+    cloudflare_update_proxy
 fi
 
 if [ "$SSL_OK" != true ]; then

@@ -64,6 +64,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash tests/gateway/upgrade_test.sh
 
+  upgrade-from-servicelb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/servicelb_upgrade_test.sh
+
+  upgrade-k3s-to-its-own-gateway-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/k3s_upgrade_test.sh
+
   cert-manager:
     runs-on: ubuntu-latest
     steps:

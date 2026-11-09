@@ -45,7 +45,7 @@ pins() {
         -e '^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*"?[^[:space:]"]+' \
         -e '^[[:space:]]*[A-Z0-9_]+_IMAGE=[^[:space:]"]+' \
         -- "${IGNORED_PATHS[@]}" |
-        sed -E 's/^.*(image:[[:space:]]*"?|_IMAGE=)//' |
+        sed -E 's/^[[:space:]]*(-[[:space:]]+)?(image:[[:space:]]*"?|[A-Z0-9_]+_IMAGE=)//' |
         sort -u
 }
 

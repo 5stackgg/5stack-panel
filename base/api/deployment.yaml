@@ -116,6 +116,11 @@ spec:
             - secretRef:
                 name: coturn-secrets
                 optional: true
+            # All four MediaMTX passwords; the api hands a streamer pod only
+            # its own.
+            - secretRef:
+                name: mediamtx-secrets
+                optional: true
             # Rokkan, the AI service. Only installs with AI_ENABLED=true deploy
             # it; without AI_SERVICE_URL the api leaves every AI feature off.
             - configMapRef:

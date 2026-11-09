@@ -4,19 +4,20 @@ logDestinations: [stdout]
 api: yes
 apiAddress: :9997
 
-# Prometheus metrics. The API above is what the panel's own admin view reads --
-# it gives structured per-path detail this cannot -- but this is here for anyone
-# already scraping, and costs nothing when nobody is. authInternalUsers below
-# has always granted the `metrics` action; only the listener was missing.
+# Prometheus metrics, for anyone already scraping; the panel's own admin view
+# reads the API above. A scraper signs in as the api user.
 metrics: yes
 metricsAddress: :9998
 
-# hostNetwork puts every listener on each of the node's addresses, so only
-# cluster and private clients are let in: pods on the node arrive from their
-# own address, pods on other nodes from that node's LAN or Tailscale one, and
-# browsers come through Traefik.
+# Every action needs a user and its password, from mediamtx-secrets: the
+# Deployment sets MTX_AUTHINTERNALUSERS_<n>_PASS, so these entries keep their
+# order. MediaMTX takes an empty password as any password, so node-addresses.sh
+# refuses to write a config without all four. Match streams are UUID paths;
+# voice and cameras are the relay's, through the api. The api user is also
+# limited to cluster and private addresses, to which node-addresses.sh adds the
+# node's own: hostNetwork puts every listener on each of them.
 authInternalUsers:
-  - user: any
+  - user: api
     pass:
     ips:
       - 127.0.0.0/8
@@ -27,11 +28,30 @@ authInternalUsers:
       - 100.64.0.0/10
       - fc00::/7
     permissions:
-      - action: publish
-      - action: read
-      - action: playback
       - action: api
       - action: metrics
+  - user: streamer
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path: "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+  - user: relay
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path: "~^(camera-|camera-talk-|voice-|voicecam-)"
+      - action: read
+        path: "~^(camera-|camera-talk-|voice-|voicecam-)"
+  - user: viewer
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path: "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      - action: playback
+        path: "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 hls: yes
 hlsAddress: :8888

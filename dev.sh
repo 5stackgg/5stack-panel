@@ -66,6 +66,7 @@ kubectl label node $(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') 
 copy_config_or_secrets "overlays/local-secrets" "overlays/dev/secrets"
 
 replace_rand32_in_env_files "overlays/dev/secrets"
+ensure_mediamtx_secrets_in_env_file "overlays/dev/secrets/mediamtx-secrets.env"
 
 setup_postgres_connection_string "overlays/dev/secrets/timescaledb-secrets.env"
 

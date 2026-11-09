@@ -308,6 +308,48 @@ use_vault() {
     export PATH="$WORK_DIR/bin:$PATH"
 }
 
+mediamtx_passwords() {
+    grep -E '^MEDIAMTX_(API|STREAMER|RELAY|VIEWER)_PASSWORD=' "$PANEL/overlays/local-secrets/mediamtx-secrets.env" || true
+}
+
+test_a_new_install_gets_four_mediamtx_passwords() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    run_setup_env
+    assert_eq "$(mediamtx_passwords | cut -d= -f1 | sort | tr '\n' ' ')" \
+        "MEDIAMTX_API_PASSWORD MEDIAMTX_RELAY_PASSWORD MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_VIEWER_PASSWORD "
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[0-9a-f]{32}$')" 4
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u | wc -l | tr -d ' ')" 4
+}
+
+test_an_update_fills_in_missing_mediamtx_passwords_and_keeps_the_rest() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    printf 'MEDIAMTX_API_PASSWORD=0123456789abcdef0123456789abcdef\nMEDIAMTX_VIEWER_PASSWORD=\n' \
+        >"$PANEL/overlays/local-secrets/mediamtx-secrets.env"
+    run_setup_env
+    assert_eq "$(env_lines overlays/local-secrets/mediamtx-secrets.env MEDIAMTX_API_PASSWORD)" \
+        "MEDIAMTX_API_PASSWORD=0123456789abcdef0123456789abcdef"
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[0-9a-f]{32}$')" 4
+    assert_eq "$(grep -c '^MEDIAMTX_VIEWER_PASSWORD=' "$PANEL/overlays/local-secrets/mediamtx-secrets.env")" 1
+    local before
+    before="$(mediamtx_passwords)"
+    run_setup_env
+    assert_eq "$(mediamtx_passwords)" "$before"
+}
+
+test_a_vault_install_moves_the_mediamtx_passwords_to_kv_mediamtx() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    use_vault
+    # shellcheck disable=SC2016 # expanded by the stub
+    printf '#!/bin/sh\necho "$*" >>"%s/vault-calls"\ncase "$1 $2" in "kv get") exit 1 ;; esac\nexit 0\n' "$WORK_DIR" >"$WORK_DIR/bin/vault"
+    run_setup_env
+    assert_contains "$(cat "$WORK_DIR/vault-calls")" "kv put kv/mediamtx -"
+    assert_eq "$(grep -c '^kv patch kv/mediamtx -$' "$WORK_DIR/vault-calls")" 4
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u)" VAULT
+}
+
 test_the_5stack_service_runs_a_vault_install_without_the_vault_cli() {
     make_panel
     set_sibling_domains

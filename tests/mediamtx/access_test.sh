@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 PREFIX=mediamtx-access-test
 DEPLOYMENT="$TEST_ROOT/overlays/mediamtx/deployment.yaml"
-PYTHON_IMAGE=python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+PYTHON_IMAGE=python:3.15.2-alpine3.24@sha256:a0f2e268f2ce8f3709611a90054ec6a8ae31f6251f5896b8648b9bb99835e30a
 MATCH=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
 VOICE="voice-$MATCH-76561198000000001"
 CAMERA="camera-$MATCH-76561198000000001"

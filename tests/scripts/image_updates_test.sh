@@ -117,6 +117,13 @@ test_held_pins_are_not_planned() {
     assert_eq "$(image_updates plan)" ""
 }
 
+test_an_image_quoted_inside_a_line_is_not_a_pin() {
+    # shellcheck disable=SC2016 # a test's assertion, unexpanded
+    pin tests/scripts/system_upgrade_test.sh '    assert_contains "$rendered" "image: rancher/system-upgrade-controller:v0.20.2"'
+    tags rancher/system-upgrade-controller v0.20.2 v0.21.0
+    assert_eq "$(image_updates plan)" ""
+}
+
 test_an_unreadable_repository_skips_only_its_own_pins() {
     pin base/a.yaml "          image: busybox:1.38" "          image: coturn/coturn:4.18.0"
     tags busybox 1.38 1.39

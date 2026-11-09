@@ -79,6 +79,30 @@ spec:
                   name: ai-secrets
                   key: AI_SERVICE_SECRET
                   optional: true
+            # Required: on a Vault install external-secrets writes the Secret
+            # after the apply, and the pod waits for it rather than starting
+            # without MediaMTX's passwords. The api hands a streamer pod only
+            # its own.
+            - name: MEDIAMTX_API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_API_PASSWORD
+            - name: MEDIAMTX_STREAMER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_STREAMER_PASSWORD
+            - name: MEDIAMTX_RELAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_RELAY_PASSWORD
+            - name: MEDIAMTX_VIEWER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_VIEWER_PASSWORD
           envFrom:
             - configMapRef:
                 name: api-config
@@ -115,11 +139,6 @@ spec:
                 optional: true
             - secretRef:
                 name: coturn-secrets
-                optional: true
-            # All four MediaMTX passwords; the api hands a streamer pod only
-            # its own.
-            - secretRef:
-                name: mediamtx-secrets
                 optional: true
             # Rokkan, the AI service. Only installs with AI_ENABLED=true deploy
             # it; without AI_SERVICE_URL the api leaves every AI feature off.

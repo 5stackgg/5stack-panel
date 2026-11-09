@@ -17,11 +17,15 @@ secretGenerator:
     envs:
       - coturn-secrets.env
 
+  # The api names this Secret in the streamer Jobs it creates, so it keeps its
+  # name.
   - name: mediamtx-secrets
     type: Opaque
     namespace: 5stack
     envs:
       - mediamtx-secrets.env
+    options:
+      disableNameSuffixHash: true
 
   - name: push-secrets
     type: Opaque

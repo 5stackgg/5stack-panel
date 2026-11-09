@@ -14,7 +14,8 @@ a second, flushed, for S seconds.
 forward-auth on branch feature/forward-auth-traefik: X-Original-* and
 X-Forwarded-* that disagree are refused, a forwarded OPTIONS is a preflight,
 and otherwise the session cookie decides. /streams/authorize hands back the
-viewer's Authorization on an allow, as the api does for MediaMTX.
+viewer's Authorization on an allow, as the api does for MediaMTX, except for
+session=bare, which it allows with no Authorization.
 """
 
 import base64
@@ -122,13 +123,13 @@ def handler_for(name):
             if method == "OPTIONS":
                 return self.reply(200)
             cookie = h.get("cookie", "")
-            role = "administrator" if "session=admin" in cookie else "user" if "session=ok" in cookie else None
+            role = "administrator" if "session=admin" in cookie else "user" if "session=ok" in cookie or "session=bare" in cookie else None
             if role is None:
                 return self.reply(401)
             if h.get("x-5stack-required-role") == "administrator" and role != "administrator":
                 return self.reply(403)
             headers = {"X-5stack-Role": role}
-            if urlsplit(self.path).path == "/streams/authorize":
+            if urlsplit(self.path).path == "/streams/authorize" and "session=bare" not in cookie:
                 headers["Authorization"] = "Basic " + base64.b64encode(b"viewer:test-viewer").decode()
             return self.reply(200, headers=headers)
 

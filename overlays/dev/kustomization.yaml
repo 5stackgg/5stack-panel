@@ -98,56 +98,6 @@ replacements:
           - spec.hostnames.2
   - source:
       kind: ConfigMap
-      name: typesense-config
-      fieldPath: data.TYPESENSE_HOST
-    targets:
-      - select:
-          kind: HTTPRoute
-          name: typesense
-        fieldPaths:
-          - spec.hostnames.0
-      - select:
-          kind: Gateway
-          name: 5stack
-        fieldPaths:
-          - spec.listeners.[name=typesense].hostname
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.3
-      - select:
-          kind: HTTPRoute
-          name: https-redirect
-        fieldPaths:
-          - spec.hostnames.5
-  - source:
-      kind: ConfigMap
-      name: s3-config
-      fieldPath: data.S3_CONSOLE_HOST
-    targets:
-      - select:
-          kind: HTTPRoute
-          name: s3-console
-        fieldPaths:
-          - spec.hostnames.0
-      - select:
-          kind: Gateway
-          name: 5stack
-        fieldPaths:
-          - spec.listeners.[name=s3-console].hostname
-      - select:
-          kind: Certificate
-          name: 5stack-ssl
-        fieldPaths:
-          - spec.dnsNames.4
-      - select:
-          kind: HTTPRoute
-          name: https-redirect
-        fieldPaths:
-          - spec.hostnames.6
-  - source:
-      kind: ConfigMap
       name: api-config
       fieldPath: data.WS_DOMAIN
     targets:
@@ -165,7 +115,7 @@ replacements:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.5
+          - spec.dnsNames.3
       - select:
           kind: HTTPRoute
           name: https-redirect
@@ -190,7 +140,7 @@ replacements:
           kind: Certificate
           name: 5stack-ssl
         fieldPaths:
-          - spec.dnsNames.6
+          - spec.dnsNames.4
       - select:
           kind: HTTPRoute
           name: https-redirect
@@ -220,7 +170,7 @@ replacements:
           kind: HTTPRoute
           name: https-redirect
         fieldPaths:
-          - spec.hostnames.7
+          - spec.hostnames.5
   - source:
       kind: ConfigMap
       name: api-config

@@ -16,8 +16,6 @@ spec:
     - ${DEMOS_DOMAIN}
     - ${WS_DOMAIN}
     - ${RELAY_DOMAIN}
-    - ${TYPESENSE_HOST}
-    - ${S3_CONSOLE_HOST}
     - ${GAME_STREAM_DOMAIN}
     - hasura.5stack.localhost
     - queues.5stack.localhost

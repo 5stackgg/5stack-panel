@@ -9,10 +9,6 @@ spec:
     name: api
     targetPort: 9000
     protocol: TCP
-  - port: 9001
-    name: console
-    targetPort: 9001
-    protocol: TCP
   selector:
     app: rustfs
 ---
@@ -30,10 +26,6 @@ spec:
   - port: 9000
     name: api
     targetPort: 9000
-    protocol: TCP
-  - port: 9090
-    name: console
-    targetPort: 9001
     protocol: TCP
   selector:
     app: rustfs

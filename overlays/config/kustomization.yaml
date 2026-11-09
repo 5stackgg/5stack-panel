@@ -6,10 +6,6 @@ configMapGenerator:
     namespace: 5stack
     envs:
       - api-config.env
-  - name: typesense-config
-    namespace: 5stack
-    envs:
-      - typesense-config.env
   - name: s3-config
     namespace: 5stack
     envs:

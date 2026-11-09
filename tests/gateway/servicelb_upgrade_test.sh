@@ -93,7 +93,7 @@ make_panel || exit 1
 install_traefik_behind_servicelb || exit 1
 deploy_panel_stubs || exit 1
 routing_layer https || exit 1
-tls_secret 5stack-ssl "$DOMAIN" "$API" "demos.$DOMAIN" "ws.$DOMAIN" "tv.$DOMAIN" "search.$DOMAIN" "console.$DOMAIN" || exit 1
+tls_secret 5stack-ssl "$DOMAIN" "$API" "demos.$DOMAIN" "ws.$DOMAIN" "tv.$DOMAIN" || exit 1
 tls_secret 5stack-mediamtx-ssl "hls.$DOMAIN" || exit 1
 
 run_test test_behind_servicelb_every_request_comes_from_its_pod

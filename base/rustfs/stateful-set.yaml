@@ -53,16 +53,13 @@ spec:
               cpu: "250m"
           ports:
             - containerPort: 9000
-            - containerPort: 9001
           env:
             - name: RUSTFS_VOLUMES
               value: /data
             - name: RUSTFS_ADDRESS
               value: 0.0.0.0:9000
             - name: RUSTFS_CONSOLE_ENABLE
-              value: "true"
-            - name: RUSTFS_CONSOLE_ADDRESS
-              value: 0.0.0.0:9001
+              value: "false"
             # Load-bearing: RustFS defaults this to empty and then sends no
             # CORS headers, which fails the preflight on the cross-origin PUTs
             # the browser makes straight to a presigned part URL. MinIO needed
@@ -107,7 +104,7 @@ spec:
         # drive it -- the admin routes answer in a shape mc will not parse. The
         # bootstrap runs from RustFS's own rc client instead.
         - name: bootstrap
-          image: rustfs/rc:v0.1.36
+          image: rustfs/rc:v0.1.37
           command:
             - /bin/sh
             - -c

@@ -15,7 +15,7 @@ K3S_IMAGE=rancher/k3s:v1.37.2-k3s1@sha256:21ea6e0fac4e3930c2ce8aa40ddd41a8b18cb3
 # the image-updates workflow leaves it here while K3S_IMAGE moves on.
 # shellcheck disable=SC2034 # for the tests that source this
 K3S_BEFORE_GATEWAY_API=rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
-PYTHON_IMAGE=python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+PYTHON_IMAGE=python:3.15.2-alpine3.24@sha256:20a82dbc2783112ddb91d1534603f802d222a3e63e593cd002eb2ac534e70211
 DOMAIN=5stack.test
 # shellcheck disable=SC2034 # for the tests that source this
 MATCH=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
@@ -142,8 +142,6 @@ make_panel() {
     set_env overlays/config/api-config.env DEMOS_DOMAIN "demos.$DOMAIN"
     set_env overlays/config/api-config.env GAME_STREAM_DOMAIN "hls.$DOMAIN"
     set_env overlays/config/api-config.env MAIL_FROM "hello@$DOMAIN"
-    set_env overlays/config/s3-config.env S3_CONSOLE_HOST "console.$DOMAIN"
-    set_env overlays/config/typesense-config.env TYPESENSE_HOST "search.$DOMAIN"
     set_env overlays/mediamtx/mediamtx.env GAME_STREAM_DOMAIN "hls.$DOMAIN"
 
     local script
@@ -229,8 +227,8 @@ EOF
 
 deploy_panel_stubs() {
     deploy_stub 5stack \
-        "5585:api,8080:hasura,3000:web,9000:rustfs,9001:rustfs-console,8108:typesense,8888:mediamtx-hls,8889:mediamtx-whip,8089:acme-solver" \
-        "api:5585" "hasura:8080" "web:3000" "rustfs:9000 9001" "typesense:8108" "mediamtx:8888 8889" "acme-solver:8089"
+        "5585:api,8080:hasura,3000:web,9000:rustfs,8108:typesense,8888:mediamtx-hls,8889:mediamtx-whip,8089:acme-solver" \
+        "api:5585" "hasura:8080" "web:3000" "rustfs:9000" "typesense:8108" "mediamtx:8888 8889" "acme-solver:8089"
 }
 
 # A self-signed kubernetes.io/tls Secret in 5stack for the given hosts.

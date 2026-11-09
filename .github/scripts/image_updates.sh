@@ -6,7 +6,7 @@
 #   image_updates.sh apply OLD NEW  rewrites every pin of OLD to NEW
 #   image_updates.sh title          the commit title for the plan lines on stdin
 #
-# A pin is a tracked `image: <ref>` line or a shell `<NAME>_IMAGE=<ref>`
+# A pin is a tracked line that starts `image: <ref>` or a shell `<NAME>_IMAGE=<ref>`
 # assignment whose tag is a version. An update keeps the tag's shape: its `v`,
 # its number of version parts and the suffix after the version (`-alpine`,
 # `-pg18`, `-k3s1`) stay the same, so a tag only moves to another release of
@@ -42,10 +42,10 @@ cd "$(git rev-parse --show-toplevel)"
 # Every distinct ref pinned in the tracked files.
 pins() {
     git grep -I -h -o -E \
-        -e 'image:[[:space:]]*"?[^[:space:]"]+' \
+        -e '^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*"?[^[:space:]"]+' \
         -e '^[[:space:]]*[A-Z0-9_]+_IMAGE=[^[:space:]"]+' \
         -- "${IGNORED_PATHS[@]}" |
-        sed -E 's/^.*(image:[[:space:]]*"?|_IMAGE=)//' |
+        sed -E 's/^[[:space:]]*(-[[:space:]]+)?(image:[[:space:]]*"?|[A-Z0-9_]+_IMAGE=)//' |
         sort -u
 }
 

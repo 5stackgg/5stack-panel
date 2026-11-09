@@ -18,6 +18,7 @@ RELAY_DOMAIN=tv.$domain
 DEMOS_DOMAIN=demos.$domain
 GAME_STREAM_DOMAIN=hls.$domain
 EOF
+    # Left in the env files of an install from before those hosts were retired.
     printf 'S3_CONSOLE_HOST=console.%s\n' "$domain" >"$WORK_DIR/panel/overlays/config/s3-config.env"
     printf 'TYPESENSE_HOST=search.%s\n' "$domain" >"$WORK_DIR/panel/overlays/config/typesense-config.env"
     printf 'HTTP_PORT=80\nHTTPS_PORT=443\n' >"$WORK_DIR/panel/overlays/config/traefik-config.env"
@@ -64,7 +65,7 @@ test_everything_but_demo_uploads_streams_and_turn_goes_through_cloudflare() {
     panel_at example.gg
     zone example.gg
     printf 'TURN_DOMAIN=turn.example.gg\n' >"$WORK_DIR/panel/overlays/coturn/coturn.env"
-    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg; do
         assert_eq "$(plan_of "$host")" "yes -"
     done
     assert_eq "$(plan_of demos.example.gg)" "no uploads"
@@ -82,6 +83,19 @@ test_everything_but_demo_uploads_streams_and_turn_goes_through_cloudflare() {
     if grep -E 'ORIGIN (demos|hls|turn)\.example\.gg' "$WORK_DIR/cf-calls"; then
         fail "the proxy step checked a host that stays straight to this server"
     fi
+}
+
+test_an_older_installs_console_and_search_hosts_get_no_records() {
+    panel_at example.gg
+    zone example.gg
+    assert_eq "$(plan_of search.example.gg)" ""
+    assert_eq "$(plan_of console.example.gg)" ""
+    cf records >"$WORK_DIR/out" 2>&1 || fail "records: $(cat "$WORK_DIR/out")"
+    cf proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
+    assert_eq "$(record search.example.gg)" "null null"
+    assert_eq "$(record console.example.gg)" "null null"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "search.example.gg"
+    assert_not_contains "$(cat "$WORK_DIR/cf-calls")" "console.example.gg"
 }
 
 test_one_level_below_the_zone_is_covered_and_deeper_names_are_not() {
@@ -102,7 +116,7 @@ test_flat_names_beside_the_panel_are_covered_by_the_free_certificate() {
     printf 'S3_CONSOLE_HOST=panel-console.example.gg\n' >"$WORK_DIR/panel/overlays/config/s3-config.env"
     printf 'TYPESENSE_HOST=panel-search.example.gg\n' >"$WORK_DIR/panel/overlays/config/typesense-config.env"
     zone example.gg
-    for host in panel.example.gg panel-api.example.gg panel-ws.example.gg panel-tv.example.gg panel-search.example.gg panel-console.example.gg; do
+    for host in panel.example.gg panel-api.example.gg panel-ws.example.gg panel-tv.example.gg; do
         assert_eq "$(plan_of "$host")" "yes -"
     done
     assert_eq "$(plan_of panel-demos.example.gg)" "no uploads"
@@ -230,7 +244,7 @@ test_always_use_https_goes_off_and_a_rule_redirects_everything_but_the_challenge
     assert_contains "$(through_cloudflare example.gg /login)" "location: https://example.gg/login"
     assert_not_contains "$(cat "$WORK_DIR/out")" "(y/n)"
     assert_not_contains "$(cat "$WORK_DIR/out")" "other sites"
-    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg; do
         assert_eq "$(record "$host")" "203.0.113.40 true"
         assert_contains "$(cat "$WORK_DIR/cf-calls")" "HTTP $host/.well-known/acme-challenge/5stack-check cloudflare"
     done
@@ -279,7 +293,7 @@ test_a_page_rule_that_redirects_the_check_keeps_the_panel_straight_to_this_serve
     assert_eq "$?" 3
     assert_contains "$(cat "$WORK_DIR/out")" "The Page Rule for http://*example.gg/* (always_use_https) sends Let's Encrypt's check to HTTPS"
     assert_contains "$(cat "$WORK_DIR/out")" "Let's Encrypt can't reach api.example.gg through Cloudflare: Cloudflare redirects http://api.example.gg/.well-known/acme-challenge/5stack-check to https://api.example.gg/.well-known/acme-challenge/5stack-check"
-    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg; do
         assert_eq "$(record "$host")" "203.0.113.40 false"
     done
 }
@@ -337,10 +351,10 @@ behind_a_reverse_proxy() {
 test_behind_a_reverse_proxy_hosts_go_through_cloudflare_even_when_the_check_404s() {
     panel_at example.gg
     zone example.gg
-    state '.settings.z1.always_use_https = "on" | .acme_elsewhere = ["example.gg", "api.example.gg", "ws.example.gg", "tv.example.gg", "search.example.gg", "console.example.gg"]'
+    state '.settings.z1.always_use_https = "on" | .acme_elsewhere = ["example.gg", "api.example.gg", "ws.example.gg", "tv.example.gg"]'
     behind_a_reverse_proxy records >/dev/null 2>&1 || fail "records"
     behind_a_reverse_proxy proxy >"$WORK_DIR/out" 2>&1 || fail "proxy: $(cat "$WORK_DIR/out")"
-    for host in example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg; do
+    for host in example.gg api.example.gg ws.example.gg tv.example.gg; do
         assert_eq "$(record "$host")" "203.0.113.40 true"
         assert_contains "$(cat "$WORK_DIR/cf-calls")" "ORIGIN $host"
     done
@@ -390,7 +404,7 @@ test_behind_a_reverse_proxy_redirect_rules_and_their_blockers_are_left_alone() {
     assert_eq "$(behind_a_reverse_proxy status --json | jq -c '.zones[0].blockers')" "[]"
 }
 
-proxied_hosts="example.gg api.example.gg ws.example.gg tv.example.gg search.example.gg console.example.gg"
+proxied_hosts="example.gg api.example.gg ws.example.gg tv.example.gg"
 
 created_with() {
     grep -E "^POST /zones/z1/dns_records \{\"type\":\"A\",\"name\":\"$1\"" "$WORK_DIR/cf-calls" | grep -o '"proxied":[a-z]*'

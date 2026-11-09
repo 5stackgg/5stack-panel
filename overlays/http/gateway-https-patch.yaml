@@ -51,22 +51,6 @@ spec:
         mode: Terminate
         certificateRefs:
           - name: 5stack-ssl
-    - name: typesense
-      hostname: ${TYPESENSE_HOST}
-      protocol: HTTPS
-      port: 8443
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: 5stack-ssl
-    - name: s3-console
-      hostname: ${S3_CONSOLE_HOST}
-      protocol: HTTPS
-      port: 8443
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: 5stack-ssl
     - name: game-stream
       hostname: ${GAME_STREAM_DOMAIN}
       protocol: HTTPS

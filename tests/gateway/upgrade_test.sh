@@ -215,7 +215,7 @@ K3S_IMAGE="$K3S_BEFORE_GATEWAY_API" start_cluster || exit 1
 make_panel || exit 1
 install_ingress_nginx || exit 1
 deploy_panel_stubs || exit 1
-tls_secret 5stack-ssl "$DOMAIN" "$API" "demos.$DOMAIN" "ws.$DOMAIN" "tv.$DOMAIN" "search.$DOMAIN" "console.$DOMAIN" || exit 1
+tls_secret 5stack-ssl "$DOMAIN" "$API" "demos.$DOMAIN" "ws.$DOMAIN" "tv.$DOMAIN" || exit 1
 tls_secret 5stack-mediamtx-ssl "$HLS" || exit 1
 deploy_other_app || exit 1
 leave_k3s_traefik_crds || exit 1

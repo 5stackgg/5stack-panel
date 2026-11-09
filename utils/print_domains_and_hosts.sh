@@ -18,8 +18,6 @@ load_domains_and_hosts() {
     MAIL_FROM=$(grep -h "^MAIL_FROM=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
     GAME_STREAM_DOMAIN=$(grep -h "^GAME_STREAM_DOMAIN=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
     CLOUDFLARE_WORKER_DOMAIN=$(grep -h "^CLOUDFLARE_WORKER_DOMAIN=" "$config/api-config.env" 2>/dev/null | cut -d '=' -f2-)
-    S3_CONSOLE_HOST=$(grep -h "^S3_CONSOLE_HOST=" "$config/s3-config.env" 2>/dev/null | cut -d '=' -f2-)
-    TYPESENSE_HOST=$(grep -h "^TYPESENSE_HOST=" "$config/typesense-config.env" 2>/dev/null | cut -d '=' -f2-)
 }
 
 # Prints the resolved domains and hosts.
@@ -44,8 +42,6 @@ print_domains_and_hosts() {
     printf "    %-20s ${c_ok}%s${c_reset}\n" "RELAY_DOMAIN:"    "$RELAY_DOMAIN"
     printf "    %-20s ${c_ok}%s${c_reset}\n" "DEMOS_DOMAIN:"    "$DEMOS_DOMAIN"
     printf "    %-20s ${c_ok}%s${c_reset}\n" "MAIL_FROM:"       "$MAIL_FROM"
-    printf "    %-20s ${c_ok}%s${c_reset}\n" "S3_CONSOLE_HOST:" "$S3_CONSOLE_HOST"
-    printf "    %-20s ${c_ok}%s${c_reset}\n" "TYPESENSE_HOST:"  "$TYPESENSE_HOST"
     # Always shown when set, which since setup-env.sh defaults it to
     # hls.$WEB_DOMAIN is every configured install. There used to be a check
     # here for the `hls.example.com` placeholder, meant to hide this until game

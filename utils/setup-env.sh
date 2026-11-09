@@ -185,7 +185,7 @@ ask_cloudflare_plan() {
 
 flat_hosts_alert() {
     local parent="${WEB_DOMAIN#*.}" sub names=""
-    for sub in api ws tv demos hls console search; do
+    for sub in api ws tv demos hls; do
         names="${names:+$names, }$(flat_host "$sub")"
     done
     warn "Cloudflare's free plan only covers one level below $parent, so the addresses become $names."
@@ -198,7 +198,7 @@ ask_flat_hosts() {
         FLAT_HOSTS=false
         return
     fi
-    if [ -n "$FLAT_HOSTS" ] || [ -n "$API_DOMAIN$WS_DOMAIN$RELAY_DOMAIN$DEMOS_DOMAIN$GAME_STREAM_DOMAIN$S3_CONSOLE_HOST$TYPESENSE_HOST" ]; then
+    if [ -n "$FLAT_HOSTS" ] || [ -n "$API_DOMAIN$WS_DOMAIN$RELAY_DOMAIN$DEMOS_DOMAIN$GAME_STREAM_DOMAIN" ]; then
         return
     fi
     if [ "$ASSUME_YES" = true ] || [ ! -t 0 ]; then
@@ -410,7 +410,7 @@ fi
 
 load_domains_and_hosts
 
-if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$GAME_STREAM_DOMAIN" ] || [ -z "$MAIL_FROM" ] || [ -z "$S3_CONSOLE_HOST" ] || [ -z "$TYPESENSE_HOST" ]; then
+if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "$RELAY_DOMAIN" ] || [ -z "$DEMOS_DOMAIN" ] || [ -z "$GAME_STREAM_DOMAIN" ] || [ -z "$MAIL_FROM" ]; then
     if [ -z "$WEB_DOMAIN" ]; then
         echo "Base domain cannot be empty. Please enter your base domain (e.g. example.com):"
         read WEB_DOMAIN
@@ -458,16 +458,6 @@ if [ -z "$WEB_DOMAIN" ] || [ -z "$WS_DOMAIN" ] || [ -z "$API_DOMAIN" ] || [ -z "
     if [ -z "$ACME_EMAIL" ]; then
         ACME_EMAIL="$MAIL_FROM"
         update_env_var "overlays/config/api-config.env" "ACME_EMAIL" "$ACME_EMAIL"
-    fi
-
-    if [ -z "$S3_CONSOLE_HOST" ]; then
-        S3_CONSOLE_HOST="$(panel_host console)"
-        update_env_var "overlays/config/s3-config.env" "S3_CONSOLE_HOST" "$S3_CONSOLE_HOST"
-    fi
-
-    if [ -z "$TYPESENSE_HOST" ]; then
-        TYPESENSE_HOST="$(panel_host search)"
-        update_env_var "overlays/config/typesense-config.env" "TYPESENSE_HOST" "$TYPESENSE_HOST"
     fi
 fi
 

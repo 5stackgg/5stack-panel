@@ -28,6 +28,7 @@ DEMOS="demos.$DOMAIN"
 WS="ws.$DOMAIN"
 RELAY="tv.$DOMAIN"
 HLS="hls.$DOMAIN"
+# On the nginx-era certificate, and off the panel's since.
 SEARCH="search.$DOMAIN"
 CONSOLE="console.$DOMAIN"
 
@@ -244,7 +245,7 @@ test_the_update_leaves_the_issuer_with_only_the_panels_solver() {
 test_the_nginx_era_certificate_is_renewed_by_pebble_through_traefik() {
     [ "$(secret_certificate 5stack-ssl serial)" != "$NGINX_ERA_SERIAL" ] || fail "5stack-ssl still holds the nginx-era certificate"
     assert_pebble 5stack-ssl
-    [ "$(secret_certificate 5stack-ssl sans)" = "$(expected_sans "$WEB" "$API" "$DEMOS" "$SEARCH" "$CONSOLE" "$WS" "$RELAY")" ] ||
+    [ "$(secret_certificate 5stack-ssl sans)" = "$(expected_sans "$WEB" "$API" "$DEMOS" "$WS" "$RELAY")" ] ||
         fail "5stack-ssl covers $(secret_certificate 5stack-ssl sans)"
 }
 

@@ -4,5 +4,3 @@ kind: Kustomization
 resources:
   - stateful-set.yaml
   - service.yaml
-  - httproute.yaml
-  - configmap.yaml

@@ -11,8 +11,6 @@ spec:
   - ${WEB_DOMAIN}
   - ${API_DOMAIN}
   - ${DEMOS_DOMAIN}
-  - ${TYPESENSE_HOST}
-  - ${S3_CONSOLE_HOST}
   - ${WS_DOMAIN}
   - ${RELAY_DOMAIN}
   issuerRef:

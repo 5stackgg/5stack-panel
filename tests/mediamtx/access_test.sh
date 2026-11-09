@@ -257,6 +257,61 @@ test_the_relay_has_voice_and_cameras_and_no_match_stream() {
     expect client 401 "$PRIVATE" relay $(hls "$MATCH")
 }
 
+# srt FROM SUBNET STREAMID SECONDS: publishes a test picture over SRT, as a
+# game streamer's srtsink does, for SECONDS; the status is ffmpeg's.
+srt() {
+    docker exec "$PREFIX-$1" sh -c 'command -v ffmpeg >/dev/null || apk add -q --no-cache ffmpeg >/dev/null' || return 1
+    docker exec "$PREFIX-$1" timeout 20 ffmpeg -hide_banner -loglevel error -re -f lavfi \
+        -i testsrc=size=160x120:rate=10 -t "$4" -c:v libx264 -preset ultrafast -tune zerolatency -g 10 -f mpegts \
+        "srt://$(node_on "$2"):8890?streamid=$3&pkt_size=1316" >"$WORK_DIR/srt.log" 2>&1
+}
+
+# ready PATH: whether MediaMTX's API says something publishes PATH.
+ready() {
+    docker exec "$PREFIX-client" python3 -I -c '
+import base64, json, sys, urllib.error, urllib.request
+request = urllib.request.Request(sys.argv[1])
+request.add_header("Authorization", "Basic " + base64.b64encode(f"api:{sys.argv[2]}".encode()).decode())
+try:
+    print(str(json.load(urllib.request.urlopen(request, timeout=10)).get("ready")).lower())
+except urllib.error.HTTPError as error:
+    print(error.code)
+' "http://$(node_on "$PRIVATE"):9997/v3/paths/get/$1" "$(password MEDIAMTX_API_PASSWORD)"
+}
+
+test_the_streamer_publishes_a_match_over_srt_with_its_password() {
+    local path=1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b seen=""
+    srt client "$PRIVATE" "publish:$path:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 8 &
+    for _ in $(seq 1 15); do
+        seen="$(ready "$path")"
+        [ "$seen" = true ] && break
+        sleep 1
+    done
+    wait
+    [ "$seen" = true ] || fail "$path never went live over SRT: $seen $(cat "$WORK_DIR/srt.log")"
+}
+
+test_srt_without_the_right_credentials_is_refused() {
+    local entry from subnet streamid path refusals
+    for entry in "client $PRIVATE publish:2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d" \
+        "client $PRIVATE publish:3b4c5d6e-7f8a-4b9c-8d0e-1f2a3b4c5d6e:streamer:0123456789abcdef0123456789abcdef" \
+        "client $PRIVATE publish:4c5d6e7f-8a9b-4c0d-9e1f-2a3b4c5d6e7f:relay:$(password MEDIAMTX_RELAY_PASSWORD)" \
+        "client $PRIVATE publish:$VOICE:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" \
+        "client $PUBLIC publish:5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a" \
+        "node $PUBLIC publish:6e7f8a9b-0c1d-4e2f-9a3b-4c5d6e7f8a9b"; do
+        read -r from subnet streamid <<<"$entry"
+        refusals="$(docker logs "$PREFIX-mediamtx" 2>&1 | grep -c '\[SRT\].*authentication failed')"
+        if srt "$from" "$subnet" "$streamid" 3; then
+            fail "SRT from $from on $subnet with ${streamid%:*:*}:… was let in"
+        fi
+        [ "$(docker logs "$PREFIX-mediamtx" 2>&1 | grep -c '\[SRT\].*authentication failed')" -gt "$refusals" ] ||
+            fail "MediaMTX did not refuse SRT from $from: $(docker logs "$PREFIX-mediamtx" 2>&1 | grep '\[SRT\]' | tail -n 2)"
+        path="${streamid#publish:}"
+        path="${path%%:*}"
+        [ "$(ready "$path")" != true ] || fail "$path went live"
+    done
+}
+
 test_nobody_is_granted_pprof() {
     local actions
     actions="$(docker exec "$PREFIX-client" python3 -I -c '

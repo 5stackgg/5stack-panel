@@ -318,7 +318,7 @@ test_a_new_install_gets_four_mediamtx_passwords() {
     run_setup_env
     assert_eq "$(mediamtx_passwords | cut -d= -f1 | sort | tr '\n' ' ')" \
         "MEDIAMTX_API_PASSWORD MEDIAMTX_RELAY_PASSWORD MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_VIEWER_PASSWORD "
-    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[0-9a-f]{32}$')" 4
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[A-Za-z0-9+_]{32,}$')" 4
     assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u | wc -l | tr -d ' ')" 4
 }
 
@@ -330,7 +330,7 @@ test_an_update_fills_in_missing_mediamtx_passwords_and_keeps_the_rest() {
     run_setup_env
     assert_eq "$(env_lines overlays/local-secrets/mediamtx-secrets.env MEDIAMTX_API_PASSWORD)" \
         "MEDIAMTX_API_PASSWORD=0123456789abcdef0123456789abcdef"
-    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[0-9a-f]{32}$')" 4
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | grep -cE '^[A-Za-z0-9+_]{32,}$')" 4
     assert_eq "$(grep -c '^MEDIAMTX_VIEWER_PASSWORD=' "$PANEL/overlays/local-secrets/mediamtx-secrets.env")" 1
     local before
     before="$(mediamtx_passwords)"

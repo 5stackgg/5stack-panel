@@ -2,10 +2,11 @@
 
 # The passwords of MediaMTX's users (overlays/mediamtx/mediamtx.yml), which the
 # api and game streamers sign in with. Generated here, not only from
-# mediamtx-secrets.env.example, because copy_config_or_secrets only creates env
-# files that don't exist yet, so an existing install would never get them. A
-# password already there is kept: a new one would cut off every stream until
-# the api and streamers restart.
+# mediamtx-secrets.env.example's $(RAND32), because copy_config_or_secrets only
+# creates env files that don't exist yet, so an existing install would never
+# get them. A password already there is kept: a new one would cut off every
+# stream until the api and streamers restart. Hex, like $(RAND32)'s alphabet,
+# has no ':' to split the SRT stream id on.
 MEDIAMTX_SECRET_KEYS="MEDIAMTX_API_PASSWORD MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_RELAY_PASSWORD MEDIAMTX_VIEWER_PASSWORD"
 
 ensure_mediamtx_secrets_in_env_file() {

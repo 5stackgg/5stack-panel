@@ -168,7 +168,9 @@ print(" ".join(sorted({p["action"] for u in config["authInternalUsers"] for p in
     assert_eq "$users" "api metrics playback publish read"
 }
 
-[ -n "$INIT_IMAGE" ] && [ -n "$INIT_COMMAND" ] || fail "the Deployment has no node-addresses init container"
+if [ -z "$INIT_IMAGE" ] || [ -z "$INIT_COMMAND" ]; then
+    fail "the Deployment has no node-addresses init container"
+fi
 for image in "$MEDIAMTX_IMAGE" "$INIT_IMAGE" "$PYTHON_IMAGE"; do
     docker pull -q "$image" >/dev/null || exit 1
 done

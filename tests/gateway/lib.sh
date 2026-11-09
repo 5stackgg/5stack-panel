@@ -15,7 +15,7 @@ K3S_IMAGE=rancher/k3s:v1.37.2-k3s1@sha256:21ea6e0fac4e3930c2ce8aa40ddd41a8b18cb3
 # the image-updates workflow leaves it here while K3S_IMAGE moves on.
 # shellcheck disable=SC2034 # for the tests that source this
 K3S_BEFORE_GATEWAY_API=rancher/k3s:v1.36.5-k3s1@sha256:057cfd5a9d51b89f1f0ee139c28d5d5fdd5aa7ddeac2742a0ba90c6dbc0329bb
-PYTHON_IMAGE=python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+PYTHON_IMAGE=python:3.15.2-alpine3.24@sha256:20a82dbc2783112ddb91d1534603f802d222a3e63e593cd002eb2ac534e70211
 DOMAIN=5stack.test
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-test.XXXXXX")"
 PANEL_DIR="$WORK_DIR/panel"

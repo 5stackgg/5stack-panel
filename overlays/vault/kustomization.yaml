@@ -20,6 +20,7 @@ resources:
   - secrets/faceit.yaml
   - secrets/discord.yaml
   - secrets/coturn.yaml
+  - secrets/mediamtx.yaml
 
 configMapGenerator:
   - name: external-secrets-config

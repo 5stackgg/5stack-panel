@@ -149,6 +149,52 @@ test_the_backup_reads_the_demos_domain_from_the_api_config() {
     assert_eq "$(document "$manifest" CronJob postgres-backup | grep -A1 'key: DEMOS_DOMAIN$' | sed -n 2p | tr -d ' ')" "name:$config_map"
 }
 
+# check_mediamtx_secrets OVERLAY: MediaMTX gets each user's password from
+# mediamtx-secrets, which the overlay creates, and the api gets them optionally.
+check_mediamtx_secrets() {
+    kubectl kustomize "$(overlay "$1")" >"$WORK_DIR/$1.yaml" || fail "kubectl kustomize $1 failed"
+    KUBECONFIG=/dev/null kubectl patch --local -o json --type merge -p '{}' -f "$WORK_DIR/$1.yaml" >"$WORK_DIR/$1.json" ||
+        fail "could not read $1 as JSON"
+    python3 -I - "$WORK_DIR/$1.json" <<'PY' || fail "$1"
+import json, sys
+raw, decoder, at, objs = open(sys.argv[1]).read(), json.JSONDecoder(), 0, []
+while raw[at:].strip():
+    obj, at = decoder.raw_decode(raw, at + len(raw[at:]) - len(raw[at:].lstrip()))
+    objs.append(obj)
+find = lambda kind, name: next((o for o in objs if o["kind"] == kind and o["metadata"]["name"] == name), None)
+keys = ["MEDIAMTX_API_PASSWORD", "MEDIAMTX_STREAMER_PASSWORD", "MEDIAMTX_RELAY_PASSWORD", "MEDIAMTX_VIEWER_PASSWORD"]
+pod = find("Deployment", "mediamtx")["spec"]["template"]["spec"]
+env = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in pod["containers"][0]["env"] if e["name"].startswith("MTX_AUTH")}
+assert list(env) == [f"MTX_AUTHINTERNALUSERS_{i}_PASS" for i in range(4)], env
+assert [r["key"] for r in env.values()] == keys, env
+assert not any(r.get("optional") for r in env.values()), env
+secret = {r["name"] for r in env.values()}
+assert len(secret) == 1, secret
+secret = secret.pop()
+init = pod["initContainers"][0]
+assert [e["secretRef"] for e in init["envFrom"]] == [{"name": secret}], init["envFrom"]
+generated = find("Secret", secret)
+external = find("ExternalSecret", secret)
+if generated:
+    assert secret.startswith("mediamtx-secrets-") and sorted(generated["data"]) == sorted(keys), generated
+else:
+    assert external, f"nothing makes {secret}"
+    assert [(d["secretKey"], d["remoteRef"]["key"], d["remoteRef"]["property"]) for d in external["spec"]["data"]] == \
+        [(k, "mediamtx", k) for k in keys], external["spec"]["data"]
+api = find("Deployment", "api")["spec"]["template"]["spec"]["containers"][0]
+assert {"secretRef": {"name": secret, "optional": True}} in api["envFrom"], api["envFrom"]
+assert find("Middleware", "mediamtx-auth")["spec"]["forwardAuth"]["authResponseHeaders"] == ["Authorization"]
+PY
+}
+
+test_mediamtx_signs_in_with_passwords_from_mediamtx_secrets_in_every_overlay() {
+    with_s3_endpoint ""
+    write || fail "write_overlays failed: $(cat "$WORK_DIR/output")"
+    for o in vault-http vault-https local-secrets-http local-secrets-https; do
+        check_mediamtx_secrets "$o"
+    done
+}
+
 test_update_sh_hands_a_minio_volume_to_rustfs_only_on_built_in_storage() {
     assert_contains "$(grep 'get statefulset minio' "$TEST_ROOT/update.sh")" "if s3_storage_is_builtin && "
 }

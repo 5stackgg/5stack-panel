@@ -31,7 +31,8 @@ spec:
 # X-Forwarded-Uri itself: were a client's own copies to reach the api, a GET
 # sent with X-Forwarded-Method: OPTIONS would pass as a preflight. The auth
 # call stays a GET whatever the request's method, since /streams/authorize
-# only answers GET.
+# only answers GET. On an allow the api answers with the viewer's
+# Authorization, which replaces the client's on the way to MediaMTX.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -41,6 +42,7 @@ spec:
   forwardAuth:
     address: http://api.5stack.svc.cluster.local:5585/streams/authorize
     authRequestHeaders: [Cookie]
+    authResponseHeaders: [Authorization]
     trustForwardHeader: false
     preserveRequestMethod: false
     maxResponseBodySize: 65536

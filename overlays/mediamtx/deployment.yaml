@@ -38,6 +38,9 @@ spec:
         - name: node-addresses
           image: busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
           command: [sh, /etc/mediamtx/node-addresses.sh, /etc/mediamtx/mediamtx.yml, /config/mediamtx.yml]
+          envFrom:
+            - secretRef:
+                name: mediamtx-secrets
           volumeMounts:
             - { name: config, mountPath: /etc/mediamtx }
             - { name: node-config, mountPath: /config }
@@ -46,6 +49,27 @@ spec:
           image: ghcr.io/5stackgg/mediamtx:1.21.3-astits1.17.0@sha256:b0c56ebc628c55b701174f884ff3e6673f0186fa2faa80a469c2f3b7fbc3d572
           args: [/config/mediamtx.yml]
           env:
+            # The passwords of mediamtx.yml's users, in their order there.
+            - name: MTX_AUTHINTERNALUSERS_0_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_API_PASSWORD
+            - name: MTX_AUTHINTERNALUSERS_1_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_STREAMER_PASSWORD
+            - name: MTX_AUTHINTERNALUSERS_2_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_RELAY_PASSWORD
+            - name: MTX_AUTHINTERNALUSERS_3_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mediamtx-secrets
+                  key: MEDIAMTX_VIEWER_PASSWORD
             # Bind SRT/WebRTC to a specific host IP (not :wildcard) so UDP
             # reply packets keep a symmetric 4-tuple — otherwise pod-CIDR
             # clients see replies sourced from cni0 and SRT drops them.

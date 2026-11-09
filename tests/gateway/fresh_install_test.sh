@@ -199,50 +199,50 @@ test_typesense_and_s3_console_hosts() {
 
 test_mediamtx_preflight_is_answered_before_forward_auth() {
     auth_log '?clear' >/dev/null
-    call https "$HLS" /m1/whep -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST' \
+    call https "$HLS" "/$MATCH/whep" -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST' \
         -H 'Access-Control-Request-Headers: content-type'
     expect_code 200
     expect_header Access-Control-Allow-Origin "$ORIGIN"
     expect_header Access-Control-Allow-Credentials true
     [ -z "$BODY" ] || fail "the preflight reached a backend: $BODY"
     local seen
-    seen="$(auth_log | jq '[.[] | select(.headers["x-forwarded-uri"] | startswith("/m1/whep"))]')"
+    seen="$(auth_log | jq --arg path "/$MATCH/whep" '[.[] | select(.headers["x-forwarded-uri"] | startswith($path))]')"
     [ "$(jq length <<<"$seen")" = 0 ] || fail "the preflight went through forward-auth: $seen"
 }
 
 test_mediamtx_requires_a_session() {
-    call https "$HLS" /m1/index.m3u8 -H "Origin: $ORIGIN"
+    call https "$HLS" "/$MATCH/index.m3u8" -H "Origin: $ORIGIN"
     expect_code 401
     expect_header Access-Control-Allow-Origin "$ORIGIN"
-    call https "$HLS" /m1/index.m3u8 -H "Origin: $ORIGIN" -H 'Cookie: session=ok'
+    call https "$HLS" "/$MATCH/index.m3u8" -H "Origin: $ORIGIN" -H 'Cookie: session=ok'
     expect_code 200
     expect_json .backend mediamtx-hls
-    expect_json .path /m1/index.m3u8
-    call https "$HLS" /m1/ -H 'Cookie: session=ok'
+    expect_json .path "/$MATCH/index.m3u8"
+    call https "$HLS" "/$MATCH/" -H 'Cookie: session=ok'
     expect_json .backend mediamtx-hls
 }
 
 test_whep_post_and_patch_pass_forward_auth() {
     auth_log '?clear' >/dev/null
-    call https "$HLS" /m1/whep -X POST -H "Origin: $ORIGIN" -H 'Cookie: session=ok' \
+    call https "$HLS" "/$MATCH/whep" -X POST -H "Origin: $ORIGIN" -H 'Cookie: session=ok' \
         -H 'Content-Type: application/sdp' --data-binary 'v=0'
     expect_code 201
     expect_json .backend mediamtx-whip
-    expect_header Location /m1/whep/session-1
+    expect_header Location "/$MATCH/whep/session-1"
     expect_header Access-Control-Expose-Headers Location
     local entry
     entry="$(auth_log | jq -c '.[-1]')"
     [ "$(jq -r .method <<<"$entry")" = GET ] || fail "the auth call was not a GET: $entry"
     [ "$(jq -r '.headers["x-forwarded-method"]' <<<"$entry")" = POST ] || fail "$entry"
-    [ "$(jq -r '.headers["x-forwarded-uri"]' <<<"$entry")" = /m1/whep ] || fail "$entry"
-    call https "$HLS" /m1/whep/session-1 -X PATCH -H 'Cookie: session=ok' --data-binary 'a=candidate'
+    [ "$(jq -r '.headers["x-forwarded-uri"]' <<<"$entry")" = "/$MATCH/whep" ] || fail "$entry"
+    call https "$HLS" "/$MATCH/whep/session-1" -X PATCH -H 'Cookie: session=ok' --data-binary 'a=candidate'
     expect_code 200
     expect_json .backend mediamtx-whip
 }
 
 test_forward_auth_receives_only_the_cookie() {
     auth_log '?clear' >/dev/null
-    call https "$HLS" /m1/index.m3u8 -H 'Cookie: session=ok' -H 'Authorization: Bearer x' -H 'X-Probe: 1' \
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=ok' -H 'Authorization: Bearer x' -H 'X-Probe: 1' \
         -H 'X-Forwarded-Uri: /other/index.m3u8'
     expect_code 200
     local headers
@@ -250,22 +250,23 @@ test_forward_auth_receives_only_the_cookie() {
     [ "$(jq -r .cookie <<<"$headers")" = session=ok ] || fail "$headers"
     [ "$(jq -r '.authorization // "none"' <<<"$headers")" = none ] || fail "Authorization reached the api: $headers"
     [ "$(jq -r '.["x-probe"] // "none"' <<<"$headers")" = none ] || fail "X-Probe reached the api: $headers"
-    [ "$(jq -r '.["x-forwarded-uri"]' <<<"$headers")" = /m1/index.m3u8 ] || fail "the client's X-Forwarded-Uri won: $headers"
+    [ "$(jq -r '.["x-forwarded-uri"]' <<<"$headers")" = "/$MATCH/index.m3u8" ] || fail "the client's X-Forwarded-Uri won: $headers"
 }
 
 test_spoofed_preflight_headers_do_not_bypass_forward_auth() {
     local spoof
     for spoof in 'X-Forwarded-Method: OPTIONS' 'X-Original-Method: OPTIONS'; do
-        call https "$HLS" /m1/index.m3u8 -H "$spoof"
+        call https "$HLS" "/$MATCH/index.m3u8" -H "$spoof"
         expect_code 401
-        call https "$HLS" /m1/whep -X POST -H "$spoof" --data-binary 'v=0'
+        call https "$HLS" "/$MATCH/whep" -X POST -H "$spoof" --data-binary 'v=0'
         expect_code 401
     done
 }
 
 test_mediamtx_paths_outside_its_patterns_are_404() {
     local path
-    for path in /m1 /m1/a/b.ts /m1/whep/a/b; do
+    for path in "/$MATCH" "/$MATCH/a/b.ts" "/$MATCH/whep/a/b" /m1/index.m3u8 /m1/whep \
+        "/voice-$MATCH/whep" "/voice-$MATCH/index.m3u8" "/camera-$MATCH/whep" "/camera-$MATCH/"; do
         call https "$HLS" "$path" -H 'Cookie: session=ok'
         expect_code 404
     done
@@ -273,7 +274,7 @@ test_mediamtx_paths_outside_its_patterns_are_404() {
 
 test_publishing_and_nested_snapshots_are_not_routed() {
     local path
-    for path in /m1/whip /m1/whip/session-1; do
+    for path in "/$MATCH/whip" "/$MATCH/whip/session-1"; do
         call https "$HLS" "$path" -X POST -H "Origin: $ORIGIN" -H 'Cookie: session=ok' \
             -H 'Content-Type: application/sdp' --data-binary 'v=0'
         expect_code 404
@@ -564,11 +565,11 @@ test_http_mode_serves_every_host_without_redirect() {
     expect_json '.headers["x-forwarded-proto"]' http
     wait_for 200 http "$WS" /x
     expect_json .path /ws/x
-    call http "$HLS" /m1/index.m3u8
+    call http "$HLS" "/$MATCH/index.m3u8"
     expect_code 401
-    call http "$HLS" /m1/index.m3u8 -H 'Cookie: session=ok'
+    call http "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=ok'
     expect_code 200
-    call http "$HLS" /m1/whep -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST'
+    call http "$HLS" "/$MATCH/whep" -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST'
     expect_code 200
     expect_header Access-Control-Allow-Origin "$ORIGIN"
     call http "$DEMOS" '/5stack/demos/a.dem?X-Amz-Signature=x'
@@ -589,9 +590,9 @@ test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there() {
     expect_code 200
     expect_json .path /ws/x
     expect_json '.headers["x-forwarded-proto"]' https
-    call https "$HLS" /m1/index.m3u8
+    call https "$HLS" "/$MATCH/index.m3u8"
     expect_code 401
-    call https "$HLS" /m1/index.m3u8 -H 'Cookie: session=ok'
+    call https "$HLS" "/$MATCH/index.m3u8" -H 'Cookie: session=ok'
     expect_code 200
     call https "$DEMOS" '/5stack/demos/a.dem?X-Amz-Signature=x'
     expect_json .backend rustfs
@@ -618,11 +619,11 @@ run_test test_lets_encrypts_check_path_answers_from_the_panel_beside_the_https_r
 tls_secret 5stack-ssl "$WEB" "$API" "$DEMOS" "$WS" "$RELAY" "$SEARCH" "$CONSOLE" || exit 1
 run_test test_hosts_serve_while_the_stream_certificate_is_missing
 tls_secret 5stack-mediamtx-ssl "$HLS" || exit 1
-call https "$HLS" /m1/index.m3u8
+call https "$HLS" "/$MATCH/index.m3u8"
 for _ in $(seq 1 30); do
     [ "$CODE" = 401 ] && break
     sleep 2
-    call https "$HLS" /m1/index.m3u8
+    call https "$HLS" "/$MATCH/index.m3u8"
 done
 
 start_long_requests

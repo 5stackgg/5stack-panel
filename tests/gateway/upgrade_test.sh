@@ -136,12 +136,12 @@ test_panel_routes_go_through_traefik() {
     expect_code 404
     call https "ws.$DOMAIN" /x
     expect_json .path /ws/x
-    call https "$HLS" /m1/whep -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST'
+    call https "$HLS" "/$MATCH/whep" -X OPTIONS -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST'
     expect_code 200
     expect_header Access-Control-Allow-Origin "$ORIGIN"
-    call https "$HLS" /m1/index.m3u8
+    call https "$HLS" "/$MATCH/index.m3u8"
     expect_code 401
-    call https "$HLS" /m1/whep -X POST -H 'Cookie: session=ok' --data-binary 'v=0'
+    call https "$HLS" "/$MATCH/whep" -X POST -H 'Cookie: session=ok' --data-binary 'v=0'
     expect_code 201
     call http "$API" /me
     expect_code 308

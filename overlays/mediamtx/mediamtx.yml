@@ -11,17 +11,27 @@ apiAddress: :9997
 metrics: yes
 metricsAddress: :9998
 
+# hostNetwork puts every listener on each of the node's addresses, so only
+# cluster and private clients are let in: pods on the node arrive from their
+# own address, pods on other nodes from that node's LAN or Tailscale one, and
+# browsers come through Traefik.
 authInternalUsers:
   - user: any
     pass:
-    ips: []
+    ips:
+      - 127.0.0.0/8
+      - ::1
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 100.64.0.0/10
+      - fc00::/7
     permissions:
       - action: publish
       - action: read
       - action: playback
       - action: api
       - action: metrics
-      - action: pprof
 
 hls: yes
 hlsAddress: :8888

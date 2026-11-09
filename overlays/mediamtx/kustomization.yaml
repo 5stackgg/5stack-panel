@@ -14,6 +14,7 @@ configMapGenerator:
     namespace: 5stack
     files:
       - mediamtx.yml
+      - node-addresses.sh
   - name: mediamtx-env
     namespace: 5stack
     envs:

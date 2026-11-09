@@ -1,0 +1,28 @@
+name: MediaMTX
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "overlays/mediamtx/**"
+      - "tests/mediamtx/**"
+      - .github/workflows/mediamtx.yml
+  pull_request:
+    paths:
+      - "overlays/mediamtx/**"
+      - "tests/mediamtx/**"
+      - .github/workflows/mediamtx.yml
+
+jobs:
+  routes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -x tests/mediamtx/*.sh
+      - run: bash tests/mediamtx/routes_test.sh
+
+  access:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/mediamtx/access_test.sh

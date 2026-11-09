@@ -1,6 +1,7 @@
 # Traefik matches RegularExpression paths unanchored, so every pattern carries
 # its own ^ and $. The two never match the same URL, and neither matches
-# /snapshot/<id> on the same host.
+# /snapshot/<id> on the same host. The first segment is a match id: MediaMTX's
+# other paths, voice and cameras, are reached only through the api.
 #
 # Filter order is load bearing: CORS answers a preflight itself, and a
 # preflight carries no cookie, so it must never reach the forward-auth.
@@ -20,7 +21,7 @@ spec:
     - matches:
         - path:
             type: RegularExpression
-            value: ^/[^/]+/whep(/[^/]+)?$
+            value: ^/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/whep(/[^/]+)?$
       filters:
         - type: ExtensionRef
           extensionRef:
@@ -39,7 +40,7 @@ spec:
     - matches:
         - path:
             type: RegularExpression
-            value: ^/[^/]+/([^/]+\.[^/]+)?$
+            value: ^/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/([^/]+\.[^/]+)?$
       filters:
         - type: ExtensionRef
           extensionRef:

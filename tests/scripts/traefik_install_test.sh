@@ -381,6 +381,39 @@ test_traefik_waits_behind_servicelb_while_ingress_nginx_holds_the_ports() {
     assert_not_contains "$(gateway_values)" "hostPort"
 }
 
+test_no_proxy_is_trusted_until_one_is_listed() {
+    ports_file HTTP_PORT=80 HTTPS_PORT=443 TRUSTED_PROXIES=
+    run_install install_traefik
+    assert_not_contains "$(gateway_values)" "forwardedHeaders"
+}
+
+test_listed_proxies_are_trusted_on_both_ports() {
+    ports_file HTTP_PORT=80 HTTPS_PORT=443 'TRUSTED_PROXIES=10.0.2.61, 192.168.0.0/24,fd00::1'
+    run_install install_traefik
+    assert_contains "$(gateway_values)" 'web: {exposedPort: 80, hostPort: 80, forwardedHeaders: {trustedIPs: ["10.0.2.61", "192.168.0.0/24", "fd00::1"]}}'
+    assert_contains "$(gateway_values)" 'websecure: {exposedPort: 443, hostPort: 443, forwardedHeaders: {trustedIPs: ["10.0.2.61", "192.168.0.0/24", "fd00::1"]}}'
+}
+
+test_listed_proxies_are_trusted_behind_servicelb_too() {
+    nginx_ports 80 443
+    ports_file HTTP_PORT=80 HTTPS_PORT=443 TRUSTED_PROXIES=10.0.2.61
+    run_install install_traefik
+    assert_contains "$(gateway_values)" 'web: {exposedPort: 80, forwardedHeaders: {trustedIPs: ["10.0.2.61"]}}'
+}
+
+test_a_trusted_proxy_that_is_not_an_address_stops_the_install() {
+    local bad
+    for bad in proxy.example.com 0.0.0.0/0 ::/0 10.0.2.61/33 '10.0.2.61;true' '10.0.2.61]}'; do
+        ports_file HTTP_PORT=80 HTTPS_PORT=443 "TRUSTED_PROXIES=$bad"
+        rm -f "$WORK_DIR/server-side-applied"
+        if try_install install_traefik; then
+            fail "install_traefik took TRUSTED_PROXIES=$bad"
+        fi
+        assert_contains "$(cat "$WORK_DIR/output")" "TRUSTED_PROXIES"
+        assert_eq "$(gateway_values)" ""
+    done
+}
+
 test_traefik_left_behind_servicelb_moves_onto_the_host_ports() {
     echo LoadBalancer >"$WORK_DIR/traefik-type"
     ports_file HTTP_PORT=80 HTTPS_PORT=443

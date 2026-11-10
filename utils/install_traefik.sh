@@ -39,7 +39,7 @@ carry_over_ingress_nginx_ports() {
 
 install_traefik() {
     local ports_env="${1:-$PANEL_DIR/overlays/config/traefik-config.env}"
-    local minor http_port https_port crd behind nginx crds_values left_out held object deadline
+    local minor http_port https_port trusted crd behind nginx crds_values left_out held object deadline
     local -a kc=() handed=()
     [ -n "${KUBECONFIG:-}" ] && kc=(--kubeconfig="$KUBECONFIG")
 
@@ -61,6 +61,10 @@ install_traefik() {
         err "HTTP_PORT and HTTPS_PORT in $ports_env must be port numbers"
         return 1
     fi
+    trusted="$(trusted_proxy_list "$(grep -s '^TRUSTED_PROXIES=' "$ports_env" | tail -n 1 | cut -d= -f2- | tr -d '\r" ')")" || {
+        err "TRUSTED_PROXIES in $ports_env must be IP addresses or CIDR ranges separated by commas, and never everyone (/0)"
+        return 1
+    }
 
     # Where k3s installs the Gateway API itself, gateway-crds brings only
     # Traefik's CRDs. One that still holds k3s's objects, from before k3s was
@@ -123,7 +127,7 @@ install_traefik() {
 
     pull_traefik_image || return 1
 
-    install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(gateway_chart_values "$http_port" "$https_port" "$behind")" || return 1
+    install_helm_chart gateway "$PANEL_DIR/charts/gateway" "$(gateway_chart_values "$http_port" "$https_port" "$behind" "$trusted")" || return 1
 
     if ! kubectl "${kc[@]}" -n traefik rollout status deployment/traefik --timeout=300s; then
         err "Traefik never became ready"
@@ -163,23 +167,50 @@ pull_traefik_image() {
     output_redirect kubectl "${kc[@]}" -n traefik delete pod traefik-pull --wait=false
 }
 
-# gateway_chart_values HTTP_PORT HTTPS_PORT [servicelb]: the gateway chart's
-# values. Traefik binds the host's ports itself, or with servicelb sits behind
-# ServiceLB while ingress-nginx still holds them. Only the node running
+# trusted_proxy_list ADDRESSES: TRUSTED_PROXIES as the YAML list Traefik takes,
+# or nothing when it is empty. Fails on anything that isn't an address or a
+# range, and on /0: trusting everyone lets any visitor name its own address.
+trusted_proxy_list() {
+    local entry list=""
+    local v4='^([0-9]{1,3}\.){3}[0-9]{1,3}(/([1-9]|[12][0-9]|3[0-2]))?$'
+    local v6='^[0-9a-fA-F]*:[0-9a-fA-F:]*(/([1-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))?$'
+    local -a entries=()
+    IFS=',' read -r -a entries <<<"$1"
+    for entry in "${entries[@]}"; do
+        if [ -z "$entry" ]; then
+            continue
+        fi
+        if ! [[ "$entry" =~ $v4 || "$entry" =~ $v6 ]]; then
+            return 1
+        fi
+        list="${list:+$list, }\"$entry\""
+    done
+    if [ -n "$list" ]; then
+        printf '[%s]' "$list"
+    fi
+}
+
+# gateway_chart_values HTTP_PORT HTTPS_PORT [servicelb] [TRUSTED]: the gateway
+# chart's values. Traefik binds the host's ports itself, or with servicelb sits
+# behind ServiceLB while ingress-nginx still holds them. Only the node running
 # Traefik listens on these ports, and DNS points at the server node, not at a
-# game node that joined later.
+# game node that joined later. TRUSTED is trusted_proxy_list's: the reverse
+# proxies whose X-Forwarded-* Traefik keeps instead of writing its own.
 gateway_chart_values() {
-    local binding
+    local binding trust=""
+    if [ -n "${4:-}" ]; then
+        trust=", forwardedHeaders: {trustedIPs: $4}"
+    fi
     if [ "${3:-}" = servicelb ]; then
         binding="  ports:
-    web: {exposedPort: $1}
-    websecure: {exposedPort: $2}
+    web: {exposedPort: $1$trust}
+    websecure: {exposedPort: $2$trust}
   service:
     spec: {type: LoadBalancer, externalTrafficPolicy: Local}"
     else
         binding="  ports:
-    web: {exposedPort: $1, hostPort: $1}
-    websecure: {exposedPort: $2, hostPort: $2}"
+    web: {exposedPort: $1, hostPort: $1$trust}
+    websecure: {exposedPort: $2, hostPort: $2$trust}"
     fi
     cat <<EOF
 traefik:

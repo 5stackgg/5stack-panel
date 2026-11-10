@@ -638,6 +638,21 @@ test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there() {
     done
 }
 
+# Without TRUSTED_PROXIES the sender is the visitor, whatever it says.
+test_an_unlisted_sender_cannot_name_the_visitor() {
+    wait_for 200 http "$API" /me -H 'X-Forwarded-For: 203.0.113.7'
+    expect_json '.headers["x-forwarded-for"]' "$CLIENT_IP"
+}
+
+test_a_trusted_proxy_names_the_visitor() {
+    echo "TRUSTED_PROXIES=$CLIENT_IP" >>"$PANEL_DIR/overlays/config/traefik-config.env"
+    install_traefik "$PANEL_DIR/overlays/config/traefik-config.env" >/dev/null || fail "install_traefik failed"
+    wait_for 200 http "$API" /me -H 'X-Forwarded-For: 203.0.113.7'
+    expect_json '.headers["x-forwarded-for"]' "203.0.113.7, $CLIENT_IP"
+    wait_for 200 https "$API" /me -H 'X-Forwarded-For: 203.0.113.7'
+    expect_json '.headers["x-forwarded-for"]' "203.0.113.7, $CLIENT_IP"
+}
+
 start_cluster || exit 1
 make_panel || exit 1
 run_test test_every_panel_route_names_its_listeners_host
@@ -704,5 +719,7 @@ run_test test_http_mode_also_answers_on_443_for_a_proxy_that_forwards_there
 run_test test_http_mode_shares_443_with_the_shared_gateway
 run_test test_an_upgrade_keeps_the_shared_certificate
 run_test test_an_upgrade_renews_a_shared_certificate_about_to_expire
+run_test test_an_unlisted_sender_cannot_name_the_visitor
+run_test test_a_trusted_proxy_names_the_visitor
 
 summary

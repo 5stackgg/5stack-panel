@@ -239,9 +239,12 @@ ask_reverse_proxy() {
 }
 
 
+# Keys named after the path come from this server itself (K3S_TOKEN from k3s,
+# TAILSCALE_SECRET_ID from game-node-server-setup.sh), so they replace Vault's.
 migrate_secrets_to_vault() {
     local secret_file=$1
     local vault_path=$2
+    local host_keys=" ${*:3} "
     
     if [ ! -f "$secret_file" ]; then
         echo "Warning: $secret_file not found, skipping..."
@@ -273,9 +276,18 @@ migrate_secrets_to_vault() {
             continue
         fi
 
-        # A value here can be one setup just generated for a new key, so it never replaces what Vault already has.
-        if vault kv get -field="$key" "$vault_path" &>/dev/null </dev/null; then
-            echo "  ✓ $key is already in Vault, kept as it is"
+        # Any other value here can be one setup just generated for a new key, so it never replaces what Vault already has.
+        local current=""
+        if [[ "$host_keys" != *" $key "* ]]; then
+            current=$(vault kv get -field="$key" "$vault_path" 2>/dev/null </dev/null) || current=""
+        fi
+        if [ -n "$current" ]; then
+            if [ "$current" = "$value" ]; then
+                echo "  ✓ $key is already in Vault"
+            else
+                echo "$key=$value" >> "${secret_file}.backup"
+                echo "  ✓ $key is already in Vault, kept as it is; this server's value is in ${secret_file}.backup"
+            fi
         else
             echo "Migrating $key to Vault"
 
@@ -487,12 +499,12 @@ if [ "$VAULT_MANAGER" = true ] && [ -z "${FIVESTACK_RELEASE:-}" ]; then
         exit 1
     fi
     
-    migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api" K3S_TOKEN
     migrate_secrets_to_vault "overlays/local-secrets/push-secrets.env" "kv/push"
     migrate_secrets_to_vault "overlays/local-secrets/steam-secrets.env" "kv/steam"
     migrate_secrets_to_vault "overlays/local-secrets/timescaledb-secrets.env" "kv/timescaledb"
     migrate_secrets_to_vault "overlays/local-secrets/typesense-secrets.env" "kv/typesense"
-    migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale"
+    migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale" TAILSCALE_SECRET_ID
     migrate_secrets_to_vault "overlays/local-secrets/s3-secrets.env" "kv/s3"
     migrate_secrets_to_vault "overlays/local-secrets/redis-secrets.env" "kv/redis"
     migrate_secrets_to_vault "overlays/local-secrets/rustfs-secrets.env" "kv/rustfs"

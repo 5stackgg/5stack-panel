@@ -360,9 +360,62 @@ test_a_vault_install_moves_the_mediamtx_passwords_to_kv_mediamtx() {
     # shellcheck disable=SC2016 # expanded by the stub
     printf '#!/bin/sh\necho "$*" >>"%s/vault-calls"\ncase "$1 $2" in "kv get") exit 1 ;; esac\nexit 0\n' "$WORK_DIR" >"$WORK_DIR/bin/vault"
     run_setup_env
-    assert_contains "$(cat "$WORK_DIR/vault-calls")" "kv put kv/mediamtx -"
+    assert_contains "$(cat "$WORK_DIR/vault-calls")" "kv put -cas=0 kv/mediamtx -"
     assert_eq "$(grep -c '^kv patch kv/mediamtx -$' "$WORK_DIR/vault-calls")" 4
     assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u)" VAULT
+}
+
+test_a_vault_install_never_overwrites_secrets_vault_already_has() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    set_env overlays/local-secrets/api-secrets.env K3S_TOKEN from-this-server
+    use_vault
+    cat >"$WORK_DIR/bin/vault" <<EOF
+#!/bin/sh
+echo "\$*" >>"$WORK_DIR/vault-calls"
+case "\$*" in
+"kv patch "*) cat >>"$WORK_DIR/vault-patches"; echo >>"$WORK_DIR/vault-patches"; exit 0 ;;
+"kv get kv/mediamtx"|"kv get kv/api") exit 0 ;;
+"kv get -field=MEDIAMTX_API_PASSWORD kv/mediamtx"|"kv get -field=K3S_TOKEN kv/api") echo from-vault; exit 0 ;;
+"kv get -field=MEDIAMTX_VIEWER_PASSWORD kv/mediamtx") exit 0 ;;
+"kv get -field=MEDIAMTX_RELAY_PASSWORD kv/mediamtx") exit 2 ;;
+"kv get -field="*) exit 1 ;;
+"kv get "*) exit 2 ;;
+esac
+exit 0
+EOF
+    run_setup_env
+    assert_not_contains "$(cat "$WORK_DIR/vault-calls")" "kv put -cas=0 kv/mediamtx -"
+    assert_eq "$(grep -c '^kv patch kv/mediamtx -$' "$WORK_DIR/vault-calls")" 2
+    assert_not_contains "$(cat "$WORK_DIR/vault-patches")" "MEDIAMTX_API_PASSWORD"
+    assert_contains "$(cat "$WORK_DIR/vault-patches")" "MEDIAMTX_VIEWER_PASSWORD"
+    assert_contains "$(cat "$WORK_DIR/vault-patches")" '"K3S_TOKEN": "from-this-server"'
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "MEDIAMTX_API_PASSWORD is already in Vault, kept as it is; this server's value is in overlays/local-secrets/mediamtx-secrets.env.backup"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Could not read MEDIAMTX_RELAY_PASSWORD from kv/mediamtx, so it was left as it is"
+    assert_eq "$(mediamtx_passwords | grep -v '^MEDIAMTX_RELAY_PASSWORD=' | cut -d= -f2 | sort -u)" VAULT
+    assert_not_contains "$(env_lines overlays/local-secrets/mediamtx-secrets.env MEDIAMTX_RELAY_PASSWORD)" "=VAULT"
+    assert_eq "$(cut -d= -f1 "$PANEL/overlays/local-secrets/mediamtx-secrets.env.backup" | sort | tr '\n' ' ')" \
+        "MEDIAMTX_API_PASSWORD MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_VIEWER_PASSWORD "
+}
+
+test_a_failed_vault_read_never_empties_an_existing_path() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    use_vault
+    cat >"$WORK_DIR/bin/vault" <<EOF
+#!/bin/sh
+echo "\$*" >>"$WORK_DIR/vault-calls"
+case "\$*" in
+"kv put -cas=0 kv/mediamtx -") exit 2 ;;
+"kv patch "*) cat >/dev/null; exit 0 ;;
+"kv get "*) exit 2 ;;
+esac
+exit 0
+EOF
+    run_setup_env
+    assert_contains "$(cat "$WORK_DIR/vault-calls")" "kv put -cas=0 kv/mediamtx -"
+    assert_eq "$(grep -c '^kv patch kv/mediamtx -$' "$WORK_DIR/vault-calls")" 0
+    assert_eq "$(mediamtx_passwords | grep -c '=VAULT$')" 0
 }
 
 test_the_5stack_service_runs_a_vault_install_without_the_vault_cli() {

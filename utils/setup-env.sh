@@ -239,9 +239,12 @@ ask_reverse_proxy() {
 }
 
 
+# Keys named after the path come from this server itself (K3S_TOKEN from k3s,
+# TAILSCALE_SECRET_ID from game-node-server-setup.sh), so they replace Vault's.
 migrate_secrets_to_vault() {
     local secret_file=$1
     local vault_path=$2
+    local host_keys=" ${*:3} "
     
     if [ ! -f "$secret_file" ]; then
         echo "Warning: $secret_file not found, skipping..."
@@ -254,8 +257,9 @@ migrate_secrets_to_vault() {
         secret_exists=true
     fi
 
+    # -cas=0 only creates the path: a read that failed for another reason must not empty one that exists.
     if [ "$secret_exists" = false ]; then
-        echo '{}' | vault kv put "$vault_path" -
+        echo '{}' | vault kv put -cas=0 "$vault_path" -
     fi
     
     # Read current file and migrate non-VAULT values
@@ -273,24 +277,41 @@ migrate_secrets_to_vault() {
             continue
         fi
 
-        echo "Migrating $key to Vault"
-        
-        # Upload to Vault
-        local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-        echo "$json_data" | vault kv patch "$vault_path" -
+        # Any other value here can be one setup just generated for a new key, so it never replaces what Vault already has.
+        local current="" read_status=1
+        if [[ "$host_keys" != *" $key "* ]]; then
+            current=$(vault kv get -field="$key" "$vault_path" 2>/dev/null </dev/null)
+            read_status=$?
+        fi
+        if [ "$read_status" -gt 1 ]; then
+            echo "  ✗ Could not read $key from $vault_path, so it was left as it is"
+            continue
+        fi
+        if [ "$read_status" -eq 0 ] && [ -n "$current" ]; then
+            if [ "$current" = "$value" ]; then
+                echo "  ✓ $key is already in Vault"
+            else
+                echo "$key=$value" >> "${secret_file}.backup"
+                echo "  ✓ $key is already in Vault, kept as it is; this server's value is in ${secret_file}.backup"
+            fi
+        else
+            echo "Migrating $key to Vault"
 
-        if [ $? -eq 0 ]; then
+            # Upload to Vault
+            local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
+            if ! echo "$json_data" | vault kv patch "$vault_path" -; then
+                echo "  ✗ Failed to migrate $key to Vault"
+                continue
+            fi
             echo "  ✓ Migrated $key to Vault"
             # Append to backup after successful upload
             echo "$key=$value" >> "${secret_file}.backup"
-            # Update current file to VAULT
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
-            else
-                sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
-            fi
+        fi
+        # Update current file to VAULT
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
         else
-            echo "  ✗ Failed to migrate $key to Vault"
+            sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
         fi
     done < "$secret_file"
 }
@@ -484,12 +505,12 @@ if [ "$VAULT_MANAGER" = true ] && [ -z "${FIVESTACK_RELEASE:-}" ]; then
         exit 1
     fi
     
-    migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api"
+    migrate_secrets_to_vault "overlays/local-secrets/api-secrets.env" "kv/api" K3S_TOKEN
     migrate_secrets_to_vault "overlays/local-secrets/push-secrets.env" "kv/push"
     migrate_secrets_to_vault "overlays/local-secrets/steam-secrets.env" "kv/steam"
     migrate_secrets_to_vault "overlays/local-secrets/timescaledb-secrets.env" "kv/timescaledb"
     migrate_secrets_to_vault "overlays/local-secrets/typesense-secrets.env" "kv/typesense"
-    migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale"
+    migrate_secrets_to_vault "overlays/local-secrets/tailscale-secrets.env" "kv/tailscale" TAILSCALE_SECRET_ID
     migrate_secrets_to_vault "overlays/local-secrets/s3-secrets.env" "kv/s3"
     migrate_secrets_to_vault "overlays/local-secrets/redis-secrets.env" "kv/redis"
     migrate_secrets_to_vault "overlays/local-secrets/rustfs-secrets.env" "kv/rustfs"

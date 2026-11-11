@@ -365,6 +365,22 @@ test_a_vault_install_moves_the_mediamtx_passwords_to_kv_mediamtx() {
     assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u)" VAULT
 }
 
+test_a_vault_install_never_overwrites_passwords_vault_already_has() {
+    make_panel
+    set_env overlays/config/api-config.env WEB_DOMAIN example.com
+    use_vault
+    # shellcheck disable=SC2016 # expanded by the stub
+    printf '#!/bin/sh\necho "$*" >>"%s/vault-calls"\ncase "$*" in\n"kv get kv/mediamtx"|"kv get -field=MEDIAMTX_API_PASSWORD kv/mediamtx"|"kv get -field=MEDIAMTX_RELAY_PASSWORD kv/mediamtx") exit 0 ;;\n"kv get "*) exit 2 ;;\nesac\nexit 0\n' "$WORK_DIR" >"$WORK_DIR/bin/vault"
+    run_setup_env
+    assert_not_contains "$(cat "$WORK_DIR/vault-calls")" "kv put kv/mediamtx -"
+    assert_eq "$(grep -c '^kv patch kv/mediamtx -$' "$WORK_DIR/vault-calls")" 2
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "MEDIAMTX_API_PASSWORD is already in Vault, kept as it is"
+    assert_contains "$(cat "$WORK_DIR/setup-output")" "Migrated MEDIAMTX_STREAMER_PASSWORD to Vault"
+    assert_eq "$(mediamtx_passwords | cut -d= -f2 | sort -u)" VAULT
+    assert_eq "$(cut -d= -f1 "$PANEL/overlays/local-secrets/mediamtx-secrets.env.backup" | sort | tr '\n' ' ')" \
+        "MEDIAMTX_STREAMER_PASSWORD MEDIAMTX_VIEWER_PASSWORD "
+}
+
 test_the_5stack_service_runs_a_vault_install_without_the_vault_cli() {
     make_panel
     set_sibling_domains

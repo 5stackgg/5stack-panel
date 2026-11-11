@@ -273,24 +273,27 @@ migrate_secrets_to_vault() {
             continue
         fi
 
-        echo "Migrating $key to Vault"
-        
-        # Upload to Vault
-        local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
-        echo "$json_data" | vault kv patch "$vault_path" -
+        # A value here can be one setup just generated for a new key, so it never replaces what Vault already has.
+        if vault kv get -field="$key" "$vault_path" &>/dev/null </dev/null; then
+            echo "  ✓ $key is already in Vault, kept as it is"
+        else
+            echo "Migrating $key to Vault"
 
-        if [ $? -eq 0 ]; then
+            # Upload to Vault
+            local json_data=$(jq -n --arg k "$key" --arg v "$value" '{($k): $v}')
+            if ! echo "$json_data" | vault kv patch "$vault_path" -; then
+                echo "  ✗ Failed to migrate $key to Vault"
+                continue
+            fi
             echo "  ✓ Migrated $key to Vault"
             # Append to backup after successful upload
             echo "$key=$value" >> "${secret_file}.backup"
-            # Update current file to VAULT
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
-            else
-                sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
-            fi
+        fi
+        # Update current file to VAULT
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s|^$key=.*|$key=VAULT|" "$secret_file"
         else
-            echo "  ✗ Failed to migrate $key to Vault"
+            sed -i "s|^$key=.*|$key=VAULT|" "$secret_file"
         fi
     done < "$secret_file"
 }

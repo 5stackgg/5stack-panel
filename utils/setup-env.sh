@@ -257,8 +257,9 @@ migrate_secrets_to_vault() {
         secret_exists=true
     fi
 
+    # -cas=0 only creates the path: a read that failed for another reason must not empty one that exists.
     if [ "$secret_exists" = false ]; then
-        echo '{}' | vault kv put "$vault_path" -
+        echo '{}' | vault kv put -cas=0 "$vault_path" -
     fi
     
     # Read current file and migrate non-VAULT values
@@ -277,11 +278,16 @@ migrate_secrets_to_vault() {
         fi
 
         # Any other value here can be one setup just generated for a new key, so it never replaces what Vault already has.
-        local current=""
+        local current="" read_status=1
         if [[ "$host_keys" != *" $key "* ]]; then
-            current=$(vault kv get -field="$key" "$vault_path" 2>/dev/null </dev/null) || current=""
+            current=$(vault kv get -field="$key" "$vault_path" 2>/dev/null </dev/null)
+            read_status=$?
         fi
-        if [ -n "$current" ]; then
+        if [ "$read_status" -gt 1 ]; then
+            echo "  ✗ Could not read $key from $vault_path, so it was left as it is"
+            continue
+        fi
+        if [ "$read_status" -eq 0 ] && [ -n "$current" ]; then
             if [ "$current" = "$value" ]; then
                 echo "  ✓ $key is already in Vault"
             else

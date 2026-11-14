@@ -33,9 +33,11 @@ metrics_available() {
     kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null
 }
 
-add_on_nodes() {
-    kubectl -n kube-system get pods -l "k8s-app in (kube-dns,metrics-server)" --field-selector status.phase=Running \
-        -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort -u
+# Pods stuck on a node that is off still read Running, so this asks per node.
+add_ons_on() {
+    kubectl -n kube-system get pods -l "k8s-app in (kube-dns,metrics-server)" \
+        --field-selector "spec.nodeName=$1,status.phase=Running" \
+        -o jsonpath='{range .items[*]}{.metadata.labels.k8s-app}{"\n"}{end}' | sort -u | tr '\n' ' '
 }
 
 # The panel is installed with the game node cordoned, so the stub backends stay
@@ -51,7 +53,8 @@ install_with_add_ons_on_game_node() {
     kubectl -n kube-system rollout status deployment/coredns --timeout=180s >/dev/null || return 1
     kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s >/dev/null || return 1
     kubectl uncordon "$PREFIX-k3s" >/dev/null || return 1
-    [ "$(add_on_nodes)" = "$PREFIX-node" ] && [ "$(metrics_available)" = True ]
+    [ "$(add_ons_on "$PREFIX-node")" = "kube-dns metrics-server " ] && [ -z "$(add_ons_on "$PREFIX-k3s")" ] &&
+        [ "$(metrics_available)" = True ]
 }
 
 add_ons_down() {
@@ -64,7 +67,7 @@ add_ons_down() {
 
 add_ons_back_on_server() {
     for _ in $(seq 1 120); do
-        [ "$(metrics_available)" = True ] && [ "$(add_on_nodes)" = "$PREFIX-k3s" ] && return 0
+        [ "$(metrics_available)" = True ] && [ "$(add_ons_on "$PREFIX-k3s")" = "kube-dns metrics-server " ] && return 0
         sleep 5
     done
     return 1

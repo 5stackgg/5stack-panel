@@ -76,6 +76,16 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash tests/gateway/k3s_upgrade_test.sh
 
+  game-node-off:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k3s: [current, before-gateway-api]
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/gateway/offline_node_test.sh ${{ matrix.k3s }}
+
   cert-manager:
     runs-on: ubuntu-latest
     steps:

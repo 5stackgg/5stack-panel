@@ -30,7 +30,7 @@ TESTS_FAILED=0
 export KUBECONFIG PANEL_DIR DEBUG
 
 cleanup() {
-    docker rm -f -v "$PREFIX-k3s" "$PREFIX-client" >/dev/null 2>&1
+    docker rm -f -v "$PREFIX-k3s" "$PREFIX-node" "$PREFIX-client" >/dev/null 2>&1
     docker network rm "$PREFIX-net" "$PREFIX-public" >/dev/null 2>&1
     docker volume rm "$K3S_STATE" >/dev/null 2>&1
     rm -rf "$WORK_DIR"
@@ -114,6 +114,29 @@ run_k3s() {
     docker network connect "$PREFIX-public" "$PREFIX-k3s" || return 1
     NODE_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-public\").IPAddress}}" "$PREFIX-k3s")"
     [ "$NODE_IP" != "$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')" ] || return 1
+}
+
+# A game node: a k3s agent joined to the cluster with the server's token.
+join_game_node() {
+    local token
+    token="$(docker exec "$PREFIX-k3s" cat /var/lib/rancher/k3s/server/node-token)" || return 1
+    docker run -d --name "$PREFIX-node" --hostname "$PREFIX-node" --network "$PREFIX-net" --privileged \
+        --tmpfs /run --tmpfs /var/run -e K3S_URL="https://$PREFIX-k3s:6443" -e K3S_TOKEN="$token" \
+        "$K3S_IMAGE" agent >/dev/null || return 1
+    game_node_is Ready
+}
+
+# Waits for the game node's Ready condition to read True (Ready) or Unknown
+# (the cluster has noticed it is gone).
+game_node_is() {
+    local want=True
+    [ "$1" = Ready ] || want=Unknown
+    for _ in $(seq 1 90); do
+        [ "$(kubectl get node "$PREFIX-node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = "$want" ] &&
+            return 0
+        sleep 2
+    done
+    return 1
 }
 
 set_env() {

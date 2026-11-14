@@ -53,8 +53,12 @@ install_with_add_ons_on_game_node() {
     kubectl -n kube-system rollout status deployment/coredns --timeout=180s >/dev/null || return 1
     kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s >/dev/null || return 1
     kubectl uncordon "$PREFIX-k3s" >/dev/null || return 1
-    [ "$(add_ons_on "$PREFIX-node")" = "kube-dns metrics-server " ] && [ -z "$(add_ons_on "$PREFIX-k3s")" ] &&
-        [ "$(metrics_available)" = True ]
+    for _ in $(seq 1 30); do
+        [ "$(add_ons_on "$PREFIX-node")" = "kube-dns metrics-server " ] && [ -z "$(add_ons_on "$PREFIX-k3s")" ] &&
+            [ "$(metrics_available)" = True ] && return 0
+        sleep 2
+    done
+    return 1
 }
 
 add_ons_down() {

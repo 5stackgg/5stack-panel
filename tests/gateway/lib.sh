@@ -87,13 +87,15 @@ start_cluster() {
 # the new kubelet itself, since the Node the old one left still says Ready.
 run_k3s() {
     local image="$1" version port
+    local -a disable
+    read -r -a disable <<<"${K3S_DISABLE:---disable=traefik --disable=metrics-server --disable=local-storage}"
     version="${image%%@*}"
     version="${version##*:}"
     version="${version/-k3s/+k3s}"
     docker rm -f "$PREFIX-k3s" >/dev/null 2>&1
     docker run -d --name "$PREFIX-k3s" --hostname "$PREFIX-k3s" --network "$PREFIX-net" --privileged \
         --tmpfs /run --tmpfs /var/run -v "$K3S_STATE:/var/lib/rancher/k3s" -p 127.0.0.1::6443 "$image" server \
-        --disable=traefik --disable=metrics-server --disable=local-storage --tls-san 127.0.0.1 >/dev/null || return 1
+        "${disable[@]}" --tls-san 127.0.0.1 >/dev/null || return 1
     port="$(docker port "$PREFIX-k3s" 6443/tcp | head -n 1 | sed 's/.*://')"
     for _ in $(seq 1 90); do
         docker exec "$PREFIX-k3s" test -s /etc/rancher/k3s/k3s.yaml 2>/dev/null && break

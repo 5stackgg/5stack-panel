@@ -29,21 +29,42 @@ cluster_state() {
     kubectl get crd -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.conditions[?(@.type=="Established")].status}{"\n"}{end}'
 } 2>&1
 
-# Cordons the server so the add-ons restart on the game node.
-add_ons_onto_game_node() {
+metrics_available() {
+    kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null
+}
+
+add_on_nodes() {
+    kubectl -n kube-system get pods -l "k8s-app in (kube-dns,metrics-server)" --field-selector status.phase=Running \
+        -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort -u
+}
+
+# The panel is installed with the game node cordoned, so the stub backends stay
+# on the server; then the server is cordoned and the add-ons restart on the
+# game node.
+install_with_add_ons_on_game_node() {
+    kubectl cordon "$PREFIX-node" >/dev/null || return 1
+    update_panel >/dev/null || return 1
+    deploy_panel_stubs || return 1
+    kubectl uncordon "$PREFIX-node" >/dev/null || return 1
     kubectl cordon "$PREFIX-k3s" >/dev/null || return 1
     kubectl -n kube-system rollout restart deployment/coredns deployment/metrics-server >/dev/null || return 1
     kubectl -n kube-system rollout status deployment/coredns --timeout=180s >/dev/null || return 1
     kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s >/dev/null || return 1
     kubectl uncordon "$PREFIX-k3s" >/dev/null || return 1
-    [ "$(kubectl -n kube-system get pods -l k8s-app=metrics-server -o jsonpath='{.items[*].spec.nodeName}')" = "$PREFIX-node" ]
+    [ "$(add_on_nodes)" = "$PREFIX-node" ] && [ "$(metrics_available)" = True ]
 }
 
-add_ons_evicted() {
+add_ons_down() {
+    for _ in $(seq 1 60); do
+        [ "$(metrics_available)" != True ] && return 0
+        sleep 2
+    done
+    return 1
+}
+
+add_ons_back_on_server() {
     for _ in $(seq 1 120); do
-        [ "$(kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)" = True ] &&
-            [ -n "$(kubectl -n kube-system get pods -l k8s-app=kube-dns --field-selector "spec.nodeName=$PREFIX-k3s,status.phase=Running" -o name 2>/dev/null)" ] &&
-            return 0
+        [ "$(metrics_available)" = True ] && [ "$(add_on_nodes)" = "$PREFIX-k3s" ] && return 0
         sleep 5
     done
     return 1
@@ -52,23 +73,22 @@ add_ons_evicted() {
 test_update_gets_past_a_game_node_that_just_dropped() {
     docker kill "$PREFIX-node" >/dev/null || fail "could not switch the game node off"
     game_node_is NotReady || fail "the cluster never noticed the game node was off"
+    add_ons_down || fail "metrics-server stayed available with its node off"
+    set_env overlays/config/traefik-config.env TRUSTED_PROXIES 10.9.8.7
     if ! update_panel; then
         cluster_state
         fail "update.sh's routing steps failed right after a game node dropped"
     fi
-    deploy_panel_stubs || {
-        cluster_state
-        fail "the stub backends never started"
-    }
     wait_for 200 http "$API" /me
 }
 
 test_update_gets_past_a_game_node_that_stayed_off() {
-    add_ons_evicted || {
+    game_node_is NotReady || fail "the game node is not off"
+    add_ons_back_on_server || {
         cluster_state
         fail "the add-ons never came back on the server"
     }
-    set_env overlays/config/traefik-config.env TRUSTED_PROXIES 10.9.8.7
+    set_env overlays/config/traefik-config.env TRUSTED_PROXIES 10.9.8.8
     if ! update_panel; then
         cluster_state
         fail "update.sh's routing steps failed with a game node off for minutes"
@@ -79,13 +99,12 @@ test_update_gets_past_a_game_node_that_stayed_off() {
 start_cluster || exit 1
 make_panel || exit 1
 join_game_node || exit 1
-add_ons_onto_game_node || {
+install_with_add_ons_on_game_node || {
     cluster_state
     exit 1
 }
 
 run_test test_update_gets_past_a_game_node_that_just_dropped
-cluster_state
 run_test test_update_gets_past_a_game_node_that_stayed_off
 
 summary

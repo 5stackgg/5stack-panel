@@ -243,7 +243,7 @@ stub_pct() {
     PCT_FREE="${2:-}"
     PCT_CS2="${3:-false}"
     PCT_SET_FAILS=false
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     pct() {
         echo "pct $*" >>"$WORK_DIR/pct.log"
         case "$1" in
@@ -316,7 +316,7 @@ write_container() {
     VENDOR=amd
     APPLY=true
     # The lock lives under /run/lock; the tests take none.
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     locked_add_lxc_lines() { add_lxc_lines "$@"; }
 }
 
@@ -360,7 +360,7 @@ test_apply_turns_off_before_the_host_steps_for_an_unprivileged_container() {
     assert_eq "$APPLY_REFUSED" "true"
 
     MODULES_FILE="$WORK_DIR/5stack-k3s.conf"
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     modprobe() { echo "modprobe $*" >>"$WORK_DIR/modprobe.log"; }
     stub_governor true
     out=$(script check_host_kernel)
@@ -379,9 +379,9 @@ test_main_refuses_apply_before_the_host_steps() {
     stub_pct stopped
     stub_governor true
     MODULES_FILE="$WORK_DIR/5stack-k3s.conf"
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     id() { echo 0; }
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     modprobe() { echo "modprobe $*" >>"$WORK_DIR/modprobe.log"; }
     local out
     out=$( (main 100 --apply --vendor amd) 2>&1)
@@ -411,7 +411,7 @@ test_a_failed_change_asks_for_no_restart() {
     write_container 0
     stub_pct stopped
     PCT_SET_FAILS=true
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     locked_add_lxc_lines() { return 1; }
     local out
     out=$(
@@ -476,7 +476,7 @@ nvidia_host() {
     NVIDIA_NODES="$WORK_DIR/dev/nvidia0 $WORK_DIR/dev/nvidiactl"
     SYSTEMD_DIR="$WORK_DIR/systemd"
     NVIDIA_UNIT="$SYSTEMD_DIR/5stack-nvidia-devices.service"
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     command() {
         if [ "$1" = -v ] && [ "$2" = nvidia-modprobe ]; then return 1; fi
         builtin command "$@"

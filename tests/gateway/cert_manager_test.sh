@@ -17,8 +17,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 trap cleanup EXIT
 
-PEBBLE_IMAGE=ghcr.io/letsencrypt/pebble:2.10.1@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199
-CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:12ce21884def456bcf9786542113949e1f19dc7738d2c70e156c2d0c38a1405b
+PEBBLE_IMAGE=ghcr.io/letsencrypt/pebble:2.10.3@sha256:0c81f05db371f436c97fb894bd6d2ab8fc9c8e2ce40f8bef8a8e15941bcd75ef
+CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.3@sha256:0152c8cb506e2ecba2900ed47d23932e27e3e6575a7d2c8ef93c7719ee3dea4c
 PEBBLE_DIRECTORY=https://pebble.pebble.svc:14000/dir
 LETS_ENCRYPT_DIRECTORY=https://acme-v02.api.letsencrypt.org/directory
 

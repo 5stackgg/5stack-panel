@@ -93,9 +93,9 @@ test_the_integrated_note_depends_on_a_discrete_card() {
 # fake devices.
 quiet_amd_host() {
     IN_LXC=true
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     kernel_log() { :; }
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     cmdline_has() { return 1; }
 }
 
@@ -154,12 +154,12 @@ test_the_k3s_pin_goes_after_sudo() {
 
 test_without_k3s_the_join_hint_has_the_pin() {
     load
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     command() {
         if [ "$1" = -v ] && [ "$2" = k3s ]; then return 1; fi
         builtin command "$@"
     }
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     df() { printf 'Filesystem 1G-blocks Used Available Use%% Mounted on\n/dev/root 500G 10G 490G 2%% /\n'; }
     CPU_SYSFS="$WORK_DIR/cpu"
     K3S_VERSION=v1.36.5+k3s1
@@ -206,9 +206,9 @@ test_check_nvidia_installs_the_driver_and_reports_it() {
     APPLY=true
     OS_ID=ubuntu
     NVIDIA_GPUS=()
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     nvidia_kernel_version() { :; }
-    # shellcheck disable=SC2317 # called by the function under test
+    # shellcheck disable=SC2317,SC2329 # called by the function under test
     install_nvidia_container_toolkit() { return 0; }
     local out
     out=$(script check_nvidia)

@@ -34,7 +34,7 @@ fi
 
 if [ "$REVERSE_PROXY" != true ]; then
     step "Installing cert-manager"
-    label_cert_manager_node || die "no 5stack-api node to run cert-manager on"
+    label_cert_manager_node || die "could not label a control-plane node for cert-manager"
     apply_overlay overlays/cert-manager-crds || die "failed to install cert-manager"
 
     for CRD in certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io; do

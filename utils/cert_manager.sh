@@ -116,7 +116,7 @@ label_cert_manager_node() {
     if [ -n "$(kubectl --kubeconfig="$KUBECONFIG" get nodes -l 5stack-cert-manager=true -o name)" ]; then
         return 0
     fi
-    node="$(kubectl --kubeconfig="$KUBECONFIG" get nodes -l 5stack-api=true -o jsonpath='{.items[0].metadata.name}')"
+    node="$(kubectl --kubeconfig="$KUBECONFIG" get nodes --selector='node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')"
     [ -n "$node" ] || return 1
     kubectl --kubeconfig="$KUBECONFIG" label node "$node" 5stack-cert-manager=true --overwrite >/dev/null
 }

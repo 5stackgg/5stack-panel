@@ -72,8 +72,6 @@ start_cluster() {
     # masquerades everything else.
     docker network create "$PREFIX-public" >/dev/null || return 1
     run_k3s "$K3S_IMAGE" || return 1
-    # install.sh labels the panel node this way, and update.sh puts cert-manager on it.
-    kubectl label node "$PREFIX-k3s" 5stack-api=true >/dev/null || return 1
 
     docker run -d --name "$PREFIX-client" --network "$PREFIX-net" "$PYTHON_IMAGE" sleep infinity >/dev/null || return 1
     client apk add --no-cache -q curl jq openssl >/dev/null || return 1

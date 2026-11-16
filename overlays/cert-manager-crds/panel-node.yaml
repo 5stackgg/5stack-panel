@@ -1,0 +1,11 @@
+- op: add
+  path: /spec/template/spec/affinity
+  value:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: 5stack-cert-manager
+                operator: In
+                values:
+                  - "true"

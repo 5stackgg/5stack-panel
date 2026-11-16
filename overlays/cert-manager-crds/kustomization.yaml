@@ -3,3 +3,12 @@ kind: Kustomization
 
 resources:
   - cert-manager.yaml
+
+# cert-manager runs on the node labelled 5stack-cert-manager, the api's unless
+# moved, so a game node going down never takes certificate renewals or its
+# admission webhook with it.
+patches:
+  - path: panel-node.yaml
+    target:
+      kind: Deployment
+      namespace: cert-manager

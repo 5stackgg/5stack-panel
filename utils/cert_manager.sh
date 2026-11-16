@@ -106,3 +106,17 @@ disown_shim_owned_certificates() {
             --type=json -p '[{"op": "remove", "path": "/metadata/ownerReferences"}]'
     done <<< "$certs"
 }
+
+# Installs from before cert-manager had its own label carry it on no node, and
+# its affinity is requiredDuringScheduling. Only when no node has it, so a
+# cert-manager an operator moved stays where they put it.
+label_cert_manager_node() {
+    local node
+
+    if [ -n "$(kubectl --kubeconfig="$KUBECONFIG" get nodes -l 5stack-cert-manager=true -o name)" ]; then
+        return 0
+    fi
+    node="$(kubectl --kubeconfig="$KUBECONFIG" get nodes -l 5stack-api=true -o jsonpath='{.items[0].metadata.name}')"
+    [ -n "$node" ] || return 1
+    kubectl --kubeconfig="$KUBECONFIG" label node "$node" 5stack-cert-manager=true --overwrite >/dev/null
+}

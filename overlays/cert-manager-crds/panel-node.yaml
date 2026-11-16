@@ -5,7 +5,7 @@
       requiredDuringSchedulingIgnoredDuringExecution:
         nodeSelectorTerms:
           - matchExpressions:
-              - key: 5stack-api
+              - key: 5stack-cert-manager
                 operator: In
                 values:
                   - "true"

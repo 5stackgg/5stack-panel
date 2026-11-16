@@ -36,6 +36,7 @@ CONSOLE="console.$DOMAIN"
 install_cert_manager() {
     # shellcheck source=utils/cert_manager.sh
     source "$PANEL_DIR/utils/cert_manager.sh"
+    label_cert_manager_node || return 1
     apply_overlay overlays/cert-manager-crds || return 1
     for crd in certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io; do
         kubectl wait --for=condition=Established "crd/$crd" --timeout=120s >/dev/null || return 1

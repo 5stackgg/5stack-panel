@@ -22,7 +22,7 @@ spec:
       # 5Stack's tables, so ai can't read them.
       initContainers:
         - name: database
-          image: timescale/timescaledb:2.31.0-pg18@sha256:0fcff5761363809d1242f2261a3482197b5a5337407f8b97a976fb174206d579
+          image: timescale/timescaledb:2.32.0-pg18@sha256:83952d54cfc74d9aebe4aba6ecf2af829c2bcf1f30058dded4c18ab3720a247a
           command:
             - sh
             - -c

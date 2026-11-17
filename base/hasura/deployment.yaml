@@ -126,6 +126,11 @@ spec:
               value: "true"
             - name: HASURA_GRAPHQL_AUTH_HOOK
               value: "http://api:5585/hasura"
+            # POST mode passes the client's Origin and Content-Type to the hook.
+            - name: HASURA_GRAPHQL_AUTH_HOOK_MODE
+              value: "POST"
+            - name: HASURA_GRAPHQL_AUTH_HOOK_SEND_REQUEST_BODY
+              value: "false"
             - name: HASURA_GRAPHQL_EVENT_HOOK
               value: "http://api:5585/hasura/events"
             - name: HASURA_GRAPHQL_ACTIONS_HOOK

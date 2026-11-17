@@ -124,7 +124,7 @@ test_hasura_healthz_is_rewritten() {
 test_what_web_does_not_serve_sends_the_transport_headers() {
     local entry host path
     for entry in "$API:/me" "$API:/v1/graphql" "$DEMOS:/demos/1/download" "$DEMOS:/5stack/x" \
-        "$WS:/socket" "$WEB:/auth/steam" "$WEB:/telemetry"; do
+        "$WS:/socket" "$RELAY:/match/1/0/start" "$WEB:/auth/steam" "$WEB:/telemetry"; do
         host="${entry%%:*}"
         path="${entry#*:}"
         call https "$host" "$path"

@@ -16,6 +16,11 @@ spec:
             path:
               type: ReplacePrefixMatch
               replacePrefixMatch: /match-relay/
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: security-headers
       backendRefs:
         - name: api
           port: 5585

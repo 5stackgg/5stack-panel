@@ -85,6 +85,9 @@ spec:
             value: /notifications
         - path:
             type: PathPrefix
+            value: /recaps
+        - path:
+            type: PathPrefix
             value: /chat
         # The Player Management plugin's sanction sync, which doubles as the
         # heartbeat the panel reads to show it as active.

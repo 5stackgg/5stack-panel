@@ -30,6 +30,9 @@ spec:
             value: /game-server-node/ping
         - path:
             type: PathPrefix
+            value: /game-server-node/offline-tool
+        - path:
+            type: PathPrefix
             value: /avatars
         - path:
             type: PathPrefix

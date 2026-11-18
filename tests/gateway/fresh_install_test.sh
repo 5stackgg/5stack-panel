@@ -91,7 +91,7 @@ test_hosts_serve_while_the_stream_certificate_is_missing() {
 test_api_allowlist_paths_reach_their_backends() {
     local entry path backend
     for entry in /me:api /system/healthz:api /system/logs/download:api /matches/1/live:api /twitch/x:api \
-        /game-server-node/script:api /game-server-node/ping/1:api /avatars/1.png:api /trophies/x:api \
+        /game-server-node/script:api /game-server-node/ping/1:api /game-server-node/offline-tool/1:api /avatars/1.png:api /trophies/x:api \
         /branding/logo:api /news/1:api /utility/x:api /custom-pages/x:api /plugins/authorize/x:api \
         /huds/x.zip:api /events/media/1:api /snapshots/1:api /steam-match-history/upload:api /clip-views/1:api \
         /voice/1:api /notifications/1:api /recaps/1:api /chat/1:api /sanctions/server/1:api /file-manager/upload:api /mediamtx/stats:api \

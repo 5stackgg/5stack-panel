@@ -19,6 +19,10 @@ spec:
     metadata:
       labels:
         app: api
+      # Changed with Hasura's POST hook mode: the same apply rolls the api onto
+      # the current image, which serves POST /hasura.
+      annotations:
+        5stack.gg/hasura-hook-mode: post
     spec:
       serviceAccountName: server-creator
       dnsConfig:

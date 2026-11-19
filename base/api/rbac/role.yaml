@@ -31,11 +31,14 @@ rules:
     verbs:
       - get
       - list
+  # create: a stream sent to Twitch reads its key from a Secret owned by its
+  # Job, which Kubernetes deletes with the Job.
   - apiGroups:
       - ''
     resources:
       - secrets
     verbs:
+      - create
       - get
       - list
   - apiGroups:

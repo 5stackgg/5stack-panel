@@ -102,3 +102,4 @@ jobs:
       - run: bash tests/scripts/tailscale_api_test.sh
       - run: bash tests/scripts/proxmox_gpu_lxc_test.sh
       - run: bash tests/scripts/gpu_node_check_test.sh
+      - run: bash tests/scripts/api_rbac_test.sh

@@ -88,11 +88,36 @@ case "$1 $2" in
         if [ -n "$prefix" ] && [ "$prefix" != "backup-" ]; then
             listing="$WORK_DIR/objects-$(printf '%s' "$prefix" | tr '/' '_')"
         fi
+        case " $* " in
+            *" --delimiter "*)
+                if [ -f "$WORK_DIR/fail-folders" ]; then
+                    echo "An error occurred (InternalError) when calling the ListObjectsV2 operation" >&2
+                    exit 254
+                fi
+                listing="$WORK_DIR/folders"
+                ;;
+            *"[Key,LastModified]"*) listing="$WORK_DIR/dated-$(printf '%s' "$prefix" | tr '/' '_')" ;;
+        esac
         if [ -f "$listing" ]; then cat "$listing"; else echo None; fi
         ;;
 esac
 EOF
-    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/psql" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws"
+    # The job's busybox date takes -d @SECONDS; a BSD date spells it -r.
+    cat >"$WORK_DIR/bin/date" <<'EOF'
+#!/bin/bash
+args=()
+while [ $# -gt 0 ]; do
+    if [ "$1" = "-d" ] && [ "${2#@}" != "$2" ] && ! /bin/date -d @0 >/dev/null 2>&1; then
+        args+=(-r "${2#@}")
+        shift 2
+        continue
+    fi
+    args+=("$1")
+    shift
+done
+exec /bin/date "${args[@]}"
+EOF
+    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/psql" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws" "$WORK_DIR/bin/date"
 }
 
 buckets() {
@@ -352,11 +377,45 @@ test_a_failed_plugin_listing_uploads_nothing() {
     assert_contains "$(cat "$WORK_DIR/output")" "could not list the plugin databases"
 }
 
-test_no_plugin_databases_makes_no_s3_calls() {
+test_no_plugin_databases_dumps_nothing() {
     run_plugin_backup ""
     assert_succeeded
-    assert_eq "$(aws_calls)" ""
+    assert_eq "$(calls_to "s3 cp ")" ""
+    assert_eq "$(cat "$WORK_DIR/pg-dump-calls" 2>/dev/null)" ""
     assert_contains "$(cat "$WORK_DIR/output")" "No plugin databases to back up"
+}
+
+week_old_and_new_dumps_of() {
+    printf 'plugin-databases/%s/backup-20200101030000.zip\t2020-01-01T03:30:12+00:00\nplugin-databases/%s/backup-%s033000.zip\t%sT03:30:12+00:00\n' \
+        "$1" "$1" "$(today)" "$(date -u +%Y-%m-%d)" >"$WORK_DIR/dated-plugin-databases_$1_"
+}
+
+test_a_deleted_plugin_database_keeps_its_last_week_and_loses_older_dumps() {
+    plugin_databases plugin_arenas
+    printf 'plugin-databases/plugin_arenas/\tplugin-databases/plugin_gone/\n' >"$WORK_DIR/folders"
+    week_old_and_new_dumps_of plugin_gone
+    week_old_and_new_dumps_of plugin_arenas
+    run_plugin_backup ""
+    assert_succeeded
+    assert_eq "$(calls_to "s3api delete-object ")" "s3api delete-object --bucket 5stack-db-backups --key plugin-databases/plugin_gone/backup-20200101030000.zip --endpoint-url http://rustfs:9000"
+    assert_not_contains "$(aws_calls)" "--prefix plugin-databases/plugin_arenas/ --query Contents[].[Key,LastModified]"
+}
+
+test_the_last_plugin_database_deleted_still_ages_its_dumps_out() {
+    printf 'plugin-databases/plugin_gone/\n' >"$WORK_DIR/folders"
+    week_old_and_new_dumps_of plugin_gone
+    run_plugin_backup ""
+    assert_succeeded
+    assert_eq "$(calls_to "s3api delete-object ")" "s3api delete-object --bucket 5stack-db-backups --key plugin-databases/plugin_gone/backup-20200101030000.zip --endpoint-url http://rustfs:9000"
+}
+
+test_a_failed_folder_listing_never_fails_the_dumps() {
+    plugin_databases plugin_arenas
+    touch "$WORK_DIR/fail-folders"
+    run_plugin_backup ""
+    assert_succeeded
+    assert_contains "$(calls_to "s3 cp ")" "plugin-databases/plugin_arenas/"
+    assert_contains "$(cat "$WORK_DIR/output")" "could not list the plugin database folders"
 }
 
 test_the_plugin_job_checks_a_remote_bucket_the_same_way() {

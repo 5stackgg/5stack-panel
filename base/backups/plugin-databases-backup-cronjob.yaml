@@ -52,7 +52,6 @@ spec:
 
                   if [ -z "$PLUGIN_DATABASES" ]; then
                     echo "No plugin databases to back up"
-                    exit 0
                   fi
 
                   ENDPOINT="${S3_ENDPOINT:-rustfs}"
@@ -192,6 +191,45 @@ spec:
                       done
                     fi
                   done
+
+                  # A deleted database's folder: its last week stays restorable,
+                  # then ages out. Trouble here never fails the night's dumps.
+                  if CUTOFF=$(date -u -d "@$(( $(date -u +%s) - 7 * 86400 ))" +"%Y-%m-%dT%H:%M:%S"); then
+                    FOLDERS=$(aws s3api list-objects-v2 \
+                      --bucket "$S3_DB_BACKUP_BUCKET" \
+                      --prefix plugin-databases/ \
+                      --delimiter / \
+                      --query 'CommonPrefixes[].Prefix' \
+                      --output text \
+                      --endpoint-url "$ENDPOINT" \
+                      "$@" || echo "WARNING: could not list the plugin database folders" >&2)
+
+                    for FOLDER in $(echo "$FOLDERS" | tr '\t' '\n' | grep -E '^plugin-databases/plugin_[a-z0-9_]+/$' || true); do
+                      DATABASE=$(echo "$FOLDER" | cut -d/ -f2)
+                      if printf '%s\n' "$PLUGIN_DATABASES" | grep -qx "$DATABASE"; then
+                        continue
+                      fi
+
+                      LISTING=$(aws s3api list-objects-v2 \
+                        --bucket "$S3_DB_BACKUP_BUCKET" \
+                        --prefix "$FOLDER" \
+                        --query 'Contents[].[Key,LastModified]' \
+                        --output text \
+                        --endpoint-url "$ENDPOINT" \
+                        "$@" || true)
+                      OLD_KEYS=$(printf '%s\n' "$LISTING" | awk -F '\t' -v cutoff="$CUTOFF" '$2 != "" && $2 < cutoff { print $1 }' || true)
+
+                      if [ -n "$OLD_KEYS" ]; then
+                        echo "The plugin database $DATABASE is gone, deleting its dumps older than 7 days"
+                        echo "$OLD_KEYS" | while IFS= read -r KEY; do
+                          echo "Deleting old backup: $KEY"
+                          aws s3api delete-object --bucket "$S3_DB_BACKUP_BUCKET" --key "$KEY" --endpoint-url "$ENDPOINT" "$@" || true
+                        done
+                      fi
+                    done
+                  else
+                    echo "WARNING: could not work out last week's date, so no deleted plugin database's dumps were aged out"
+                  fi
 
                   if [ -n "$FAILED" ]; then
                     echo "ERROR: these plugin databases were NOT backed up:$FAILED"

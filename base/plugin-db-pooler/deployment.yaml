@@ -34,6 +34,8 @@ spec:
                       - 'true'
       securityContext:
         fsGroup: 996
+      # pgbouncer_auth's limit stays above default_pool_size, so its auth
+      # pool can't run out after a restart.
       # As the superuser, gives pgbouncer_auth a fresh password that only this
       # pod knows, so it is stored nowhere, and a lookup that returns the SCRAM
       # verifier of plugin roles only. Both live in the postgres maintenance
@@ -54,7 +56,7 @@ spec:
               psql -h timescaledb -U hasura -d postgres -v ON_ERROR_STOP=1 -v auth_password="$AUTH_PASSWORD" <<'SQL'
               SET pg_stat_statements.track_utility = off;
               SELECT 'CREATE ROLE pgbouncer_auth' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'pgbouncer_auth')\gexec
-              ALTER ROLE pgbouncer_auth WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT 10 PASSWORD :'auth_password';
+              ALTER ROLE pgbouncer_auth WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT 30 PASSWORD :'auth_password';
               ALTER ROLE pgbouncer_auth SET fivestack.app_key = '';
               GRANT CONNECT ON DATABASE postgres TO pgbouncer_auth;
               CREATE SCHEMA IF NOT EXISTS pgbouncer;

@@ -36,8 +36,10 @@ spec:
         fsGroup: 996
       # As the superuser, gives pgbouncer_auth a fresh password that only this
       # pod knows, so it is stored nowhere, and a lookup that returns the SCRAM
-      # verifier of plugin roles only. The api's lockdown closes the panel's
-      # database to PUBLIC and never revisits it, so CONNECT is granted here.
+      # verifier of plugin roles only. Both live in the postgres maintenance
+      # database, never the panel's own: pg_authid is shared by every
+      # database. The api's lockdown closes postgres to PUBLIC and never
+      # revisits it, so CONNECT is granted here.
       initContainers:
         - name: auth
           image: timescale/timescaledb:2.32.0-pg18@sha256:83952d54cfc74d9aebe4aba6ecf2af829c2bcf1f30058dded4c18ab3720a247a
@@ -49,12 +51,12 @@ spec:
               umask 027
               AUTH_PASSWORD="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)"
               export PGPASSWORD="$POSTGRES_PASSWORD"
-              psql -h timescaledb -U hasura -d hasura -v ON_ERROR_STOP=1 -v auth_password="$AUTH_PASSWORD" <<'SQL'
+              psql -h timescaledb -U hasura -d postgres -v ON_ERROR_STOP=1 -v auth_password="$AUTH_PASSWORD" <<'SQL'
               SET pg_stat_statements.track_utility = off;
               SELECT 'CREATE ROLE pgbouncer_auth' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'pgbouncer_auth')\gexec
               ALTER ROLE pgbouncer_auth WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT 10 PASSWORD :'auth_password';
               ALTER ROLE pgbouncer_auth SET fivestack.app_key = '';
-              GRANT CONNECT ON DATABASE hasura TO pgbouncer_auth;
+              GRANT CONNECT ON DATABASE postgres TO pgbouncer_auth;
               CREATE SCHEMA IF NOT EXISTS pgbouncer;
               REVOKE ALL ON SCHEMA pgbouncer FROM PUBLIC;
               GRANT USAGE ON SCHEMA pgbouncer TO pgbouncer_auth;

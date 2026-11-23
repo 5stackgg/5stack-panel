@@ -13,11 +13,12 @@ data:
     listen_port = 6432
     unix_socket_dir =
 
-    ; Only plugin roles get in: the lookup returns nothing for any other name.
+    ; Only plugin roles get in: the lookup returns nothing for any other name,
+    ; so the api and Hasura keep going straight to timescaledb.
     auth_type = scram-sha-256
     auth_file = /var/run/plugin-db-pooler/userlist.txt
     auth_user = pgbouncer_auth
-    auth_dbname = hasura
+    auth_dbname = postgres
     auth_query = SELECT usename, passwd FROM pgbouncer.plugin_user_lookup($1)
 
     ; Many game servers share few real connections. Npgsql prepares on the

@@ -5,6 +5,8 @@ metadata:
   namespace: 5stack
 spec:
   schedule: "30 3 * * *"
+  # Today's dump is told apart by its UTC date, so run on UTC too.
+  timeZone: Etc/UTC
   # A night's run never overlaps the next, and a retry skips every database
   # that already has today's dump, so it can't push an older one out.
   concurrencyPolicy: Forbid

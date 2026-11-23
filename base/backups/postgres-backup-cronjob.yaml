@@ -131,12 +131,15 @@ spec:
 
                   KEYS=$(aws s3api list-objects-v2 \
                     --bucket "$S3_DB_BACKUP_BUCKET" \
+                    --prefix backup- \
                     --query 'reverse(sort_by(Contents, &LastModified))[].Key' \
                     --output text \
                     --endpoint-url "$ENDPOINT" \
                     "$@" || true)
 
-                  DELETEABLE_KEYS=$(echo "$KEYS" | tr '\t' '\n' | awk 'NR>7')
+                  # Only this job's own top-level dumps: the plugin databases'
+                  # sit under plugin-databases/ and keep their own 7.
+                  DELETEABLE_KEYS=$(echo "$KEYS" | tr '\t' '\n' | grep -E '^backup-[0-9]+\.zip$' | awk 'NR>7' || true)
 
                   if [ -n "$DELETEABLE_KEYS" ]; then
                     echo "Pruning old backups, keeping latest 7"

@@ -3,5 +3,6 @@ kind: Kustomization
 
 resources:
   - postgres-backup-cronjob.yaml
+  - plugin-databases-backup-cronjob.yaml
 
 

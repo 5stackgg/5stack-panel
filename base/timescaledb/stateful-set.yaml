@@ -43,6 +43,11 @@ spec:
             - postgres
             - '-c'
             - max_connections=500
+            # The panel's api and Hasura log in as the hasura superuser, so
+            # 100 of the 500 are theirs alone: the plugin databases'
+            # roles can never take the connections the panel needs.
+            - '-c'
+            - superuser_reserved_connections=100
             - '-c'
             - shared_preload_libraries=pg_stat_statements,timescaledb
             - '-c'

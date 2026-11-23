@@ -129,22 +129,79 @@ spec:
 
                   echo "Backup complete: $ZIP_FILE"
 
-                  KEYS=$(aws s3api list-objects-v2 \
-                    --bucket "$S3_DB_BACKUP_BUCKET" \
-                    --query 'reverse(sort_by(Contents, &LastModified))[].Key' \
-                    --output text \
-                    --endpoint-url "$ENDPOINT" \
-                    "$@" || true)
+                  # Keeps the newest 7 keys under a prefix that match the
+                  # pattern; plugin dumps live under plugin-databases/, so the
+                  # main backups only ever count top-level backup-*.zip keys.
+                  prune() {
+                    PREFIX="$1"
+                    PATTERN="$2"
+                    shift 2
+                    KEYS=$(aws s3api list-objects-v2 \
+                      --bucket "$S3_DB_BACKUP_BUCKET" \
+                      --prefix "$PREFIX" \
+                      --query 'reverse(sort_by(Contents, &LastModified))[].Key' \
+                      --output text \
+                      --endpoint-url "$ENDPOINT" \
+                      "$@" || true)
 
-                  DELETEABLE_KEYS=$(echo "$KEYS" | tr '\t' '\n' | awk 'NR>7')
+                    DELETEABLE_KEYS=$(echo "$KEYS" | tr '\t' '\n' | grep -E "$PATTERN" | awk 'NR>7' || true)
 
-                  if [ -n "$DELETEABLE_KEYS" ]; then
-                    echo "Pruning old backups, keeping latest 7"
-                    echo "$DELETEABLE_KEYS" | while IFS= read -r KEY; do
-                      echo "Deleting old backup: $KEY"
-                      aws s3api delete-object --bucket "$S3_DB_BACKUP_BUCKET" --key "$KEY" --endpoint-url "$ENDPOINT" "$@" || true
-                    done
-                    echo "Pruning complete"
+                    if [ -n "$DELETEABLE_KEYS" ]; then
+                      echo "Pruning old backups under ${PREFIX:-the bucket root}, keeping latest 7"
+                      echo "$DELETEABLE_KEYS" | while IFS= read -r KEY; do
+                        echo "Deleting old backup: $KEY"
+                        aws s3api delete-object --bucket "$S3_DB_BACKUP_BUCKET" --key "$KEY" --endpoint-url "$ENDPOINT" "$@" || true
+                      done
+                      echo "Pruning complete"
+                    fi
+                  }
+
+                  prune "backup-" '^backup-[0-9]+\.zip$' "$@"
+
+                  rm -f "$DUMP_FILE" "$ZIP_FILE"
+
+                  # Each plugin database is its own dump, in its own folder,
+                  # with its owner and grants kept so a restore hands its
+                  # tables back to the plugin's role. The main backup is
+                  # already uploaded, so a plugin that fails only fails the
+                  # job at the end.
+                  FAILED_PLUGIN_DATABASES=""
+                  if ! PLUGIN_DATABASES=$(psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At \
+                    -c "SELECT datname FROM pg_database WHERE datname ~ '^plugin_[a-z0-9_]+\$' AND datallowconn ORDER BY datname"); then
+                    echo "ERROR: could not list the plugin databases, so none of them were backed up"
+                    exit 1
+                  fi
+
+                  for PLUGIN_DATABASE in $PLUGIN_DATABASES; do
+                    PLUGIN_DUMP="/tmp/$PLUGIN_DATABASE-$TS.dump"
+                    PLUGIN_ZIP="/tmp/$PLUGIN_DATABASE-$TS.zip"
+                    PLUGIN_KEY="plugin-databases/$PLUGIN_DATABASE/backup-$TS.zip"
+
+                    if ! pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$PLUGIN_DATABASE" -F c -Z 0 -f "$PLUGIN_DUMP" \
+                      || [ ! -s "$PLUGIN_DUMP" ]; then
+                      echo "ERROR: could not dump the plugin database $PLUGIN_DATABASE"
+                      FAILED_PLUGIN_DATABASES="$FAILED_PLUGIN_DATABASES $PLUGIN_DATABASE"
+                      rm -f "$PLUGIN_DUMP"
+                      continue
+                    fi
+
+                    zip -j "$PLUGIN_ZIP" "$PLUGIN_DUMP"
+
+                    echo "Uploading the plugin database $PLUGIN_DATABASE to $S3_DB_BACKUP_BUCKET/$PLUGIN_KEY"
+                    if ! aws s3 cp "$PLUGIN_ZIP" "s3://$S3_DB_BACKUP_BUCKET/$PLUGIN_KEY" --endpoint-url "$ENDPOINT"; then
+                      echo "ERROR: could not upload the plugin database $PLUGIN_DATABASE"
+                      FAILED_PLUGIN_DATABASES="$FAILED_PLUGIN_DATABASES $PLUGIN_DATABASE"
+                      rm -f "$PLUGIN_DUMP" "$PLUGIN_ZIP"
+                      continue
+                    fi
+
+                    rm -f "$PLUGIN_DUMP" "$PLUGIN_ZIP"
+                    prune "plugin-databases/$PLUGIN_DATABASE/" '/backup-[0-9]+\.zip$' "$@"
+                  done
+
+                  if [ -n "$FAILED_PLUGIN_DATABASES" ]; then
+                    echo "ERROR: the main database was backed up, but these plugin databases were NOT:$FAILED_PLUGIN_DATABASES"
+                    exit 1
                   fi
               envFrom:
                 - secretRef:

@@ -38,6 +38,18 @@ rules:
     verbs:
       - get
       - list
+  # Only the plugin databases' passwords: never create, which could mint
+  # a service account token.
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    resourceNames:
+      - plugin-databases
+    verbs:
+      - get
+      - patch
+      - update
   - apiGroups:
       - ''
     resources:

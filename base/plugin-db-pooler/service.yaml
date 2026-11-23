@@ -1,0 +1,15 @@
+# Game servers use host networking without cluster DNS, so the api hands them
+# this Service's cluster IP for their plugin databases.
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin-db-pooler
+  namespace: 5stack
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+      targetPort: 6432
+  selector:
+    app: plugin-db-pooler

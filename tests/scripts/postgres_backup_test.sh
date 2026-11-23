@@ -27,12 +27,27 @@ setup_stubs() {
 EOF
     cat >"$WORK_DIR/bin/pg_dump" <<'EOF'
 #!/bin/bash
+echo "$*" >>"$WORK_DIR/pg-dump-calls"
+database=""
+file=""
 while [ $# -gt 0 ]; do
-    if [ "$1" = "-f" ]; then
-        echo dump >"$2"
-    fi
+    case "$1" in
+        -d) database="$2" ;;
+        -f) file="$2" ;;
+    esac
     shift
 done
+if [ -f "$WORK_DIR/fail-dump-$database" ]; then
+    exit 1
+fi
+echo "dump of $database" >"$file"
+EOF
+    cat >"$WORK_DIR/bin/psql" <<'EOF'
+#!/bin/bash
+if [ -f "$WORK_DIR/fail-psql" ]; then
+    exit 2
+fi
+cat "$WORK_DIR/plugin-databases" 2>/dev/null || true
 EOF
     cat >"$WORK_DIR/bin/zip" <<'EOF'
 #!/bin/bash
@@ -67,10 +82,17 @@ case "$1 $2" in
         cat "$WORK_DIR/buckets"
         ;;
     "sts get-caller-identity") echo "$FAKE_ACCOUNT_ID" ;;
-    "s3api list-objects-v2") if [ -f "$WORK_DIR/objects" ]; then cat "$WORK_DIR/objects"; fi ;;
+    "s3api list-objects-v2")
+        prefix="$(printf '%s' " $* " | sed -n 's/.* --prefix \([^ ]*\) .*/\1/p')"
+        listing="$WORK_DIR/objects"
+        if [ -n "$prefix" ] && [ "$prefix" != "backup-" ]; then
+            listing="$WORK_DIR/objects-$(printf '%s' "$prefix" | tr '/' '_')"
+        fi
+        if [ -f "$listing" ]; then cat "$listing"; fi
+        ;;
 esac
 EOF
-    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws"
+    chmod +x "$WORK_DIR/bin/apk" "$WORK_DIR/bin/pg_dump" "$WORK_DIR/bin/psql" "$WORK_DIR/bin/zip" "$WORK_DIR/bin/aws"
 }
 
 buckets() {
@@ -241,6 +263,66 @@ test_a_remote_bucket_beside_a_demos_domain_stays_remote() {
     assert_succeeded
     assert_contains "$(calls_to "s3 cp ")" "--endpoint-url https://$B2_ENDPOINT"
     assert_contains "$(aws_calls)" "list-buckets"
+}
+
+plugin_databases() {
+    printf '%s\n' "$@" >"$WORK_DIR/plugin-databases"
+}
+
+test_each_plugin_database_is_its_own_dump_in_its_own_folder_after_the_main_one() {
+    plugin_databases plugin_arenas plugin_ranks
+    run_backup ""
+    assert_succeeded
+    uploads="$(calls_to "s3 cp ")"
+    assert_contains "$(echo "$uploads" | sed -n 1p)" "s3://5stack-db-backups/backup-"
+    assert_contains "$(echo "$uploads" | sed -n 2p)" "s3://5stack-db-backups/plugin-databases/plugin_arenas/backup-"
+    assert_contains "$(echo "$uploads" | sed -n 3p)" "s3://5stack-db-backups/plugin-databases/plugin_ranks/backup-"
+    assert_contains "$(cat "$WORK_DIR/pg-dump-calls")" "-d plugin_arenas -F c -Z 0 -f"
+    assert_not_contains "$(grep -e "-d plugin_arenas" "$WORK_DIR/pg-dump-calls")" "--no-owner"
+}
+
+test_the_main_backups_prune_only_counts_their_own_top_level_keys() {
+    plugin_databases plugin_arenas
+    printf 'plugin-databases/plugin_arenas/backup-9.zip\tbackup-8.zip\tbackup-7.zip\tbackup-6.zip\tbackup-5.zip\tbackup-4.zip\tbackup-3.zip\tbackup-2.zip\n' >"$WORK_DIR/objects"
+    run_backup ""
+    assert_succeeded
+    assert_contains "$(calls_to "s3api list-objects-v2 ")" "--prefix backup-"
+    assert_eq "$(calls_to "s3api delete-object ")" ""
+}
+
+test_each_plugin_database_keeps_its_own_newest_seven() {
+    plugin_databases plugin_arenas
+    printf 'plugin-databases/plugin_arenas/backup-8.zip\tplugin-databases/plugin_arenas/backup-7.zip\tplugin-databases/plugin_arenas/backup-6.zip\tplugin-databases/plugin_arenas/backup-5.zip\tplugin-databases/plugin_arenas/backup-4.zip\tplugin-databases/plugin_arenas/backup-3.zip\tplugin-databases/plugin_arenas/backup-2.zip\tplugin-databases/plugin_arenas/backup-1.zip\n' >"$WORK_DIR/objects-plugin-databases_plugin_arenas_"
+    run_backup ""
+    assert_succeeded
+    assert_eq "$(calls_to "s3api delete-object ")" "s3api delete-object --bucket 5stack-db-backups --key plugin-databases/plugin_arenas/backup-1.zip --endpoint-url http://rustfs:9000"
+}
+
+test_a_plugin_database_that_fails_still_backs_up_the_rest_and_fails_the_job() {
+    plugin_databases plugin_arenas plugin_broken plugin_ranks
+    touch "$WORK_DIR/fail-dump-plugin_broken"
+    run_backup ""
+    [ "$STATUS" -ne 0 ] || fail "backup succeeded with a plugin database that could not be dumped"
+    uploads="$(calls_to "s3 cp ")"
+    assert_contains "$uploads" "s3://5stack-db-backups/backup-"
+    assert_contains "$uploads" "plugin-databases/plugin_arenas/"
+    assert_contains "$uploads" "plugin-databases/plugin_ranks/"
+    assert_not_contains "$uploads" "plugin_broken"
+    assert_contains "$(cat "$WORK_DIR/output")" "the main database was backed up, but these plugin databases were NOT: plugin_broken"
+}
+
+test_a_failed_plugin_listing_fails_the_job_after_the_main_backup() {
+    touch "$WORK_DIR/fail-psql"
+    run_backup ""
+    [ "$STATUS" -ne 0 ] || fail "backup succeeded without listing the plugin databases"
+    assert_contains "$(calls_to "s3 cp ")" "s3://5stack-db-backups/backup-"
+    assert_contains "$(cat "$WORK_DIR/output")" "could not list the plugin databases"
+}
+
+test_no_plugin_databases_means_only_the_main_backup() {
+    run_backup ""
+    assert_succeeded
+    assert_eq "$(calls_to "s3 cp " | wc -l | tr -d ' ')" "1"
 }
 
 run_tests

@@ -9,6 +9,7 @@ resources:
   - hasura
   - rustfs
   - timescaledb
+  - plugin-db-pooler
   - redis
   - typesense
   - web

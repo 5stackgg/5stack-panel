@@ -28,7 +28,7 @@ spec:
                       - 'true'
       containers:
         - name: timescaledb
-          image: timescale/timescaledb:2.32.0-pg18@sha256:83952d54cfc74d9aebe4aba6ecf2af829c2bcf1f30058dded4c18ab3720a247a
+          image: timescale/timescaledb:2.32.1-pg18@sha256:70e6526ad8e31e3f4833f2c5863b50b92d7a6bee4d432ad1f660e2c6dd956d94
           # On Ubuntu 26.04's kernel, containerd's default AppArmor profile stops
           # a container's processes signalling each other, and Postgres signals
           # its own backends constantly (containerd/containerd#12886).

@@ -188,9 +188,9 @@ amd_integrated() {
 
 amd_integrated_note() {
     if [ "$2" = true ]; then
-        echo "$1 is integrated, and this node has a discrete AMD GPU on amdgpu: leave it unticked in setup-gpu-nodes.sh's integrated list so it renders on the discrete card"
+        echo "$1 is integrated, and this node has a discrete AMD GPU on amdgpu: leave it unticked (Built into the processor off) when you turn it on, so it renders on the discrete card"
     else
-        echo "$1 is integrated and the only AMD GPU on amdgpu: tick this node in setup-gpu-nodes.sh's integrated list (5stack-gpu-integrated=true)"
+        echo "$1 is integrated and the only AMD GPU on amdgpu: tick this node's Built into the processor when you turn it on (5stack-gpu-integrated=true)"
     fi
 }
 
@@ -704,7 +704,7 @@ main() {
         exit 1
     fi
     echo "${C_OK}ready for the ${VENDOR} GPU setup ($WARNS warnings)${C_RESET}"
-    echo "Next: join this node from the panel's Game Server Nodes page, then run setup-gpu-nodes.sh on the panel."
+    echo "Next: join this node from the panel's Game Server Nodes page, then turn it on under GPU Nodes > Found on your nodes (on a panel from a git checkout without the 5Stack service, run ./setup-gpu-nodes.sh)."
 }
 
 # The tests source this file for its functions. Comparing BASH_SOURCE with $0

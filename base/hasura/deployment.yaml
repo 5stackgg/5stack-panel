@@ -44,7 +44,7 @@ spec:
                   matchLabels:
                     app: hasura
       containers:
-        - image: hasura/graphql-engine:v2.51.8-ce.cli-migrations-v3@sha256:f7023b963785929e65ba205bf9a69552d246137e0f1a2fc3fde7b9970e5de8e1
+        - image: hasura/graphql-engine:v2.51.9-ce.cli-migrations-v3@sha256:1c4ca7e602f10b7cdc48b249092383d665ea90ba55d48f7a0f454d916ea06ac9
           name: hasura
           # The cli-migrations entrypoint starts a temporary graphql-engine to
           # apply metadata, then kills it. On Ubuntu 26.04's kernel, containerd's

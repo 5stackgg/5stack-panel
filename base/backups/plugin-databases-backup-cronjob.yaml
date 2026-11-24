@@ -30,7 +30,7 @@ spec:
                           - "true"
           containers:
             - name: backup
-              image: postgres:18-alpine
+              image: postgres:19-alpine
               command:
                 - /bin/sh
                 - -c

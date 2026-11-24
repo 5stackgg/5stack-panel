@@ -56,8 +56,8 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
    (`/game-server-nodes`), create a node and run the command it shows on this
    machine. Then run the check again: some checks only apply once k3s is there.
 4. Turn it on: on the panel's **GPU Nodes** page, pick **Use for Streaming and
-   Clips** on the node's card under **Found on your nodes** (tick **Built into
-   the processor** for an AMD APU). From the terminal of a panel that runs the
+   Clips** on the node's card under **Found on your nodes**, then **Use It** (for an
+   AMD APU, tick **Built into the processor** in that confirm). From the terminal of a panel that runs the
    5Stack service: `sudo 5stack gpu use <node>`. All GPU nodes of a panel use
    the same vendor.
 

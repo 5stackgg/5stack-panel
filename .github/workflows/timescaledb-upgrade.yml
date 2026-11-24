@@ -40,3 +40,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tests/timescaledb/docker_test.sh
+      - run: bash tests/timescaledb/orphan_reaper_test.sh

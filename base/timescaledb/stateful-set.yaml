@@ -13,6 +13,10 @@ spec:
       labels:
         app: timescaledb
     spec:
+      # The pod's pause container is PID 1 and reaps what a cut-off kubectl
+      # exec leaves behind. With postgres as PID 1, such an orphan dying by a
+      # signal is an "untracked child" crash that restarts the whole database.
+      shareProcessNamespace: true
       dnsConfig:
         options:
           - name: ndots

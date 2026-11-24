@@ -55,10 +55,16 @@ curl -fsSLO https://raw.githubusercontent.com/5stackgg/5stack-panel/main/gpu-nod
 3. Join the node: on the panel's **Game Server Nodes** page
    (`/game-server-nodes`), create a node and run the command it shows on this
    machine. Then run the check again: some checks only apply once k3s is there.
-4. On the panel, run `setup-gpu-nodes.sh` and pick the vendor and nodes: from
-   the panel checkout as `./setup-gpu-nodes.sh`, or on a panel that runs as the
-   5Stack service, `sudo 5stack run setup-gpu-nodes.sh`. All GPU nodes of a
-   panel use the same vendor.
+4. Turn it on: on the panel's **GPU Nodes** page, pick **Use for Streaming and
+   Clips** on the node's card under **Found on your nodes** (tick **Built into
+   the processor** for an AMD APU). From the terminal of a panel that runs the
+   5Stack service: `sudo 5stack gpu use <node>`. All GPU nodes of a panel use
+   the same vendor.
+
+   Only a panel installed from a git checkout without the 5Stack service runs
+   `./setup-gpu-nodes.sh`, from an up-to-date checkout (`git pull` first). On a
+   panel the 5Stack service manages, an old checkout's scripts put back older
+   versions of the panel's services and can take it down.
 
 ### NVIDIA
 

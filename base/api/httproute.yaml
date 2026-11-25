@@ -92,6 +92,9 @@ spec:
         - path:
             type: PathPrefix
             value: /chat
+        - path:
+            type: PathPrefix
+            value: /support-tickets
         # The Player Management plugin's sanction sync, which doubles as the
         # heartbeat the panel reads to show it as active.
         - path:

@@ -14,7 +14,9 @@ spec:
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
-      backoffLimit: 2
+      # Retries back off 10s, 20s ... 320s, so a short S3 outage (about 15
+      # minutes) is ridden out instead of costing the night's dumps.
+      backoffLimit: 6
       activeDeadlineSeconds: 7200
       template:
         spec:

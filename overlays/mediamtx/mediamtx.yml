@@ -52,6 +52,14 @@ authInternalUsers:
         path: "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       - action: playback
         path: "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+  # A studio feed's path name is its secret: the api adds one per feed, pulling
+  # a TV-delayed match stream, and deletes it to revoke the feed.
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path: "~^feed-[A-Za-z0-9]{40}$"
 
 hls: yes
 hlsAddress: :8888

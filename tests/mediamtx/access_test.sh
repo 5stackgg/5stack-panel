@@ -19,6 +19,7 @@ PYTHON_IMAGE=python:3.15.2-alpine3.24@sha256:a0f2e268f2ce8f3709611a90054ec6a8ae3
 MATCH=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
 VOICE="voice-$MATCH-76561198000000001"
 CAMERA="camera-$MATCH-76561198000000001"
+FEED=feed-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7dEf0h
 PRIVATE_NETWORKS="10.253.47.0/24 172.31.247.0/24 192.168.247.0/24 100.87.247.0/24"
 PUBLIC_NETWORKS="198.51.100.0/24 172.32.247.0/24 100.128.247.0/24"
 PRIVATE=10.253.47.0/24
@@ -319,6 +320,60 @@ test_srt_without_the_right_credentials_is_refused() {
         path="${path%%:*}"
         [ "$(ready "$path")" != true ] || fail "$path went live"
     done
+}
+
+# Past authentication a read of a path nobody publishes is a 404.
+test_anyone_reads_a_feed_path_and_nothing_else() {
+    local subnet path
+    for subnet in $PRIVATE $PUBLIC; do
+        expect client 404 "$subnet" - $(hls "$FEED")
+        expect client 404 "$subnet" - $(whep "$FEED") "${SDP[@]}"
+        expect client 401 "$subnet" - $(whip "$FEED") "${SDP[@]}"
+        for path in feed-short "feed-$MATCH" "${FEED}x" "x$FEED"; do
+            expect client 401 "$subnet" - $(hls "$path")
+        done
+    done
+}
+
+# api_post PATH JSON: a config change as the api user, the status MediaMTX answers.
+api_post() {
+    docker exec "$PREFIX-client" python3 -I -c '
+import base64, sys, urllib.error, urllib.request
+request = urllib.request.Request(sys.argv[1], method="POST", data=sys.argv[3].encode())
+request.add_header("Authorization", "Basic " + base64.b64encode(f"api:{sys.argv[2]}".encode()).decode())
+request.add_header("Content-Type", "application/json")
+try:
+    print(urllib.request.urlopen(request, timeout=10).status)
+except urllib.error.HTTPError as error:
+    print(error.code)
+' "http://$(node_on "$PRIVATE"):9997/v3/config/paths/$1" "$(password MEDIAMTX_API_PASSWORD)" "$2"
+}
+
+# What the api does for a feed: a path that pulls the match over SRT as the
+# viewer, on demand, from the address MediaMTX reports for SRT. A reader with no
+# credentials then gets the picture by the feed's name alone.
+test_a_feed_pulls_its_match_as_the_viewer_and_anyone_reads_it_over_srt() {
+    local match=7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d source status
+    source="srt://127.0.0.1:8890?streamid=read%3A$match%3Aviewer%3A$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(password MEDIAMTX_VIEWER_PASSWORD)")"
+    assert_eq "$(api_post "add/$FEED" "{\"source\": \"$source\", \"sourceOnDemand\": true}")" 200
+    srt client "$PRIVATE" "publish:$match:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 15 &
+    for _ in $(seq 1 10); do
+        [ "$(ready "$match")" = true ] && break
+        sleep 1
+    done
+    status=0
+    docker exec "$PREFIX-client" timeout 20 ffmpeg -hide_banner -loglevel error \
+        -i "srt://$(node_on "$PUBLIC"):8890?streamid=read:$FEED" -t 2 -f null - >"$WORK_DIR/feed.log" 2>&1 || status=$?
+    wait
+    [ "$status" = 0 ] || fail "reading $FEED over SRT failed ($status): $(cat "$WORK_DIR/feed.log") $(docker logs "$PREFIX-mediamtx" 2>&1 | tail -n 10)"
+    docker exec "$PREFIX-client" python3 -I -c '
+import base64, sys, urllib.request
+request = urllib.request.Request(sys.argv[1], method="DELETE")
+request.add_header("Authorization", "Basic " + base64.b64encode(f"api:{sys.argv[2]}".encode()).decode())
+urllib.request.urlopen(request, timeout=10)
+' "http://$(node_on "$PRIVATE"):9997/v3/config/paths/delete/$FEED" "$(password MEDIAMTX_API_PASSWORD)" ||
+        fail "could not delete $FEED"
+    expect client 404 "$PUBLIC" - $(hls "$FEED")
 }
 
 test_nobody_is_granted_pprof() {

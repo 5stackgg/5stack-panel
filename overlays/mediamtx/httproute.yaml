@@ -55,6 +55,20 @@ spec:
       backendRefs:
         - name: mediamtx
           port: 8888
+    # A studio feed over HLS: no login, the path name is the credential.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/feed-[A-Za-z0-9]{40}/([^/]+\.[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+      backendRefs:
+        - name: mediamtx
+          port: 8888
 ---
 # The standard URLRewrite cannot carry a capture into the new path, hence
 # ReplacePathRegex.

@@ -95,6 +95,9 @@ spec:
         - path:
             type: PathPrefix
             value: /support-tickets
+        - path:
+            type: PathPrefix
+            value: /discord-activity
         # The Player Management plugin's sanction sync, which doubles as the
         # heartbeat the panel reads to show it as active.
         - path:

@@ -24,6 +24,9 @@ PRIVATE = [ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::1/128", "fc00::/7")]
 WORKLOAD_KINDS = {"Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job", "CronJob", "Pod"}
 PASSWORD_ENV = re.compile(r"^MTX_AUTHINTERNALUSERS_(\d+)_PASS$")
+# A studio feed's path name is its secret, 40 random characters the api makes,
+# so reading only those paths needs no password.
+FEED_READ = {"action": "read", "path": "~^feed-[A-Za-z0-9]{40}$"}
 
 
 def objects(path):
@@ -119,6 +122,8 @@ def mediamtx_open(spec, by_name):
     for index, user in enumerate(users):
         name = user.get("user")
         if name != "any" and (user.get("pass") or index in passwords):
+            continue
+        if (user.get("permissions") or []) == [FEED_READ]:
             continue
         actions = sorted({p.get("action") for p in user.get("permissions") or []} & {"api", "publish"})
         ips = user.get("ips") or []

@@ -349,6 +349,17 @@ except urllib.error.HTTPError as error:
 ' "http://$(node_on "$PRIVATE"):9997/v3/config/paths/$1" "$(password MEDIAMTX_API_PASSWORD)" "$2"
 }
 
+# path_source PATH: the source MediaMTX lists for PATH's config.
+path_source() {
+    docker exec "$PREFIX-client" python3 -I -c '
+import base64, json, sys, urllib.request
+request = urllib.request.Request(sys.argv[1])
+request.add_header("Authorization", "Basic " + base64.b64encode(f"api:{sys.argv[2]}".encode()).decode())
+items = json.load(urllib.request.urlopen(request, timeout=10))["items"]
+print(next((item["source"] for item in items if item["name"] == sys.argv[3]), "missing"))
+' "http://$(node_on "$PRIVATE"):9997/v3/config/paths/list?itemsPerPage=1000" "$(password MEDIAMTX_API_PASSWORD)" "$1"
+}
+
 # What the api does for a feed: a path that pulls the match over SRT as the
 # viewer, on demand, from the address MediaMTX reports for SRT. A reader with no
 # credentials then gets the picture by the feed's name alone.
@@ -356,6 +367,9 @@ test_a_feed_pulls_its_match_as_the_viewer_and_anyone_reads_it_over_srt() {
     local match=7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d source status
     source="srt://127.0.0.1:8890?streamid=read%3A$match%3Aviewer%3A$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(password MEDIAMTX_VIEWER_PASSWORD)")"
     assert_eq "$(api_post "add/$FEED" "{\"source\": \"$source\", \"sourceOnDemand\": true}")" 200
+    # The api compares this to decide a feed is unchanged; a rewritten source
+    # would make every poll replace the path and drop its readers.
+    assert_eq "$(path_source "$FEED")" "$source"
     srt client "$PRIVATE" "publish:$match:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 15 &
     for _ in $(seq 1 10); do
         [ "$(ready "$match")" = true ] && break

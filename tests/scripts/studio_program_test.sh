@@ -149,6 +149,7 @@ fake_host() {
         case "$part" in
             apparmor) mkdir -p "$HOST/sys/kernel/security/apparmor" ;;
             restricted) mkdir -p "$HOST/proc/sys/kernel" && echo 1 >"$HOST/proc/sys/kernel/apparmor_restrict_unprivileged_userns" ;;
+            abi4) mkdir -p "$HOST/etc/apparmor.d/abi" && : >"$HOST/etc/apparmor.d/abi/4.0" ;;
             unconfined) mkdir -p "$HOST/proc/sys/kernel" && echo 1 >"$HOST/proc/sys/kernel/apparmor_restrict_unprivileged_unconfined" ;;
             parser) printf '#!/bin/sh\necho "$@" >>"%s/parser-calls"\n' "$WORK_DIR" >"$WORK_DIR/bin/apparmor_parser" && chmod +x "$WORK_DIR/bin/apparmor_parser" ;;
         esac
@@ -176,8 +177,8 @@ test_install_reports_apparmor_unavailable_without_a_parser() {
     assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=unavailable restrict_userns=absent restrict_unconfined=absent"
 }
 
-test_install_loads_the_userns_rule_where_user_namespaces_are_restricted() {
-    fake_host apparmor parser restricted
+test_install_loads_the_userns_rule_where_the_parser_knows_abi_4() {
+    fake_host apparmor parser abi4 restricted
     install_profiles
     assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=absent"
     cmp -s "$PROGRAM/apparmor" "$HOST/etc/apparmor.d/5stack-studio-program" || fail "the profile was not installed as is"
@@ -187,15 +188,17 @@ test_install_loads_the_userns_rule_where_user_namespaces_are_restricted() {
 # Ubuntu 26.04 restricts unconfined processes too; the api's pod spec
 # answers that with MAC_OVERRIDE, and the message says which host it was.
 test_install_reports_the_unconfined_restriction() {
-    fake_host apparmor parser restricted unconfined
+    fake_host apparmor parser abi4 restricted unconfined
     install_profiles
     assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=1"
 }
 
+# Ubuntu 22.04 with an HWE kernel has the restrict_userns sysctl but a 3.0
+# parser, which rejects abi 4.0 and userns.
 test_install_drops_the_userns_rule_for_older_parsers() {
-    fake_host apparmor parser
+    fake_host apparmor parser restricted
     install_profiles
-    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=absent restrict_unconfined=absent"
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=absent"
     installed="$(cat "$HOST/etc/apparmor.d/5stack-studio-program")"
     assert_not_contains "$installed" "userns"
     assert_not_contains "$installed" "abi <abi/4.0>"

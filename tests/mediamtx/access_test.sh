@@ -390,6 +390,48 @@ urllib.request.urlopen(request, timeout=10)
     expect client 404 "$PUBLIC" - $(hls "$FEED")
 }
 
+# delete_path PATH: what the api does when a feed is revoked.
+delete_path() {
+    docker exec "$PREFIX-client" python3 -I -c '
+import base64, sys, urllib.request
+request = urllib.request.Request(sys.argv[1], method="DELETE")
+request.add_header("Authorization", "Basic " + base64.b64encode(f"api:{sys.argv[2]}".encode()).decode())
+urllib.request.urlopen(request, timeout=10)
+' "http://$(node_on "$PRIVATE"):9997/v3/config/paths/delete/$1" "$(password MEDIAMTX_API_PASSWORD)"
+}
+
+# Revoking a feed deletes its path, and whoever is already watching it, over SRT
+# or HLS, loses the picture then rather than at their next reconnect.
+test_deleting_a_feed_cuts_off_readers_already_watching() {
+    local match=8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e source code reader deleted_at ended_at
+    source="srt://127.0.0.1:8890?streamid=read%3A$match%3Aviewer%3A$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(password MEDIAMTX_VIEWER_PASSWORD)")"
+    assert_eq "$(api_post "add/$FEED" "{\"source\": \"$source\", \"sourceOnDemand\": true}")" 200
+    srt client "$PRIVATE" "publish:$match:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 18 &
+    for _ in $(seq 1 10); do
+        [ "$(ready "$match")" = true ] && break
+        sleep 1
+    done
+    docker exec "$PREFIX-client" timeout 30 ffmpeg -hide_banner -loglevel error \
+        -i "srt://$(node_on "$PUBLIC"):8890?streamid=read:$FEED" -t 25 -f null - >"$WORK_DIR/reader.log" 2>&1 &
+    reader=$!
+    for _ in $(seq 1 15); do
+        code="$(request client "$PUBLIC" - $(hls "$FEED"))"
+        [ "$code" = 200 ] && break
+        sleep 1
+    done
+    [ "$code" = 200 ] || fail "$FEED never played over HLS: $code"
+    sleep 2
+    kill -0 "$reader" 2>/dev/null || fail "the SRT reader of $FEED ended before the revoke: $(cat "$WORK_DIR/reader.log")"
+    deleted_at="$(date +%s)"
+    delete_path "$FEED" || fail "could not delete $FEED"
+    wait "$reader"
+    ended_at="$(date +%s)"
+    [ $((ended_at - deleted_at)) -lt 8 ] ||
+        fail "the SRT reader kept $FEED for $((ended_at - deleted_at))s after its path was deleted"
+    expect client 404 "$PUBLIC" - $(hls "$FEED")
+    wait
+}
+
 test_nobody_is_granted_pprof() {
     local actions
     actions="$(docker exec "$PREFIX-client" python3 -I -c '

@@ -8,6 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 MATCH=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
 FEED=feed-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7dEf0h
+STUDIO=7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
 
 # The port of the first mediamtx rule that matches $1, or "none".
 routed_to() {
@@ -16,7 +17,7 @@ import re, sys
 docs = open(sys.argv[1]).read().split("\n---\n")
 route = next(d for d in docs if re.search(r"(?m)^kind: HTTPRoute$", d) and re.search(r"(?m)^  name: mediamtx$", d))
 rules = re.findall(r"type: RegularExpression\n\s+value: (\S+)\n(?:.*\n)*?\s+port: (\d+)", route)
-assert len(rules) == 3, rules
+assert len(rules) == 5, rules
 print(next((port for pattern, port in rules if re.search(pattern, sys.argv[2])), "none"))
 PY
 }
@@ -53,6 +54,19 @@ test_studio_feeds_reach_hls_only() {
 test_feed_paths_that_are_not_a_feed_token_are_not_routed() {
     expect_routed none /feed-/index.m3u8 /feed-short/index.m3u8 "/${FEED}x/index.m3u8" "/x$FEED/index.m3u8" \
         "/feed-$MATCH/index.m3u8" "/feed-../$MATCH/index.m3u8"
+}
+
+test_a_studio_program_reaches_whep_and_hls() {
+    expect_routed 8889 "/studio-$STUDIO/whep" "/studio-$STUDIO/whep/session-1"
+    expect_routed 8888 "/studio-$STUDIO/" "/studio-$STUDIO/index.m3u8" "/studio-$STUDIO/seg7.mp4"
+}
+
+test_studio_cameras_and_talkback_are_not_routed() {
+    local path
+    for path in "studio-cam-$STUDIO-$MATCH" "studio-talk-$STUDIO-$MATCH" "studio-x$STUDIO" "studio-$STUDIO-x"; do
+        expect_routed none "/$path/whep" "/$path/" "/$path/index.m3u8"
+    done
+    expect_routed none "/studio-$STUDIO/whip"
 }
 
 run_tests "$@"

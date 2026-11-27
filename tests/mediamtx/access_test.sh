@@ -261,6 +261,36 @@ test_the_relay_has_voice_and_cameras_and_no_match_stream() {
     expect client 401 "$PRIVATE" relay $(hls "$MATCH")
 }
 
+STUDIO=7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
+STUDIO_CAM="studio-cam-$STUDIO-8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e"
+STUDIO_TALK="studio-talk-$STUDIO-8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e"
+
+test_a_studio_program_is_the_streamers_to_publish_and_the_viewers_to_read() {
+    expect client 400 "$PRIVATE" streamer $(whip "studio-$STUDIO") "${SDP[@]}"
+    expect client 404 "$PRIVATE" streamer $(whep "studio-$STUDIO") "${SDP[@]}"
+    expect client 404 "$PRIVATE" viewer $(hls "studio-$STUDIO")
+    expect client 404 "$PRIVATE" viewer $(whep "studio-$STUDIO") "${SDP[@]}"
+    expect client 401 "$PRIVATE" viewer $(whip "studio-$STUDIO") "${SDP[@]}"
+    expect client 401 "$PRIVATE" - $(hls "studio-$STUDIO")
+    expect client 401 "$PRIVATE" - $(whep "studio-$STUDIO") "${SDP[@]}"
+    expect client 401 "$PRIVATE" streamer $(whip "studio-x$STUDIO") "${SDP[@]}"
+    expect client 401 "$PRIVATE" streamer $(whip "$STUDIO_CAM") "${SDP[@]}"
+}
+
+test_studio_cameras_and_talkback_are_the_relays_alone() {
+    local path user
+    for path in "$STUDIO_CAM" "$STUDIO_TALK"; do
+        expect client 400 "$PRIVATE" relay $(whip "$path") "${SDP[@]}"
+        expect client 404 "$PRIVATE" relay $(whep "$path") "${SDP[@]}"
+        for user in viewer streamer -; do
+            expect client 401 "$PRIVATE" "$user" $(whep "$path") "${SDP[@]}"
+            expect client 401 "$PRIVATE" "$user" $(hls "$path")
+        done
+    done
+    expect client 404 "$PRIVATE" relay $(whep "studio-$STUDIO") "${SDP[@]}"
+    expect client 401 "$PRIVATE" relay $(whip "studio-$STUDIO") "${SDP[@]}"
+}
+
 # srt FROM SUBNET STREAMID SECONDS: publishes a test picture over SRT, as a
 # game streamer's srtsink does, for SECONDS; the status is ffmpeg's.
 srt() {

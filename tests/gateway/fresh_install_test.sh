@@ -225,6 +225,22 @@ test_mediamtx_requires_a_session() {
     expect_json .backend mediamtx-hls
 }
 
+test_a_studio_feed_plays_over_hls_without_a_session_or_forward_auth() {
+    local feed=feed-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd
+    auth_log '?clear' >/dev/null
+    call https "$HLS" "/$feed/index.m3u8"
+    expect_code 200
+    expect_json .backend mediamtx-hls
+    expect_json .path "/$feed/index.m3u8"
+    local seen
+    seen="$(auth_log | jq --arg path "/$feed" '[.[] | select(.headers["x-forwarded-uri"] | startswith($path))]')"
+    [ "$(jq length <<<"$seen")" = 0 ] || fail "a feed went through forward-auth: $seen"
+    call https "$HLS" "/$feed/whep" -X POST -H 'Content-Type: application/sdp' --data-binary 'v=0'
+    expect_code 404
+    call https "$HLS" "/feed-short/index.m3u8"
+    expect_code 404
+}
+
 test_mediamtx_gets_the_viewer_credentials_the_api_hands_back() {
     local viewer
     viewer="Basic $(printf viewer:test-viewer | base64)"

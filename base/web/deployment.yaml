@@ -91,6 +91,12 @@ spec:
                 configMapKeyRef:
                   name: api-config
                   key: WS_DOMAIN
+            - name: NUXT_PUBLIC_DISCORD_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: discord-secrets
+                  key: DISCORD_CLIENT_ID
+                  optional: true
             - name: HASURA_GRAPHQL_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

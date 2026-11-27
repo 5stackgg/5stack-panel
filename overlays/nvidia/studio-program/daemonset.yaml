@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: studio-program-profiles
+  namespace: 5stack
+spec:
+  selector:
+    matchLabels:
+      app: studio-program-profiles
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: studio-program-profiles
+    spec:
+      nodeSelector:
+        nvidia-gpu: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      hostPID: true
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      initContainers:
+        - name: install
+          image: busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+          command: ["sh", "/profiles/install.sh"]
+          securityContext:
+            privileged: true
+          terminationMessagePolicy: File
+          volumeMounts:
+            - name: profiles
+              mountPath: /profiles
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: hold
+          image: busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+          command: ["sleep", "2147483647"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+            limits:
+              memory: 16Mi
+      volumes:
+        - name: profiles
+          configMap:
+            name: studio-program-profiles
+        - name: tmp
+          emptyDir: {}

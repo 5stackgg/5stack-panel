@@ -146,6 +146,25 @@ If NVIDIA pods fail to start in the container with a device cgroup error, set
 the default otherwise: the NVIDIA device plugin runs unprivileged and relies
 on it.
 
+## Studio programs
+
+A studio program runs Chromium with its sandbox on, which needs new user, PID
+and network namespaces. The panel installs what that takes on every NVIDIA node
+with the `studio-program-profiles` DaemonSet: a seccomp profile at
+`/var/lib/kubelet/seccomp/profiles/5stack-studio-program.json`, and, where the
+host runs AppArmor, the `5stack-studio-program` profile in `/etc/apparmor.d`.
+
+| Host | What the node needs |
+| --- | --- |
+| Ubuntu 23.10 and later (24.04 included) | Nothing more. These restrict unprivileged user namespaces; the profile carries the `userns` rule that lifts it for the program's browser only. |
+| Ubuntu 22.04, Debian | Nothing more. AppArmor is on but doesn't restrict user namespaces; the profile loads without the `userns` rule. |
+| Fedora, RHEL, Rocky, Alma (SELinux) | Nothing more. No AppArmor profile is used. |
+| AppArmor on but `apparmor_parser` missing | Install `apparmor` (Debian/Ubuntu: `apt install apparmor`). Until then the api won't start a program there. |
+
+If a program fails with "The studio program profiles are not installed", check
+`kubectl -n 5stack get pods -l app=studio-program-profiles -o wide` for that
+node and the `install` container's log.
+
 ## Reporting a problem
 
 Include the output of `gpu-node-check.sh`, `proxmox-gpu-lxc.sh` for a container,

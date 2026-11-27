@@ -193,6 +193,37 @@ test_a_passwordless_user_on_private_addresses_still_may_not_publish() {
     assert_contains "$(cat "$WORK_DIR/guard")" "authInternalUsers grants any publish with no password"
 }
 
+test_anyone_may_read_studio_feed_paths_and_nothing_more() {
+    local permissions
+    mediamtx 'authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path: "~^feed-[A-Za-z0-9]{40}$"
+' '[]' >"$WORK_DIR/m.json"
+    guard "$WORK_DIR/m.json" || fail "the guard refused feed reads: $(cat "$WORK_DIR/guard")"
+    for permissions in '      - action: read
+        path: "~^feed-"' '      - action: read
+        path: "~^feed-[A-Za-z0-9]{4}$"' '      - action: read' '      - action: playback
+        path: "~^feed-[A-Za-z0-9]{40}$"' '      - action: read
+        path: "~^feed-[A-Za-z0-9]{40}$"
+      - action: read
+        path: "~^[0-9a-f-]{36}$"' '      - action: publish
+        path: "~^feed-[A-Za-z0-9]{40}$"'; do
+        mediamtx "authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+$permissions
+" '[]' >"$WORK_DIR/m.json"
+        guard "$WORK_DIR/m.json" && fail "the guard passed: $permissions"
+    done
+    return 0
+}
+
 # traefik HTTP_PORT HTTPS_PORT [HELM FLAGS...]: the gateway chart rendered
 # with install_traefik's values, in $WORK_DIR/traefik.json.
 traefik() {

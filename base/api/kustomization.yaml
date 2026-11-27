@@ -14,4 +14,5 @@ resources:
   - rbac/role-binding.yaml
   - rbac/role.yaml
   - network-policy-chat-video-faststart.yaml
+  - network-policy-studio-program.yaml
   - plugin-databases-secret.yaml

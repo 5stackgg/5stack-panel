@@ -146,6 +146,26 @@ If NVIDIA pods fail to start in the container with a device cgroup error, set
 the default otherwise: the NVIDIA device plugin runs unprivileged and relies
 on it.
 
+## Studio programs
+
+A studio program runs Chromium with its sandbox on, which needs new user, PID
+and network namespaces. The panel installs what that takes on every NVIDIA node
+with the `studio-program-profiles` DaemonSet: a seccomp profile at
+`/var/lib/kubelet/seccomp/profiles/5stack-studio-program.json`, and, where the
+host runs AppArmor, the `5stack-studio-program` profile in `/etc/apparmor.d`.
+
+| Host | What the node needs |
+| --- | --- |
+| Ubuntu 23.10 and later (24.04, 26.04) | Nothing more. These restrict unprivileged user namespaces; the profile carries the `userns` rule that lifts it for the program's browser only. 26.04 also sets `kernel.apparmor_restrict_unprivileged_unconfined=1`, under which the container runtime would stack the profile on `unconfined`; the browser keeps `MAC_OVERRIDE` in its bounding set so it gets the plain profile (it runs as non-root with no new privileges, so its effective capabilities stay empty). |
+| Ubuntu 22.04 (HWE kernels included), Debian 12 | Nothing more. Their AppArmor 3 parser has no `userns` rule, so the profile loads without it. 22.04's HWE kernels have the `apparmor_restrict_unprivileged_userns` sysctl, but 22.04 leaves it off, so the installer keys the rule on the host's parser (`/etc/apparmor.d/abi/4.0`), not on the sysctl. |
+| Fedora, RHEL, Rocky, Alma (SELinux) | Nothing more. No AppArmor profile is used. |
+| AppArmor on but `apparmor_parser` missing | Install `apparmor` (Debian/Ubuntu: `apt install apparmor`). Until then the api won't start a program there. |
+
+If a program fails with "The studio program profiles are not installed", check
+`kubectl -n 5stack get pods -l app=studio-program-profiles -o wide` for that
+node and the `install` container's log. Its last line reports what it found,
+for example `seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=1`.
+
 ## Reporting a problem
 
 Include the output of `gpu-node-check.sh`, `proxmox-gpu-lxc.sh` for a container,

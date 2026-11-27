@@ -1,7 +1,8 @@
 # Traefik matches RegularExpression paths unanchored, so every pattern carries
 # its own ^ and $. The two never match the same URL, and neither matches
-# /snapshot/<id> on the same host. The first segment is a match id: MediaMTX's
-# other paths, voice and cameras, are reached only through the api.
+# /snapshot/<id> on the same host. The first segment is a match id or a
+# studio's program: MediaMTX's other paths, voice and cameras, are reached only
+# through the api.
 #
 # Filter order is load bearing: CORS answers a preflight itself, and a
 # preflight carries no cookie, so it must never reach the forward-auth.
@@ -41,6 +42,58 @@ spec:
         - path:
             type: RegularExpression
             value: ^/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/([^/]+\.[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-auth
+      backendRefs:
+        - name: mediamtx
+          port: 8888
+    # A studio feed over HLS: no login, the path name is the credential.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/feed-[A-Za-z0-9]{40}/([^/]+\.[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+      backendRefs:
+        - name: mediamtx
+          port: 8888
+    # A studio's program over WHEP, behind the same login as a match.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/studio-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/whep(/[^/]+)?$
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-cors
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: mediamtx-auth
+      backendRefs:
+        - name: mediamtx
+          port: 8889
+    # A studio's program over HLS.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: ^/studio-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/([^/]+\.[^/]+)?$
       filters:
         - type: ExtensionRef
           extensionRef:

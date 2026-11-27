@@ -106,6 +106,10 @@ spec:
         - path:
             type: PathPrefix
             value: /file-manager
+        # Studio crew media and the program page's state, both from a browser.
+        - path:
+            type: PathPrefix
+            value: /studios
         - path:
             type: Exact
             value: /5stack/knock

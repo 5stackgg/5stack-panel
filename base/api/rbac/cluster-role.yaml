@@ -26,3 +26,11 @@ rules:
       - create
       - patch
       - delete
+  # The studio program pod proves itself with its projected token; nothing is
+  # bound to its service account.
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create

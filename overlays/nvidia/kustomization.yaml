@@ -6,3 +6,12 @@ resources:
   - nvidia-plugin.yaml
   - game-server-node-connector-nvidia.yaml
   - game-server-node-connector-nvidia-fallback.yaml
+  - studio-program/daemonset.yaml
+
+configMapGenerator:
+  - name: studio-program-profiles
+    namespace: 5stack
+    files:
+      - studio-program/seccomp.json
+      - studio-program/apparmor
+      - studio-program/install.sh

@@ -108,7 +108,8 @@ test_api_allowlist_paths_reach_their_backends() {
 test_paths_outside_the_allowlist_are_404() {
     local path
     for path in / /nope /matchesx /me/x /system/healthz/x /system/logs /v3 /ws /auth/steam /mediamtx /5stack /5stack/knock/x \
-        /v1/graphqlx /v1/metadata /v1/query /v1/version /v1alpha1/config /v2/query /console; do
+        /v1/graphqlx /v1/metadata /v1/query /v1/version /v1alpha1/config /v2/query /console \
+        /studio-pod/x/outputs /studio-pod/x/status /studiosx; do
         call https "$API" "$path"
         expect_code 404
     done

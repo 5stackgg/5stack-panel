@@ -264,6 +264,7 @@ test_the_relay_has_voice_and_cameras_and_no_match_stream() {
 STUDIO=7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
 STUDIO_CAM="studio-cam-$STUDIO-8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e"
 STUDIO_TALK="studio-talk-$STUDIO-8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e"
+STUDIO_BACK="studio-back-$STUDIO-8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e"
 
 test_a_studio_program_is_the_streamers_to_publish_and_the_viewers_to_read() {
     expect client 400 "$PRIVATE" streamer $(whip "studio-$STUDIO") "${SDP[@]}"
@@ -279,7 +280,7 @@ test_a_studio_program_is_the_streamers_to_publish_and_the_viewers_to_read() {
 
 test_studio_cameras_and_talkback_are_the_relays_alone() {
     local path user
-    for path in "$STUDIO_CAM" "$STUDIO_TALK"; do
+    for path in "$STUDIO_CAM" "$STUDIO_TALK" "$STUDIO_BACK"; do
         expect client 400 "$PRIVATE" relay $(whip "$path") "${SDP[@]}"
         expect client 404 "$PRIVATE" relay $(whep "$path") "${SDP[@]}"
         for user in viewer streamer -; do

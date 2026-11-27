@@ -47,9 +47,9 @@ authInternalUsers:
     ips: []
     permissions:
       - action: publish
-        path: "~^(camera-|camera-talk-|voice-|voicecam-|studio-cam-|studio-talk-)"
+        path: "~^(camera-|camera-talk-|voice-|voicecam-|studio-cam-|studio-talk-|studio-back-)"
       - action: read
-        path: "~^(camera-|camera-talk-|voice-|voicecam-|studio-cam-|studio-talk-)"
+        path: "~^(camera-|camera-talk-|voice-|voicecam-|studio-cam-|studio-talk-|studio-back-)"
       - action: read
         path: "~^studio-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
   - user: viewer

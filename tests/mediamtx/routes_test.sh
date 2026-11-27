@@ -63,7 +63,7 @@ test_a_studio_program_reaches_whep_and_hls() {
 
 test_studio_cameras_and_talkback_are_not_routed() {
     local path
-    for path in "studio-cam-$STUDIO-$MATCH" "studio-talk-$STUDIO-$MATCH" "studio-x$STUDIO" "studio-$STUDIO-x"; do
+    for path in "studio-cam-$STUDIO-$MATCH" "studio-talk-$STUDIO-$MATCH" "studio-back-$STUDIO-$MATCH" "studio-x$STUDIO" "studio-$STUDIO-x"; do
         expect_routed none "/$path/whep" "/$path/" "/$path/index.m3u8"
     done
     expect_routed none "/studio-$STUDIO/whip"

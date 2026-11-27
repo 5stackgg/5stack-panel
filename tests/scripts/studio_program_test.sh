@@ -149,6 +149,7 @@ fake_host() {
         case "$part" in
             apparmor) mkdir -p "$HOST/sys/kernel/security/apparmor" ;;
             restricted) mkdir -p "$HOST/proc/sys/kernel" && echo 1 >"$HOST/proc/sys/kernel/apparmor_restrict_unprivileged_userns" ;;
+            unconfined) mkdir -p "$HOST/proc/sys/kernel" && echo 1 >"$HOST/proc/sys/kernel/apparmor_restrict_unprivileged_unconfined" ;;
             parser) printf '#!/bin/sh\necho "$@" >>"%s/parser-calls"\n' "$WORK_DIR" >"$WORK_DIR/bin/apparmor_parser" && chmod +x "$WORK_DIR/bin/apparmor_parser" ;;
         esac
     done
@@ -165,28 +166,36 @@ install_profiles() {
 test_install_reports_no_apparmor_where_the_host_has_none() {
     fake_host
     install_profiles
-    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=absent"
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=absent restrict_userns=absent restrict_unconfined=absent"
     [ ! -e "$HOST/etc/apparmor.d" ] || fail "wrote AppArmor policy to a host without AppArmor"
 }
 
 test_install_reports_apparmor_unavailable_without_a_parser() {
     fake_host apparmor
     install_profiles
-    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=unavailable"
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=unavailable restrict_userns=absent restrict_unconfined=absent"
 }
 
 test_install_loads_the_userns_rule_where_user_namespaces_are_restricted() {
     fake_host apparmor parser restricted
     install_profiles
-    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded"
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=absent"
     cmp -s "$PROGRAM/apparmor" "$HOST/etc/apparmor.d/5stack-studio-program" || fail "the profile was not installed as is"
     assert_eq "$(cat "$WORK_DIR/parser-calls")" "-r -W $HOST/etc/apparmor.d/5stack-studio-program"
+}
+
+# Ubuntu 26.04 restricts unconfined processes too; the api's pod spec
+# answers that with MAC_OVERRIDE, and the message says which host it was.
+test_install_reports_the_unconfined_restriction() {
+    fake_host apparmor parser restricted unconfined
+    install_profiles
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=1 restrict_unconfined=1"
 }
 
 test_install_drops_the_userns_rule_for_older_parsers() {
     fake_host apparmor parser
     install_profiles
-    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded"
+    assert_eq "$(cat "$WORK_DIR/termination")" "seccomp=installed apparmor=loaded restrict_userns=absent restrict_unconfined=absent"
     installed="$(cat "$HOST/etc/apparmor.d/5stack-studio-program")"
     assert_not_contains "$installed" "userns"
     assert_not_contains "$installed" "abi <abi/4.0>"

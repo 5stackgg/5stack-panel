@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs in a privileged init container with the host's PID namespace. Its
 # termination message is what the api reads before it schedules a program on
-# this node: "seccomp=installed apparmor=loaded|unavailable|absent".
+# this node: "seccomp=installed apparmor=loaded|unavailable|absent", then the
+# host's restrict_userns and restrict_unconfined sysctls (or absent).
 # AppArmor 4 hosts that restrict unprivileged user namespaces (Ubuntu 23.10+)
 # need the userns rule; older parsers reject it, and their kernels don't
 # restrict, so it is dropped there.
@@ -32,4 +33,9 @@ if host test -d "$ROOT/sys/kernel/security/apparmor"; then
     fi
 fi
 
-echo "seccomp=installed apparmor=${apparmor}" | tee "${TERMINATION_LOG:-/dev/termination-log}"
+restriction() {
+    host cat "$ROOT/proc/sys/kernel/apparmor_restrict_unprivileged_$1" 2>/dev/null || echo absent
+}
+
+echo "seccomp=installed apparmor=${apparmor} restrict_userns=$(restriction userns) restrict_unconfined=$(restriction unconfined)" |
+    tee "${TERMINATION_LOG:-/dev/termination-log}"

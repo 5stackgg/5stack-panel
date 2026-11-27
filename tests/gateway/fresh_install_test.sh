@@ -94,7 +94,7 @@ test_api_allowlist_paths_reach_their_backends() {
         /game-server-node/script:api /game-server-node/ping/1:api /game-server-node/offline-tool/1:api /avatars/1.png:api /trophies/x:api \
         /branding/logo:api /news/1:api /utility/x:api /custom-pages/x:api /plugins/authorize/x:api \
         /huds/x.zip:api /events/media/1:api /snapshots/1:api /steam-match-history/upload:api /clip-views/1:api \
-        /voice/1:api /notifications/1:api /recaps/1:api /chat/1:api /support-tickets/1:api /sanctions/server/1:api /file-manager/upload:api /mediamtx/stats:api /studios/x/crew/me/status:api \
+        /voice/1:api /notifications/1:api /recaps/1:api /chat/1:api /support-tickets/1:api /discord-activity/token:api /sanctions/server/1:api /file-manager/upload:api /mediamtx/stats:api /studios/x/crew/me/status:api \
         /5stack/knock:api /v1/graphql:hasura; do
         path="${entry%:*}"
         backend="${entry##*:}"

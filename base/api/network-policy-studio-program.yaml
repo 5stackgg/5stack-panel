@@ -32,18 +32,16 @@ spec:
       ports:
         - protocol: TCP
           port: 5585
-    # Traefik holds the node's 80/443 as host ports, so the program page's
-    # origin lands on its pod once the host port is translated.
+    # The pod opens the program page and calls the api through their
+    # in-cluster Services, never the public domain, which may resolve to a
+    # private address such as a reverse proxy on the LAN.
     - to:
-        - namespaceSelector: {}
-          podSelector:
+        - podSelector:
             matchLabels:
-              app.kubernetes.io/name: traefik
+              app: web
       ports:
         - protocol: TCP
-          port: 8000
-        - protocol: TCP
-          port: 8443
+          port: 3000
     # MediaMTX runs on the host network, so it is a node address, which may
     # be private: only its SRT and WebRTC ports.
     - to:

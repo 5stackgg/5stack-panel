@@ -55,7 +55,7 @@ test_the_api_reviews_tokens_and_creates_no_secrets() {
     assert_eq "$(query "print([r for r in $rules if 'serviceaccounts/token' in r['resources']])")" "[]"
 }
 
-test_the_program_pod_reaches_only_dns_the_api_mediamtx_and_public_outputs() {
+test_the_program_pod_reaches_only_dns_web_api_mediamtx_and_public_outputs() {
     render "$TEST_ROOT/base"
     query '
 [policy] = [i for i in items if i["kind"] == "NetworkPolicy" and i["metadata"]["name"] == "studio-program"]
@@ -74,8 +74,12 @@ for rule in spec["egress"]:
             continue
         assert ports <= {("TCP", 443), ("TCP", 1935)}, ports
         assert private <= set(block.get("except", [])), block
-api = [r for r in spec["egress"] if any(p.get("podSelector", {}).get("matchLabels") == {"app": "api"} for p in r["to"])]
-assert [p["port"] for r in api for p in r["ports"]] == [5585], api
+def pods(labels):
+    return [r for r in spec["egress"] if any(p.get("podSelector", {}).get("matchLabels") == labels for p in r["to"])]
+assert [p["port"] for r in pods({"app": "api"}) for p in r["ports"]] == [5585], pods({"app": "api"})
+assert [p["port"] for r in pods({"app": "web"}) for p in r["ports"]] == [3000], pods({"app": "web"})
+selected = [p for r in spec["egress"] for p in r["to"] if "ipBlock" not in p]
+assert all(p.get("podSelector", {}).get("matchLabels") in ({"app": "api"}, {"app": "web"}, {"k8s-app": "kube-dns"}) for p in selected), selected
 dns = [r for r in spec["egress"] if any(p.get("podSelector", {}).get("matchLabels") == {"k8s-app": "kube-dns"} for p in r["to"])]
 assert len(dns) == 1, dns
 ' || fail "the studio-program NetworkPolicy is wrong"

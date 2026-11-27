@@ -390,6 +390,15 @@ urllib.request.urlopen(request, timeout=10)
     expect client 404 "$PUBLIC" - $(hls "$FEED")
 }
 
+# srt_publish_for MATCH SECONDS: the streamer publishing MATCH for SECONDS, past
+# srt's own 20 second cap.
+srt_publish_for() {
+    docker exec "$PREFIX-client" sh -c 'command -v ffmpeg >/dev/null || apk add -q --no-cache ffmpeg >/dev/null' || return 1
+    docker exec "$PREFIX-client" timeout "$(($2 + 10))" ffmpeg -hide_banner -loglevel error -re -f lavfi \
+        -i testsrc=size=160x120:rate=10 -t "$2" -c:v libx264 -preset ultrafast -tune zerolatency -g 10 -f mpegts \
+        "srt://$(node_on "$PRIVATE"):8890?streamid=publish:$1:streamer:$(password MEDIAMTX_STREAMER_PASSWORD | sed 's/+/%2B/g')&pkt_size=1316" >"$WORK_DIR/publisher.log" 2>&1
+}
+
 # delete_path PATH: what the api does when a feed is revoked.
 delete_path() {
     docker exec "$PREFIX-client" python3 -I -c '
@@ -403,10 +412,11 @@ urllib.request.urlopen(request, timeout=10)
 # Revoking a feed deletes its path, and whoever is already watching it, over SRT
 # or HLS, loses the picture then rather than at their next reconnect.
 test_deleting_a_feed_cuts_off_readers_already_watching() {
-    local match=8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e source code reader deleted_at ended_at
+    local match=8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e source code reader publisher deleted_at ended_at
     source="srt://127.0.0.1:8890?streamid=read%3A$match%3Aviewer%3A$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(password MEDIAMTX_VIEWER_PASSWORD)")"
     assert_eq "$(api_post "add/$FEED" "{\"source\": \"$source\", \"sourceOnDemand\": true}")" 200
-    srt client "$PRIVATE" "publish:$match:streamer:$(password MEDIAMTX_STREAMER_PASSWORD)" 18 &
+    srt_publish_for "$match" 40 &
+    publisher=$!
     for _ in $(seq 1 10); do
         [ "$(ready "$match")" = true ] && break
         sleep 1
@@ -422,6 +432,8 @@ test_deleting_a_feed_cuts_off_readers_already_watching() {
     [ "$code" = 200 ] || fail "$FEED never played over HLS: $code"
     sleep 2
     kill -0 "$reader" 2>/dev/null || fail "the SRT reader of $FEED ended before the revoke: $(cat "$WORK_DIR/reader.log")"
+    kill -0 "$publisher" 2>/dev/null || fail "the publisher of $match ended before the revoke, so it can't show the revoke cut the reader"
+    [ "$(ready "$match")" = true ] || fail "$match stopped publishing before the revoke"
     deleted_at="$(date +%s)"
     delete_path "$FEED" || fail "could not delete $FEED"
     wait "$reader"
@@ -429,6 +441,7 @@ test_deleting_a_feed_cuts_off_readers_already_watching() {
     [ $((ended_at - deleted_at)) -lt 8 ] ||
         fail "the SRT reader kept $FEED for $((ended_at - deleted_at))s after its path was deleted"
     expect client 404 "$PUBLIC" - $(hls "$FEED")
+    kill "$publisher" 2>/dev/null
     wait
 }
 
